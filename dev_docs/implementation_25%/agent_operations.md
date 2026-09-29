@@ -1,11 +1,14 @@
 # 1. Production Planning Agent
 
+## NOTE
+The important point is that the Production Planning Agent is not a central controller. It has its own goal, preferences and constraints, and it negotiates with the other autonomous agents. 
+
 ## Owns
 The Production Planning Agent owns the production plan and material requirements derived from customer demand.
 
 ## It is responsible for:
 - MPS (Master Production Schedule)
-- MRP requirements
+- MRP (Material Requirements Planning)
 - Production quantity and priority
 - Required-by dates for materials
 - Identifying material shortages
@@ -22,7 +25,7 @@ The Production Planning Agent owns the production plan and material requirements
 - Request procurement when inventory is insufficient
 - Propose required quantity and required delivery date
 - Evaluate alternative plans
-- Negotiate quantity/date/priorities
+- Negotiate using multiple factors
 - Accept/reject/counter an offer
 - Trigger replanning after a disruption or failed negotiation
 

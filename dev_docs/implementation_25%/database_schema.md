@@ -234,7 +234,6 @@ Stores supplier-specific item information.
 | `id`             | UUID    | PK                             | Supplier item ID       |
 | `supplier_id`    | UUID    | FK → `purchasing.suppliers.id` | Supplier               |
 | `item_id`        | UUID    | FK → `core.items.id`           | Supplied item          |
-| `unit_price`     | DECIMAL | NOT NULL                       | Price per unit         |
 | `lead_time_days` | INTEGER | NOT NULL                       | Expected lead time     |
 | `min_order_qty`  | DECIMAL | NOT NULL                       | Minimum order quantity |
 | `available_qty`  | DECIMAL | NOT NULL                       | Available quantity     |
@@ -347,7 +346,7 @@ Stores the agent's internal operational and negotiation state.
 | `current_task`           | JSONB     |                            | Current task                 |
 | `updated_at`             | TIMESTAMP |                            | Last update                  |
 
-> `preferred_terms`, `reserved_limits`, and `initial_proposal` are MRPII-specific adaptations of negotiation inputs such as preferred/reserved/initial values identified in the automated-negotiation literature. For MRPII, these can represent quantity, delivery date, cost, priority, and other relevant terms.
+> `preferred_terms`, `reserved_limits`, and `initial_proposal` are MRPII-specific adaptations of negotiation inputs such as preferred/reserved/initial values identified in the automated-negotiation literature. For MRPII, these can represent quantity, delivery date, priority, and other relevant terms.
 
 ### Important Design Rule
 
@@ -504,11 +503,9 @@ Stores disruptions/events triggered inside a scenario.
 SUPPLIER_DELAY
 SUDDEN_DEMAND_INCREASE
 SUPPLIER_QUANTITY_REDUCTION
-SUPPLIER_PRICE_INCREASE
 NEW_CUSTOMER_ORDER
 CUSTOMER_DUE_DATE_CHANGE
 INVENTORY_RESERVATION
-PRICE_CHANGE
 MULTI_DISRUPTIONS
 ```
 
