@@ -1,6 +1,6 @@
 ## Overview
 
-The system uses a single PostgreSQL (Neon Severless) database organized into logical schemas.
+The system uses a single PostgreSQL (Neon Serverless) database organized into logical schemas (confirmed by P0-03, `DECISIONS.md`).
 The database acts as the shared system of record, while autonomous agents make
 decisions using domain services/tools.
 
@@ -202,7 +202,9 @@ Stores material requirements calculated from MRP.
 | `mps_plan_id`         | UUID      | FK → `planning.mps_plans.id` | MPS plan                     |
 | `item_id`             | UUID      | FK → `core.items.id`         | Required material            |
 | `gross_requirement`   | DECIMAL   | NOT NULL                     | Total material required      |
-| `available_inventory` | DECIMAL   | NOT NULL                     | Available inventory          |
+| `available_inventory` | DECIMAL   | NOT NULL                     | Available inventory (`available_quantity`, excludes incoming) |
+| `scheduled_receipts`  | DECIMAL   | NOT NULL                     | Committed incoming quantity due by `required_by` (P0-12, P0-13) |
+| `projected_available_quantity` | DECIMAL | NOT NULL           | `available_inventory + scheduled_receipts` (P0-13) |
 | `net_requirement`     | DECIMAL   | NOT NULL                     | Additional quantity required |
 | `required_by`         | TIMESTAMP | NOT NULL                     | Required date                |
 | `status`              | VARCHAR   | NOT NULL                     | Requirement status           |
@@ -369,7 +371,7 @@ Stores negotiation sessions between agents.
 | `objective`          | JSONB     | NOT NULL               | Negotiation objective |
 | `started_at`         | TIMESTAMP | NOT NULL               | Start time            |
 | `deadline`           | TIMESTAMP | NOT NULL               | Negotiation deadline  |
-| `completed_at`       | TIMESTAMP | NOT NULL               | Completion time       |
+| `completed_at`       | TIMESTAMP | NULL until an end status | Completion time (P0-04) |
 
 Session end statuses: `COMMITTED`, `REJECTED`, `ABORTED`, `EXPIRED`, `FAILED`. `FAILED` means no feasible agreement was reached within the round limit (3 supplier rounds); it is distinct from the others.
 
@@ -408,9 +410,9 @@ Stores communication between agents.
 
 ### Initial Message Types
 
+Message types and session statuses are separate (P0-05).
+
 ```text
-INITIATED
-NEGOTIATING
 REQUEST
 OFFER
 COUNTER_OFFER
@@ -418,8 +420,19 @@ ACCEPT
 REJECT
 AGREEMENT_PROPOSED
 COMMIT
-EXPIRED
+```
+
+Session statuses (`negotiation_sessions.status`):
+
+```text
+INITIATED
+NEGOTIATING
+AGREEMENT_PROPOSED
+COMMITTED
+REJECTED
 ABORTED
+EXPIRED
+FAILED
 ```
 
 ---
@@ -436,7 +449,7 @@ Stores offers and counter-offers.
 | `offer_number`   | INTEGER   | NOT NULL                                   | Offer sequence           |
 | `offer_type`     | VARCHAR   | NOT NULL                                   | Offer/counter-offer      |
 | `terms`          | JSONB     | NOT NULL                                      | Multi-factor offer terms |
-| `valid_until`    | TIMESTAMP | NOT NULL                                           | Offer validity           |
+| `valid_until`    | TIMESTAMP | NULL allowed                                       | Offer validity; set from the round/session deadline if timeouts are adopted (P0-06, D9) |
 | `status`         | VARCHAR   |  NOT NULL                                           | Offer status             |
 | `created_at`     | TIMESTAMP |                                            | Creation time            |
 

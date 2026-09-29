@@ -1,3 +1,5 @@
+> **Superseded for the 25% implementation** by `dev_docs/DECISIONS.md`: FastAPI backend, OpenAI Agents SDK, official A2A Python SDK, Ollama `qwen3.5:4b`, Next.js + React frontend, PostgreSQL on Neon (P0-03), SQLAlchemy + Alembic. This table is the original early plan, kept for history.
+
 ### Technological Stack
 
 | Component | Technology |

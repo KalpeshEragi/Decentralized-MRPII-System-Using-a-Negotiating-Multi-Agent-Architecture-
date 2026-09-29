@@ -24,7 +24,7 @@ Flow: Customer Order → BOM/MPS/MRP → Inventory check → Shortage/Requiremen
 | P11 | The design is modular but not over-engineered: no per-function microservices, no multiple databases, and no duplicated negotiation logic inside agents. |
 | P12 | Future agents (Sales, Production, Warehouse, Supplier) are out of scope. |
 
-UNRESOLVED (technology): agent framework (MESA/SPADE/PADE/OpenAI Agents SDK), LLM model/runtime, A2A transport and event bus, frontend (Next.js vs Streamlit/React), Docker/deployment, ORM/migrations, modular-monolith ratification.
+Technology is finalized in `DECISIONS.md` (25% Implementation Decisions; PostgreSQL on Neon per P0-03). Original list, kept for history: agent framework (MESA/SPADE/PADE/OpenAI Agents SDK), LLM model/runtime, A2A transport and event bus, frontend (Next.js vs Streamlit/React), Docker/deployment, ORM/migrations, modular-monolith ratification.
 
 ---
 
@@ -39,7 +39,7 @@ UNRESOLVED (technology): agent framework (MESA/SPADE/PADE/OpenAI Agents SDK), LL
 | Knows | Customer order (product, qty, due date, priority), BOM, MPS, MRP requirements, current plan, inventory responses, procurement responses, negotiation results. It does NOT hold the inventory or supplier databases. |
 | Decides | The outcome it needs, and whether received proposals satisfy its planning objectives. Accept/reject/counter. Whether to replan. |
 | Cannot decide | Modify or reserve inventory. Select or modify suppliers. Create or approve purchase orders. Machine or warehouse operations. Override Inventory or Purchasing constraints. Write arbitrary tables. |
-| Exchanges | → Inventory: REQUEST availability/allocation (item, qty, required-by). → Purchasing: REQUEST procurement (item, qty, required-by, priority). ← OFFER/COUNTER_OFFER/ACCEPT/REJECT from both. |
+| Exchanges | → Inventory: REQUEST availability/allocation (item, qty, required-by). → Purchasing: REQUEST procurement (item, qty, required-by, priority). ← OFFER/COUNTER_OFFER/ACCEPT/REJECT from both. **Superseded by P0-02 (`DECISIONS.md`):** the Inventory Agent detects the shortage and initiates Inventory → Purchasing negotiation; Planning receives the result. |
 
 ### 2.2 Inventory Agent
 
@@ -161,8 +161,8 @@ UNRESOLVED:
 - Who may send AGREEMENT_PROPOSED and COMMIT.
 - Timeout values.
 - Session topology: Planning↔Inventory and Planning↔Purchasing as separate sessions, or multi-party. The context implies pairwise, but this is not stated.
-- Transport (A2A/event bus).
-- Who "initiates" for Inventory↔Purchasing coordination. The supplied context only specifies Planning as initiator.
+- Transport (A2A/event bus). **Resolved in `DECISIONS.md`:** official A2A Python SDK over HTTP, no event bus.
+- Who "initiates" for Inventory↔Purchasing coordination. **Resolved by P0-02:** the Inventory Agent initiates.
 
 ---
 
