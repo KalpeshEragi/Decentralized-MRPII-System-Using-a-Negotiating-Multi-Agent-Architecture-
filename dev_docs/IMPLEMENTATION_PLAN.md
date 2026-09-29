@@ -1,5 +1,7 @@
 # Decentralized MRPII — Implementation Plan
 
+> High-level plan. The phase-by-phase execution plan for the two developers is `dev_docs/implementation_25%/two_developer_roadmap.md`; where they differ, follow the roadmap.
+
 ## Goal
 
 Build and validate the 25% vertical slice of the decentralized MRPII system before expanding to the full architecture.
