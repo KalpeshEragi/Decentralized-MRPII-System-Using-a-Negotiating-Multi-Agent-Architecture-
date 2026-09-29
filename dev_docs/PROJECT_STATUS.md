@@ -18,6 +18,8 @@ Commit `b1f42da` removed the earlier prototype. No application logic exists.
 | Decisions | `DECISIONS.md` includes the Phase 0 decisions P0-01 to P0-17. |
 | Contracts | Drafts of C1 (domain shapes), C5 (error format) and C6 (agent state) in `docs/contracts/`. C2, C4, C7 (Dev 2) not yet drafted. |
 | Coordination | `docs/decisions/phase0_coordination.md` (all items confirmed). |
+| Configuration | `backend/requirements.txt` (pinned direct dependencies), `backend/pytest.ini`, root `.env.example`, `backend/app/core/config.py` (database URL, Ollama URL and model). |
+| Tests | `backend/tests/core/test_config.py` (settings defaults and environment overrides). |
 
 ## Not implemented
 
@@ -25,12 +27,10 @@ Everything in the application:
 
 | Area | State |
 | --- | --- |
-| Backend code | `backend/app/` has the folder scaffold only; its `.py` files are empty placeholders. |
+| Backend code | `backend/app/` has the folder scaffold; apart from `core/config.py` its `.py` files are empty placeholders. The parked Sales/Production/Warehouse agent stubs were removed (P0-01). |
 | MRPII core, negotiation, LLM client, agents, A2A, simulation, audit | None (Phases 1–7). |
 | Database | None. PostgreSQL on Neon is decided (P0-03); no models or migrations exist (Phase 2). |
 | Frontend | None. `frontend/` holds only a README (Phase 2 skeleton). |
-| Tests | No meaningful tests. `backend/tests/mrpii/test_mrp.py` is stale (imports removed modules). |
-| Configuration | `requirements.txt` is the old prototype freeze; `pytest.ini`, `.env.example` and `docker-compose.yml` are empty. |
 
 ## Open decisions
 
