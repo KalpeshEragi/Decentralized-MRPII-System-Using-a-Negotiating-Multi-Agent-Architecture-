@@ -49,8 +49,8 @@ DialogueEntry = { "round": 1..3 | null, "counterpart": "PLANNING" | "INVENTORY" 
 
 `SUPPLIER_INTERFACE` is the supplier communication interface (the tester in the demo), not an agent.
 
-**PENDING P0-09 (with C2):** agent-specific policy items live inside `negotiation_rules.policy`
-(proposed; no extra columns). `max_rounds` = 3 is finalized in `DECISIONS.md`.
+Agent-specific policy items live inside `negotiation_rules.policy`, with no extra columns (P0-09).
+`max_rounds` = 3 is finalized in `DECISIONS.md`.
 
 ## 3. Agent-specific content
 
@@ -156,5 +156,5 @@ All numbers and policy strings above are **illustrative**, not fixture values (D
 
 ## 4. Open items affecting C6
 
-C4 `OfferTerms` field names and message types (Dev 2), P0-09 policy storage, C8 attempt counter,
+C4 `OfferTerms` field names (Dev 2; message types are fixed by P0-05), C8 attempt counter,
 who sends `AGREEMENT_PROPOSED` / `COMMIT` (D9).

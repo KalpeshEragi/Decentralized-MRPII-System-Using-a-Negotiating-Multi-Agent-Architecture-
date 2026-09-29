@@ -39,7 +39,7 @@ Decision log for this roadmap (append entries as decisions are made):
 
 | Date | Decision / change | Made by |
 | --- | --- | --- |
-| | | |
+| 2026-09-30 | Phase 0 coordination items P0-01 to P0-17 confirmed and recorded in `DECISIONS.md` (see `docs/decisions/phase0_coordination.md`). Includes PostgreSQL on Neon, no local container (P0-03) and `master` as integration branch (P0-17). | Dev 1 (confirmed by team) |
 
 ---
 
@@ -203,7 +203,7 @@ All of the following must hold:
 - Integration works (the phase's integration point).
 - Folder READMEs updated and match the code; code, documentation and architecture agree.
 - The other developer has reviewed the work and can explain its purpose, boundaries, contracts and important design decisions (explain-back).
-- Committed and merged to `main`; both developers pulled the new baseline and re-ran the test suite successfully.
+- Committed and merged to `master`; both developers pulled the new baseline and re-ran the test suite successfully.
 - The Section 1 checklist and the decision log are updated.
 
 Do not start a dependent phase before its gate is met.
@@ -216,7 +216,7 @@ Do not start a dependent phase before its gate is met.
 - **Dev 2 drafts:** C2 (schema subset and migration order), C4 (negotiation), C7 (audit).
 - **Can run in parallel:** each drafts their contracts. **Must wait:** implementation, until all contracts are reviewed and D1–D13 are answered.
 - **Coordination point:** a joint review meeting per contract.
-- **Integration point:** the contracts land together on `main`.
+- **Integration point:** the contracts land together on `master`.
 - **Tests:** contract files parse. The stale test is removed and an empty suite runs.
 - **Cross-review:** each developer reads and explains back the other's contracts.
 - **Documentation:** `docs/contracts/`, root and backend READMEs, folder README template.
@@ -231,7 +231,7 @@ Do not start a dependent phase before its gate is met.
 - **Dev 2:** `negotiation/` pure protocol (envelope validation, message-type and sequence checks, state machine including `FAILED`, 3-round limit); `llm/` (configurable client, no-reasoning mode, structured-output parsing and validation, tested with a fake model).
 - **Can run in parallel:** all of it (different folders). **Must wait:** nothing.
 - **Coordination point:** `schemas/` has two files, one per developer (`schemas/domain.py`, `schemas/negotiation.py`). Neither edits the other's.
-- **Integration point:** none needed this phase; both merge to `main`.
+- **Integration point:** none needed this phase; both merge to `master`.
 - **Tests, Dev 1:** exact-number tests (gross, net, shortage, dates, validator failures). **Tests, Dev 2:** state-machine transitions, round-limit `FAILED`, invalid messages rejected, LLM output validation with a fake model.
 - **Cross-review:** each reads the other's code, writes a short summary of it, and runs its tests. The reviewer of the negotiation engine specifically checks that it contains no business decisions.
 - **Documentation:** READMEs for `mrpii/`, `schemas/`, `data/`, `negotiation/`, `llm/`.
@@ -381,14 +381,14 @@ Only contracts required by the architecture. Assignments are the plan from the r
 
 ## 10. Git and integration strategy
 
-- **Branches:** protected `main`; short-lived branches `dev1/phase-N-topic` and `dev2/phase-N-topic`, rebased on `main` before a PR.
+- **Branches:** protected `master` (not renamed to `main`, P0-17); short-lived branches `dev1/phase-N-topic` and `dev2/phase-N-topic`, rebased on `master` before a PR.
 - **Parallel case:** both branch from the phase baseline, work independently with tests, open PRs, and merge in either order after review. The second developer rebases and re-runs tests.
 - **Dependent case:** the first developer implements the foundation, tests, merges; the second developer pulls and then builds the dependent work. Use this pattern **only** where a real dependency exists (paired step 0 items, migrations 001 then 002, Phase 5 contract alignment).
 - **Reviews:** every PR is reviewed by the other developer, including a local test run. A `/code-review` pass may assist but does not replace human review.
-- **Baseline:** after both merges and a full test run on `main`, tag `phase-N`.
+- **Baseline:** after both merges and a full test run on `master`, tag `phase-N`.
 - **Coordination files** (edit only via small, quick PRs): `backend/app/main.py` (router registration), `requirements.txt`, Alembic `versions/`, `CLAUDE.md`, `DECISIONS.md`, this roadmap.
 - **Claude Code sessions:** each session edits only files in its assigned work package. Anything else is a request to the other developer.
-- **Git workflow specifics (protected branch, required reviews, who is Dev 1 / Dev 2):** UNRESOLVED (D12).
+- **Git workflow specifics:** protected shared `master`, merge by PR reviewed by the other developer (P0-17). Who is Dev 2 is still to be recorded (D12).
 
 ---
 
@@ -428,7 +428,7 @@ Both developers work through these together. Nothing is implemented until it is 
 1. **Joint read-through:** both read `CLAUDE.md`, `DECISIONS.md`, `system_spec.md`, `scenarios.md`, `agent_operations.md` and `database_schema.md`, then each explains the end-to-end flow back to the other.
 2. **Answer D1–D13** (Section 14) and record them in `DECISIONS.md`. D8 (what approval executes), D9 (who sends AGREEMENT_PROPOSED/COMMIT, timeouts), D12 (Git workflow and PR rules) and D1 (the X1 fixture spec) are the most important.
 3. **Contracts:** Dev 1 drafts C1, C6 and the error format; Dev 2 drafts C2, C4 and C7; each reviews the other's. C3, C5, C8, C9 are assigned drafting points as scheduled in Section 8.
-4. **Baseline repo (small and shared, taking turns: one drives, the other reviews):** remove the stale test, pin dependencies (adding SQLAlchemy, Alembic, a Postgres driver and the A2A SDK as agreed), add `pytest.ini`, `.env.example` and `docker-compose.yml` for Postgres (per D4), and `core/config.py` (database URL, Ollama URL and model name configurable).
+4. **Baseline repo (small and shared, taking turns: one drives, the other reviews):** remove the stale test, pin dependencies (adding SQLAlchemy, Alembic, a Postgres driver and the A2A SDK as agreed), add `pytest.ini` and `.env.example` (no `docker-compose.yml` database: Postgres is on Neon, P0-03), and `core/config.py` (database URL, Ollama URL and model name configurable).
 5. **Documentation and workflow:** write the folder README template, agree branch/PR/tag conventions, and agree the Claude Code rule that a session edits only files in its assigned work package.
 
 ---
@@ -440,7 +440,7 @@ Both developers work through these together. Nothing is implemented until it is 
 | D1 | Seed data: SmartPhone X1 / Display Assemblies data matching `scenarios.md`. Who defines the exact BOM and quantities? | The team writes one small fixture spec in `docs/`, agreed in Phase 0. |
 | D2 | BOM depth | Single-level |
 | D3 | Basic capacity check in scope (scenarios 3 and 7 mention capacity) | Keep a minimal check |
-| D4 | Postgres deployment | Docker Compose |
+| D4 | Postgres deployment | **Resolved (P0-03):** PostgreSQL on Neon; no Docker Compose database |
 | D5 | A2A layout | Three A2A endpoints in one FastAPI app, not three processes |
 | D6 | Folder documentation file name | `README.md` in every folder |
 | D7 | Alembic scope | The 25% tables only |
@@ -448,7 +448,7 @@ Both developers work through these together. Nothing is implemented until it is 
 | D9 | Who sends AGREEMENT_PROPOSED / COMMIT, and round/attempt timeouts | Propose in the Phase 0 negotiation contract, then confirm |
 | D10 | How scenario state resets between demo runs | Re-seed function |
 | D11 | Frontend tooling: package manager; whether to add browser E2E tests | Vitest for units, plus an API-level E2E test in pytest; browser E2E only if wanted |
-| D12 | Git workflow: protected `main`, PR review rules, who is Dev 1 and Dev 2 | PR-reviewed protected `main` |
+| D12 | Git workflow: protected branch, PR review rules, who is Dev 1 and Dev 2 | **Partly resolved (P0-17):** PR-reviewed protected `master`. Dev 2 identity still to record |
 | D13 | Whether the A2A SDK works cleanly with the OpenAI Agents SDK and Ollama's no-reasoning mode | Verify in the Phase 2 spike, not by assumption |
 
 Other items still open from the project documents: how a simulation event applies its change to owning tables (directly or through the owning service), and the attempt-counter owner (Phase 5, C8).

@@ -20,8 +20,8 @@ Items marked **PENDING** must not be guessed during implementation. See
 | --- | --- |
 | IDs | UUID strings. |
 | Quantities | Decimal, never float. Serialized in JSON as numbers. Always `>= 0`. The unit is the item's `unit`. |
-| Dates | ISO-8601 `YYYY-MM-DD`. The MRP core plans in **day buckets**. **PENDING P0-16**: the database stores `TIMESTAMP` for `planned_start`, `planned_end`, `required_by`; mapping to be agreed with C2. |
-| Priority | Integer. **PENDING P0-15**: direction and range (proposed: `1` = highest, range 1–5). |
+| Dates | ISO-8601 `YYYY-MM-DD`. The MRP core plans in **day buckets** (P0-16). The database column mapping (`DATE` or midnight UTC `TIMESTAMP`) is chosen in C2. |
+| Priority | Integer 1–5, `1` = highest (P0-15). |
 | Cost / price | Not present in any shape. Out of scope for 25%. |
 | Determinism | Same inputs → same outputs. No LLM, clock or database access inside the MRPII core; "today" is passed in as `planning_date`. |
 
@@ -113,8 +113,8 @@ Incoming material that is committed but not yet on hand. Used only for projected
 }
 ```
 
-**PENDING P0-12**: where scheduled receipts come from and are stored (proposed: committed
-negotiation agreements; purchase orders are out of scope).
+Source (P0-12): committed negotiation agreements (agreed quantity and delivery date);
+`source_ref` is the agreement ID. Purchase orders are out of scope. The read path is defined in C2/C4.
 
 ### 3.6 MPSEntry
 
@@ -133,8 +133,8 @@ negotiation agreements; purchase orders are out of scope).
 Rules:
 - One entry per order line (order traceability via `order_id`). Entries are not merged across orders.
 - `planned_end <= order.due_date`; `priority` is copied from the order.
-- `planned_start = planned_end - production lead time`. **PENDING P0-11**: the production lead
-  time has no field in the current schema.
+- `planned_start = planned_end - production lead time`. The production lead time is a per-product
+  value (P0-11); its storage is chosen in C2 and its value comes from the D1 fixture (**PENDING D1**).
 
 ### 3.7 MaterialRequirement (one MRP row)
 
@@ -169,8 +169,8 @@ in ascending `required_by`, then priority, then `order_number`; each entry consu
 and projected quantity before the next. **Proposed**, to be confirmed in review.
 
 `available_quantity` here is the per-row value the MRP used (maps to the schema column
-`planning.mrp_requirements.available_inventory`). **PENDING P0-13**: the schema has no columns
-for `scheduled_receipts` / `projected_available_quantity`.
+`planning.mrp_requirements.available_inventory`). `scheduled_receipts` and
+`projected_available_quantity` map to the columns of the same name (P0-13).
 
 ### 3.8 Shortage
 
@@ -196,7 +196,8 @@ Delivery date / lead time come from supplier data and offers (C3, C4).
 
 ### 3.9 CapacityCheck (minimal)
 
-**PENDING D3 and P0-14** (whether in scope, and where capacity data comes from).
+**PENDING D3** (whether the minimal check is in scope). If it is, `capacity_per_day` is one value per
+product from the fixture/config, with no `production.*` tables (P0-14).
 
 ```json
 {
@@ -266,5 +267,6 @@ The real SmartPhone X1 fixture is **PENDING D1 / P0-10**.
 
 ## 5. Open items affecting C1
 
-P0-10 (D1 fixture), P0-11 (production lead time), P0-12 (scheduled receipt source),
-P0-13 (MRP columns), P0-14 (capacity data, D3), P0-15 (priority scale), P0-16 (date vs timestamp), D2 (BOM depth).
+Still open: D1 fixture values (P0-10), D2 (BOM depth), D3 (capacity check in scope),
+C2 storage choices for P0-11 and P0-16, C8 approval states.
+Confirmed and applied here: P0-11, P0-12, P0-13, P0-14, P0-15, P0-16 (see `dev_docs/DECISIONS.md`).

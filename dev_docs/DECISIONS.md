@@ -63,7 +63,7 @@ The 25% milestone is a vertical slice, not 25% of every module.
 - **Failure:** A session can end `FAILED` (no feasible agreement after multiple rounds). `FAILED` is a distinct end status, not `REJECTED`, `ABORTED` or `EXPIRED`. The shortage stays unresolved, the plan is not updated, and the failure is recorded and visible in the dashboard/decision log.
 - **Human approval:** After deterministic validation, the tester approves (execute/commit) or rejects (reconsider/replan) the plan. The human is not the planner or negotiator.
 - **Purchase orders:** `purchase_orders` and `purchase_order_items` are out of scope. The negotiation agreement is the purchasing outcome. Approval and activity are recorded through agreement/audit records.
-- **Parked code:** Sales, Production and Warehouse agent stubs stay in the repo, unused and untouched.
+- **Parked code:** Sales, Production and Warehouse agent stubs are removed from the repository and are not rebuilt in the 25% (P0-01).
 - **A2A:** Use the official A2A Python SDK with HTTP endpoints for the core agents. No fake/minimal A2A-compatible layer, no event bus.
 - **Shortage flow:** The Inventory Agent detects a shortage and initiates procurement negotiation with the Purchasing Agent over A2A, sending the shortage/procurement context. Purchasing handles supplier interaction and negotiation. Planning receives the resulting agreement or `FAILED` result and uses it for replanning/plan evaluation.
 - **Supplier UI:** Structured supplier-response form with quantity, delivery date/lead time and an optional message. **No price/cost field (see Cost/price above).** The tester acts only as the supplier, one response per round. Purchasing alone decides ACCEPT/REJECT/COUNTER. The tester does not end the negotiation.
@@ -71,6 +71,27 @@ The 25% milestone is a vertical slice, not 25% of every module.
 - **Human rejection:** Rejecting a plan automatically triggers Planning to replan, and the new plan returns to human approval. Max 2 planning attempts (each with at most one negotiation session of ≤3 rounds). If attempt 2 yields no feasible plan/agreement, automatic replanning stops and human intervention is required. No infinite loops.
 - **Available quantity:** `available_quantity = on_hand − reserved − safety_stock` (floored at 0). Incoming/scheduled receipts are not part of it. MRP netting adds them separately (`projected_available_quantity`).
 - **Scenarios:** `implementation_25%/scenarios.md` is the unmodified source of truth for the seven finalized scenarios. **Scenario 5 (Supplier Price Increase) is future scope and out of scope for the 25% implementation**: no supplier price-increase behavior and no cost/price fields or negotiation logic to support it. Scenarios 1, 2, 3, 4, 6 and 7 are implemented. For Scenario 4, the "lead time/cost" constraint is implemented as lead time only, with no cost behavior.
+
+### Phase 0 Decisions (confirmed 2026-09-30)
+Full issue text and history: `docs/decisions/phase0_coordination.md`.
+
+- **P0-01 Parked stubs:** the empty Sales/Production/Warehouse agent files are deleted.
+- **P0-02 Negotiation initiation:** the Inventory Agent detects the shortage and initiates Inventory → Purchasing negotiation over A2A. Planning receives the negotiated result (agreement or `FAILED`). Planning's MRP net requirement and Inventory's shortage detection both come from the same deterministic services. This supersedes the Planning → Purchasing REQUEST in `system_spec.md` §2.
+- **P0-03 Database hosting:** PostgreSQL hosted on **Neon** (serverless), as in `database_schema.md`. No local Postgres container. The backend connects through the configurable `DATABASE_URL`. How tests get an isolated database is decided in Phase 2 (C2).
+- **P0-04:** `negotiation_sessions.completed_at` is nullable; set only when the session reaches an end status.
+- **P0-05 Message types vs session statuses:** message types are `REQUEST`, `OFFER`, `COUNTER_OFFER`, `ACCEPT`, `REJECT`, `AGREEMENT_PROPOSED`, `COMMIT`. Session statuses are `INITIATED`, `NEGOTIATING`, `AGREEMENT_PROPOSED`, `COMMITTED`, `REJECTED`, `ABORTED`, `EXPIRED`, `FAILED`.
+- **P0-06:** `negotiation_offers.valid_until` is nullable; if timeouts are adopted (D9) it is set from the round/session deadline.
+- **P0-07:** `PROJECT_STATUS.md` describes the actual repository state.
+- **P0-08:** `CLAUDE.md` paths point at `dev_docs/`.
+- **P0-09 Agent policy storage:** per-agent policy items are stored in `agent_state.negotiation_rules.policy` (JSONB); no extra columns.
+- **P0-10 Fixture data (D1):** one SmartPhone X1 fixture spec is written jointly in `docs/`, with values chosen so scenarios 1, 2, 3, 4, 6, 7 yield their expected outcomes. No fixture values are invented before it exists.
+- **P0-11 Production lead time:** a per-product production lead time is needed to derive MPS start and component required-by dates. Storage (`core.items` column or fixture/config value) is chosen in C2.
+- **P0-12 Scheduled receipts:** committed negotiation agreements (agreed quantity and delivery date) are the scheduled receipts used for projected availability. Purchase orders stay out of scope. Read path defined in C2/C4.
+- **P0-13 MRP columns:** `planning.mrp_requirements` gains `scheduled_receipts` and `projected_available_quantity`; `available_inventory` holds `available_quantity`.
+- **P0-14 Capacity data:** if D3 keeps a minimal capacity check, capacity is one `capacity_per_day` value per product in the fixture/config. No `production.*` tables.
+- **P0-15 Priority scale:** integer 1–5, `1` = highest.
+- **P0-16 Dates:** the domain plans in whole days (`DATE`). Column mapping (`DATE` columns or midnight UTC timestamps) is chosen in C2.
+- **P0-17 Git:** `master` is the protected shared integration branch (not renamed to `main`). Work happens on short-lived `dev1/phase-N-topic` and `dev2/phase-N-topic` branches from the `master` baseline, merged by reviewed PR.
 
 ---
 
