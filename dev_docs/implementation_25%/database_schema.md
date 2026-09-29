@@ -234,7 +234,6 @@ Stores supplier-specific item information.
 | `id`             | UUID    | PK                             | Supplier item ID       |
 | `supplier_id`    | UUID    | FK → `purchasing.suppliers.id` | Supplier               |
 | `item_id`        | UUID    | FK → `core.items.id`           | Supplied item          |
-| `unit_price`     | DECIMAL | NOT NULL                       | Price per unit         |
 | `lead_time_days` | INTEGER | NOT NULL                       | Expected lead time     |
 | `min_order_qty`  | DECIMAL | NOT NULL                       | Minimum order quantity |
 | `available_qty`  | DECIMAL | NOT NULL                       | Available quantity     |
@@ -347,7 +346,7 @@ Stores the agent's internal operational and negotiation state.
 | `current_task`           | JSONB     |                            | Current task                 |
 | `updated_at`             | TIMESTAMP |                            | Last update                  |
 
-> `preferred_terms`, `reserved_limits`, and `initial_proposal` are MRPII-specific adaptations of negotiation inputs such as preferred/reserved/initial values identified in the automated-negotiation literature. For MRPII, these can represent quantity, delivery date, cost, priority, and other relevant terms.
+> `preferred_terms`, `reserved_limits`, and `initial_proposal` are MRPII-specific adaptations of negotiation inputs such as preferred/reserved/initial values identified in the automated-negotiation literature. For MRPII, these can represent quantity, delivery date, priority, and other relevant terms.
 
 ### Important Design Rule
 
@@ -371,6 +370,8 @@ Stores negotiation sessions between agents.
 | `started_at`         | TIMESTAMP | NOT NULL               | Start time            |
 | `deadline`           | TIMESTAMP | NOT NULL               | Negotiation deadline  |
 | `completed_at`       | TIMESTAMP | NOT NULL               | Completion time       |
+
+Session end statuses: `COMMITTED`, `REJECTED`, `ABORTED`, `EXPIRED`, `FAILED`. `FAILED` means no feasible agreement was reached within the round limit (3 supplier rounds); it is distinct from the others.
 
 ---
 
@@ -445,7 +446,6 @@ Stores offers and counter-offers.
 {
   "quantity": 80,
   "delivery_date": "2026-10-05",
-  "unit_cost": 105,
   "priority": 1
 }
 ```
