@@ -131,7 +131,7 @@ The Inventory Agent owns material availability and allocation decisions.
 - Change production plans
 - Run MRP
 - Choose suppliers
-- Negotiate supplier prices
+- Negotiate supplier terms
 - Create purchase orders
 - Directly change production schedules
 - Ignore safety-stock policies imposed by its own constraints
@@ -211,7 +211,7 @@ The Purchasing Agent owns procurement decisions and supplier negotiation.
 - Supplier offer comparison
 - Procurement quantity
 - Expected delivery
-- Cost/lead-time trade-offs
+- Quantity/delivery/lead-time trade-offs
 - Negotiating with suppliers
 
 ### NOTE:
@@ -221,7 +221,7 @@ For your 25% demo, the "supplier" can initially be a simulated supplier service/
 - Receive procurement requirements
 - Search available suppliers
 - Compare supplier offers
-- Evaluate price, quantity and lead time
+- Evaluate quantity, delivery date and lead time
 - Generate procurement proposals
 - Negotiate quantity and delivery date
 - Accept/reject/counter supplier offers
@@ -247,7 +247,6 @@ Procurement Requirement
 
 Supplier information
 ├── Supplier
-├── Price
 ├── Lead time
 ├── Minimum order quantity
 ├── Available quantity
@@ -265,12 +264,10 @@ Requirement:
 100 units by Oct 5
 
 Supplier A:
-Price = ₹100
 Lead time = 3 days
 Qty = 100
 
 Supplier B:
-Price = ₹92
 Lead time = 7 days
 Qty = 100
 
@@ -284,11 +281,10 @@ PurchasingAgent
 ├── procurement_strategy
 ├── preferred_terms
 ├── reserved_limits
-├── cost_preferences
 ├── delivery_preferences
 │
 ├── supplier_evaluation_policy
-├── acceptable_price_range
+├── acceptable_quantity_range
 ├── latest_acceptable_delivery
 │
 ├── current_task
@@ -308,7 +304,6 @@ PurchasingAgent
     "delivery_date": "2026-10-05"
   },
   "reserved_limits": {
-    "max_price": 110,
     "latest_delivery": "2026-10-07"
   }
 }

@@ -371,6 +371,8 @@ Stores negotiation sessions between agents.
 | `deadline`           | TIMESTAMP | NOT NULL               | Negotiation deadline  |
 | `completed_at`       | TIMESTAMP | NOT NULL               | Completion time       |
 
+Session end statuses: `COMMITTED`, `REJECTED`, `ABORTED`, `EXPIRED`, `FAILED`. `FAILED` means no feasible agreement was reached within the round limit (3 supplier rounds); it is distinct from the others.
+
 ---
 
 ## `negotiation.negotiation_participants`
@@ -444,7 +446,6 @@ Stores offers and counter-offers.
 {
   "quantity": 80,
   "delivery_date": "2026-10-05",
-  "unit_cost": 105,
   "priority": 1
 }
 ```
