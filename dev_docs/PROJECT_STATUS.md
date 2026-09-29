@@ -19,7 +19,7 @@ Commit `b1f42da` removed the earlier prototype. No application logic exists.
 | Contracts | Drafts of C1 (domain shapes), C5 (error format) and C6 (agent state) in `docs/contracts/`. C2, C4, C7 (Dev 2) not yet drafted. |
 | Coordination | `docs/decisions/phase0_coordination.md` (all items confirmed). |
 | Configuration | `backend/requirements.txt` (pinned direct dependencies), `backend/pytest.ini`, root `.env.example`, `backend/app/core/config.py` (database URL, Ollama URL and model). |
-| Tests | `backend/tests/core/test_config.py` (settings defaults and environment overrides). |
+| Tests | `backend/tests/core/test_config.py` (settings), `backend/tests/contracts/test_contract_examples.py` (contract JSON examples parse, no cost/price keys). |
 
 ## Not implemented
 

@@ -9,7 +9,7 @@ logged in the roadmap decision log (roadmap Section 1).
 
 Status values: `PROPOSED` → `CONFIRMED` (both developers) → `APPLIED` (change merged).
 
-**2026-09-30:** all items P0-01 to P0-17 were confirmed as proposed and recorded in `dev_docs/DECISIONS.md`
+**2026-09-30:** all items P0-01 to P0-17 were confirmed (as proposed, except P0-03 below) and recorded in `dev_docs/DECISIONS.md`
 ("Phase 0 Decisions"). P0-03 was first confirmed as local Docker Compose PostgreSQL, then changed the same day to **Neon PostgreSQL** (final).
 They are applied on branch `dev1/phase-0-contracts` and become `APPLIED` when that branch is merged.
 Sub-choices still left to C2 (Dev 2): P0-11 storage of the production lead time, P0-16 column mapping for dates.

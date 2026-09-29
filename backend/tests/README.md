@@ -10,6 +10,7 @@ Subfolders mirror `backend/app/`. Each developer writes tests for what they impl
 | Folder | Contents |
 | --- | --- |
 | `core/` | `test_config.py`: settings defaults and environment overrides. |
+| `contracts/` | `test_contract_examples.py`: every JSON example in `docs/contracts/` parses and has no cost/price key (Phase 0 check). |
 | `mrpii/`, `agents/`, `negotiation/`, `simulation/` | Empty; filled in their phases. |
 
 Tests of deterministic logic assert exact values. LLM behaviour is tested with a fake model, never a live one,
