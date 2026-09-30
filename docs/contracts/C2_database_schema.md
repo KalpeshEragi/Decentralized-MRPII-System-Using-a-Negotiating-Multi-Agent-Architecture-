@@ -2,11 +2,11 @@
 
 ## Status
 
-**Status:** DRAFT
+**Status:** CONFIRMED
 
-**Owner:** Dev 2
+**Owner:** Project developer
 
-**Reviewed By:** Pending (Dev 1)
+**Reviewed:** 2026-09-30 (see Review)
 
 ## Purpose
 
@@ -20,7 +20,7 @@ and the order in which their migrations are created and applied.
 - Database conventions shared by all tables.
 - Migration ownership and order.
 
-**Implemented in (Phase 2):** `backend/app/models/` (SQLAlchemy ORM), `backend/alembic/` (migrations 001 and 002), seed loader in `backend/app/data/`.
+**Implemented in (Phase 2, not yet run against a live database):** `backend/app/models/` (SQLAlchemy ORM), `backend/alembic/` (migrations 001 and 002), seed loader in `backend/app/data/`.
 
 ## Does Not Define
 
@@ -50,7 +50,7 @@ Items marked **PENDING** must not be guessed during implementation. See `docs/DE
 | Access | Agents never access tables directly; all reads and writes go through services. | `system_spec.md` §6, roadmap §6 |
 | Ownership | Table ownership per `system_spec.md` §6 (Database Ownership). | `system_spec.md` §6 |
 
-### 2. Migration 001 — Dev 2
+### 2. Migration 001
 
 Tables, as defined in `database_schema.md`:
 
@@ -70,7 +70,7 @@ Also delivered with 001: the seed loader for the SmartPhone X1 fixture (**PENDIN
 
 `agent.agent_state` has no extra policy columns. Policy items live in `negotiation_rules.policy` (P0-09).
 
-### 3. Migration 002 — Dev 1
+### 3. Migration 002
 
 Tables, as defined in `database_schema.md`:
 
@@ -95,22 +95,28 @@ Tables, as defined in `database_schema.md`:
 
 ### 5. Migration Order
 
-1. Migration 001 is created and merged first (Dev 2).
-2. Migration 002 is created after 001 is merged (Dev 1), because negotiation and audit tables reference `agent.agents`. Dev 1 may write the ORM models before that.
-3. Only one migration is created at a time, by the developer whose tables it holds.
+1. Migration 001 is created and applied first.
+2. Migration 002 is created after 001, because negotiation and audit tables reference `agent.agents`.
+3. Only one migration is created at a time.
 4. Integration check: both migrations apply to a clean database and the seed loads.
 
 Source: roadmap Phase 2.
 
 ### 6. Open Items
 
-- **PENDING D7:** Alembic covers the 25% tables only (roadmap recommendation, not yet confirmed).
-- **PENDING P0-11:** storage of the per-product production lead time (`core.items` column or fixture/config value).
-- **PENDING P0-16:** mapping of day-bucket dates to columns (`DATE` or midnight UTC `TIMESTAMP`) for `mps_plans.planned_start`, `mps_plans.planned_end`, `mrp_requirements.required_by`, `purchase_requisitions.required_by`.
-- **PENDING P0-12:** read path from committed `negotiation_agreements` to scheduled receipts (with C4).
-- **PENDING P0-03:** how tests get an isolated database (Phase 2).
-- **PENDING P0-10:** whether inventory positions are per warehouse or aggregated (affects seed and queries).
+- **Decided (P2-01):** Alembic covers the 25% tables only (D7); production lead time and `capacity_per_day` are fixture/config values (P0-11, P0-14); `planned_start`, `planned_end`, `mrp_requirements.required_by` and `purchase_requisitions.required_by` are `DATE` (P0-16); inventory is aggregated per item (P0-10); committed agreements are read as scheduled receipts (P0-12); DB tests use `TEST_DATABASE_URL`.
 - **PENDING C8:** where approval state and the planning-attempt counter are stored.
 - **To confirm:** which values each `VARCHAR` status column holds (for example C1 `OrderStatus`, `PlanStatus`, `RequirementStatus`), and the values of `negotiation_sessions.negotiation_type` and `negotiation_participants.role` (C4).
-- **Discrepancy to resolve:** `negotiation_sessions.deadline` is `NOT NULL`, but timeout values are still open (D9). Compare P0-06.
-- **Discrepancy to resolve:** `negotiation_messages.sender_agent_id` / `receiver_agent_id` reference `agent.agents`, but the supplier communication interface is not an agent. How supplier-side messages are stored is not defined (see C4).
+- **Resolved (P1-04):** `negotiation_sessions.deadline` stays `NOT NULL` and holds the shortage's required-by date (validation only, no expiry); `negotiation_offers.valid_until` stays `NULL`.
+- **Decided (P2-01):** `negotiation_messages.sender_agent_id` / `receiver_agent_id` are nullable and `sender_type` / `receiver_type` are added, because the supplier interface and the approval workflow are not agents. This is a deliberate difference from `database_schema.md`, which still shows the two columns as required foreign keys. Supplier rounds belong to the same Inventory-initiated session (C4 §6).
+
+## Review
+
+**Result: CONFIRMED.** The table subset, excluded tables, conventions and migration order (001, then 002)
+agree with `database_schema.md`, `dev_docs/DECISIONS.md` and the roadmap (Phase 2). Neon (P0-03) and no cost/price
+columns are stated. The open items in §6 are listed explicitly and stay **PENDING**; they must be answered before the
+migration that needs them (Phase 2), not guessed:
+
+- P0-11 and P0-16 storage choices are needed by migration 001.
+- `negotiation_sessions.deadline` is settled by P1-04 (required-by date); supplier-message storage (P1-07) is still needed by migration 002.
+- Test-database isolation on Neon (P0-03) is needed before DB integration tests (Phase 2).
