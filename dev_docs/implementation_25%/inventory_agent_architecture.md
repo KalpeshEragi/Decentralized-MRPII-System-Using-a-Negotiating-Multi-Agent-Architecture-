@@ -1,7 +1,7 @@
 # 1. Purpose
-Determines how much available inventory can be allocated to production requirements while respecting inventory constraints and safety-stock policies.
+Determines how much available inventory can be allocated to production requirements while respecting inventory constraints and safety-stock policies, and starts procurement negotiation when stock is insufficient.
 ## Main responsibility:
-decide how much material can be provided, when it can be provided, and what allocation is feasible.
+decide how much material can be provided, when it can be provided, what allocation is feasible, and detect shortages.
 
 # 2. Works With
 - Production Planning Agent
@@ -14,25 +14,25 @@ The agent does not directly control production plans, suppliers, machines, or Po
 
 # 3. Core Flow
 ```text
-Material Requirement
+Material Requirement (from Production Planning)
       ↓
 Inventory Agent
       ↓
 Inventory Service
       ↓
-Available Quantity / Constraints
+Available Quantity = on_hand − reserved − safety_stock
       ↓
-Production Planning Agent
+Enough?  ── yes ──► allocation proposal to Production Planning
+      │
+      no (shortage)
       ↓
-Multi-Factor Negotiation
+Inventory → Purchasing negotiation (REQUEST with shortage context)
       ↓
-Feasible Material Allocation
+Agreement (AGREEMENT_PROPOSED) or FAILED → result to Production Planning
       ↓
-Simulation Disruption
+After human approval: COMMIT → reserve through the Inventory Service
       ↓
-Re-evaluate + Reallocate + Renegotiate
-      ↓
-Revised Material Allocation
+Simulation Disruption → Re-evaluate + Reallocate → Revised Material Allocation
 ```
 
 # 4 . Tools / Services
@@ -45,13 +45,13 @@ propose_allocation(...)
 reserve_inventory(...)
 release_inventory(...)
 start_negotiation(...)
-send_offer(...)
-send_counter_offer(...)
 validate_allocation(...)
 apply_allocation(...)
 
+How Planning's allocation request reaches this agent (plain service request or negotiation session) is open: P1-06 in `docs/DECISIONS.md`.
+
 # 5. Separation
-- Agent: inventory decisions, goals, constraints, allocation policy, negotiation strategy
+- Agent: inventory decisions, goals, constraints, allocation policy, shortage detection, negotiation initiation
 - Inventory Service: deterministic availability and allocation calculations
 - Database: repository/domain layer
 - Negotiation Engine: protocol, messages, session state
@@ -62,26 +62,26 @@ Evaluate allocation alternatives using a combination of:
 - Available inventory
 - Safety-stock constraints
 - Existing reservations
-- Order priority
-- Required delivery date
+- Production priority
+- Required date
 - Competing material requirements
-- Expected incoming supply
+- Expected incoming supply (projected availability only; never counted as currently available)
 ## NOTE:
-The decision must not depend on one factor alone.
+The decision must not depend on one factor alone. Cost/price is out of scope for the 25% milestone.
 
 # 7. Negotiation Role
-The Inventory Agent usually responds when the Production Planning Agent requests material allocation.
+The Inventory Agent detects the shortage and initiates procurement negotiation with the Purchasing Agent (P0-02).
 ```text
-Production Planning
-      ↓ REQUEST
 Inventory Agent
-      ↓ OFFER / COUNTER-OFFER
-Production Planning
+      ↓ REQUEST (shortage: item, quantity, required date, priority, inventory impact)
+Purchasing Agent ◄──► supplier form (≤ 3 rounds)
       ↓
-Accept / Counter / Reject
+AGREEMENT_PROPOSED ──► Inventory Agent        or   session REJECTED / FAILED
+      ↓
+Result (agreement or FAILED) ──► Production Planning
 ```
 ## NOTE:
-If the requested quantity cannot be provided, the agent can propose a lower feasible allocation and communicate the remaining requirement so that the Purchasing Agent can handle procurement.
+The agent never selects suppliers or negotiates supplier terms; Purchasing does. Reservation happens only after `COMMIT`, which follows human approval.
 
 # 8. Simulation / Replanning
 Simulation only injects a What-If event; the agent decides how to react.
@@ -94,14 +94,14 @@ Changed Inventory Condition
        ↓
 Re-evaluate Availability
        ↓
-Reallocate + Communicate + Renegotiate
+Reallocate; start a new Inventory → Purchasing negotiation if a new shortage appears
        ↓
 Revised Material Allocation
 ```
 
 # 9. LLM Role
-Use the LLM for contextual reasoning, comparing multi-factor allocation alternatives, and generating structured offer/counter-offer proposals.
-## Keep these deterministic (Done Inventory service):
+Use the LLM for contextual reasoning, comparing multi-factor allocation alternatives, and generating structured proposals.
+## Keep these deterministic (Inventory service):
 - Available quantity calculations
 - Reserved quantity calculations
 - Safety-stock calculations
@@ -117,9 +117,9 @@ The agent can:
 - Calculate allocatable quantity.
 - Consider reservations and safety-stock constraints.
 - Propose a feasible material allocation.
-- Negotiate using multiple factors.
-- Accept/reject/counter allocation proposals.
-- Reserve inventory after an agreement.
+- Detect a shortage and initiate Inventory → Purchasing negotiation.
+- Pass the negotiated result (agreement or `FAILED`) to Production Planning.
+- Reserve inventory after `COMMIT` (after human approval).
 - Receive a simulated inventory-related disruption.
-- Re-evaluate and renegotiate.
+- Re-evaluate and, if needed, start a new negotiation.
 - Produce and record a revised material allocation.

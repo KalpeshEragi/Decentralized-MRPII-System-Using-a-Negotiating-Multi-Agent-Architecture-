@@ -34,7 +34,7 @@ Project Knowledge
 Before non-trivial MRPII, agent, database, negotiation, simulation, or architecture work, inspect the relevant repository docs, especially:
 
 dev_docs/implementation_25%/
-  two_developer_roadmap.md   (execution roadmap: current phase, Dev 1 / Dev 2 work)
+  single_developer_roadmap.md (execution roadmap: phases, current phase, working rules)
   system_spec.md
   scenarios.md               (source of truth for scenarios; do not modify)
   agent_operations.md
@@ -110,12 +110,12 @@ Development Workflow
 For non-trivial tasks: (1) inspect relevant code/docs and scope; (2) determine what already exists; (3) make a concise plan; (4) implement the smallest complete solution; (5) preserve unrelated behavior; (6) run relevant available tests/checks; (7) review for unnecessary complexity; (8) update docs when architecture/schema/protocol/scope materially changes.
 Do not create or modify unrelated files. Do not build future architecture merely because it appears in a diagram.
 
-Two-Developer Workflow
+Implementation Workflow
 
-Two developers work in parallel, each with their own Claude Code session. At session start, read dev_docs/implementation_25%/two_developer_roadmap.md, find the current phase in its Section 1 checklist, and work only on your developer's package for that phase.
-Branches: short-lived dev1/phase-N-topic or dev2/phase-N-topic from master; merge to master only by PR reviewed by the other developer. Never commit directly to master.
-Coordination files change only through small agreed PRs: backend/app/main.py, backend/requirements.txt, Alembic versions/, CLAUDE.md, dev_docs/DECISIONS.md, the roadmap, and docs/contracts/.
-Follow the roadmap's phase-completion workflow and gate (Section 7.3). Do not start a phase before the previous gate is met.
+Single developer working with Claude Code. At session start, read dev_docs/implementation_25%/single_developer_roadmap.md, find the current phase in its Section 1 checklist, and work only on that phase.
+Claude implements, tests, shows the changes and stops. The developer reviews and runs git add / commit / push. Claude never commits, pushes, merges or rewrites history unless explicitly asked for that exact operation.
+Branches: short-lived phase-N-topic branches from master, merged by PR. Contracts in docs/contracts/ change before the code that depends on them.
+Follow the roadmap's phase gate (Section 2). Do not start a phase before the previous gate is met.
 
 Code Quality
 
@@ -136,9 +136,9 @@ If Graphify is installed/configured, use the repository's actual Graphify workfl
 Documentation
 
 CLAUDE.md → stable rules/how Claude works
-dev_docs/implementation_25%/ → detailed project/domain specifications and the two-developer roadmap
+dev_docs/implementation_25%/ → detailed project/domain specifications and the single-developer roadmap
 dev_docs/ → decisions (DECISIONS.md), project status (PROJECT_STATUS.md), high-level plan
-docs/ → shared contracts (docs/contracts/) and working coordination records (docs/decisions/)
+docs/ → shared contracts (docs/contracts/) and the detailed decision record (docs/DECISIONS.md)
 Every meaningful folder has a concise README.md describing the actual code in it.
 
 Keep detailed specifications out of CLAUDE.md. Update the relevant doc when architecture, agent boundaries, database/protocol contracts, scope, or unresolved decisions materially change.

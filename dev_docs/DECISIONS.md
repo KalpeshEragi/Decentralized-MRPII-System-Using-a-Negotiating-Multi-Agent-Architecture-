@@ -56,7 +56,7 @@ The 25% milestone is a vertical slice, not 25% of every module.
 - **Orders:** No Sales Agent. The tester creates customer orders through the application/API, which hands them to the Production Planning Agent.
 - **Plan ownership:** The Production Planning Agent owns the production plan. It must not override other agents' decisions or constraints.
 - **Negotiation path:** Inventory and Purchasing negotiate through the Negotiation Engine, which manages protocol, sessions, messages, offers and agreement records but makes no business decisions. The result goes back to Planning.
-- **Factors (25% scope):** material quantity, required date, delivery date/lead time, inventory impact, production priority. Preferences/weights are designed at implementation time.
+- **Factors (25% scope):** material quantity, required date, delivery date/lead time, inventory impact, production priority. Preferences/weights are designed at implementation time. The offer terms that travel in messages are only `quantity`, `required_date`, `delivery_date`, `priority` (P1-05); lead time comes from supplier data and inventory impact is calculated deterministically.
 - **Cost/price is future scope.** For the 25% implementation there is no cost/price in negotiation factors, supplier forms, offers/counter-offers, acceptance/rejection criteria, or LLM negotiation reasoning. It will be revisited after the 25% milestone.
 - **Supplier:** No Supplier Agent. The Purchasing Agent talks to a supplier communication interface. In the demo the tester plays the supplier through a UI and provides supplier-side responses only. Purchasing decides accept/reject/counter autonomously.
 - **Agreement:** agents accept, hard constraints satisfied, preferences/bounds satisfied, feasible resolution of the shortage, recorded by the negotiation system. Deterministic validation is the authority on feasibility.
@@ -73,7 +73,7 @@ The 25% milestone is a vertical slice, not 25% of every module.
 - **Scenarios:** `implementation_25%/scenarios.md` is the unmodified source of truth for the seven finalized scenarios. **Scenario 5 (Supplier Price Increase) is future scope and out of scope for the 25% implementation**: no supplier price-increase behavior and no cost/price fields or negotiation logic to support it. Scenarios 1, 2, 3, 4, 6 and 7 are implemented. For Scenario 4, the "lead time/cost" constraint is implemented as lead time only, with no cost behavior.
 
 ### Phase 0 Decisions (confirmed 2026-09-30)
-Full issue text and history: `docs/decisions/phase0_coordination.md`.
+This is a summary. The detailed, authoritative record of each P0 item (problem, options, rationale, status) and the open Phase 1 prerequisites (P1-xx) is `docs/DECISIONS.md`.
 
 - **P0-01 Parked stubs:** the empty Sales/Production/Warehouse agent files are deleted.
 - **P0-02 Negotiation initiation:** the Inventory Agent detects the shortage and initiates Inventory → Purchasing negotiation over A2A. Planning receives the negotiated result (agreement or `FAILED`). Planning's MRP net requirement and Inventory's shortage detection both come from the same deterministic services. This supersedes the Planning → Purchasing REQUEST in `system_spec.md` §2.
@@ -91,15 +91,22 @@ Full issue text and history: `docs/decisions/phase0_coordination.md`.
 - **P0-14 Capacity data:** if D3 keeps a minimal capacity check, capacity is one `capacity_per_day` value per product in the fixture/config. No `production.*` tables.
 - **P0-15 Priority scale:** integer 1–5, `1` = highest.
 - **P0-16 Dates:** the domain plans in whole days (`DATE`). Column mapping (`DATE` columns or midnight UTC timestamps) is chosen in C2.
-- **P0-17 Git:** `master` is the protected shared integration branch (not renamed to `main`). Work happens on short-lived `dev1/phase-N-topic` and `dev2/phase-N-topic` branches from the `master` baseline, merged by reviewed PR.
+- **P0-17 Git:** `master` is the integration branch (not renamed to `main`). Work happens on short-lived branches from `master`, merged by PR (since 2026-09-30 single-developer: `phase-N-topic`).
+- **Single developer (2026-09-30):** the project continues with one developer under `dev_docs/implementation_25%/single_developer_roadmap.md`, which replaces the two-developer roadmap. All decisions above are unchanged.
 
 ---
 
 ## Unresolved
 
+### Phase 1 Prerequisites
+Detailed in `docs/DECISIONS.md`.
+- **Confirmed (2026-09-30):** P1-02 single-level BOM; P1-03 minimal capacity check (`planned_quantity <= capacity_per_day × production_lead_time_days`); P1-04 Purchasing sends `AGREEMENT_PROPOSED`, `COMMIT` only after human approval, no timers or automatic expiry (bounded by 3 rounds and 2 planning attempts); P1-07 round semantics (one round = Purchasing offer/counter + supplier response, max 3; supplier interface or Purchasing `REJECT`, even before round 3, ends the session `REJECTED`; round limit without agreement → `FAILED`; both → outcome `FAILED` for Planning; sender type `SUPPLIER_INTERFACE` is the supplier form, not an agent); P1-05 `OfferTerms` = quantity, required_date, delivery_date, priority; P1-04 `COMMIT` only by the approval workflow after human approval; P1-08 Phase 1 = deterministic core without database.
+- **Proposed:** P1-01 SmartPhone X1 fixture (awaiting approval).
+- **Phase 2 (2026-09-30, P2-01):** DATE columns for day buckets; production lead time / capacity as fixture/config; nullable agent ids + type columns for supplier-side messages; 25% tables only; `TEST_DATABASE_URL` for DB tests; committed agreements are the scheduled receipts; A2A spike = three endpoints in one app.
+- **Unresolved:** P1-06 Planning ↔ Inventory allocation semantics (Phase 3); P1-07 supplier message storage (Phase 2); the approval workflow that performs `COMMIT` (C8, Phase 4).
+
 ### Event Bus
 **Status: Unresolved.** Introduce only if required.
-
 
 ---
 
