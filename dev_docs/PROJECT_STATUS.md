@@ -21,12 +21,13 @@ Commit `b1f42da` removed the earlier prototype. Phase 1 must not start until the
 | Configuration | `backend/requirements.txt` (pinned direct dependencies), `backend/pytest.ini`, root `.env.example` (Neon `DATABASE_URL` placeholder), `backend/app/core/config.py`. |
 | Tests | `backend/tests/core/test_config.py` (settings), `backend/tests/contracts/test_contract_examples.py` (contract JSON examples parse, no cost/price keys). |
 
-## Phase 1 and Phase 2 code (written, mostly not yet executed)
+## Phase 1 and Phase 2 code
 
 | Area | State |
 | --- | --- |
-| Phase 1 | `schemas/`, `mrpii/` (finished-goods netting, MPS, MRP, capacity, validator, supplier feasibility), `negotiation/` (state machine, 3 rounds, REJECTED / FAILED, COMMIT only from the approval workflow), `llm/` (Ollama client, structured-output validation), X1 fixture. Tests and `scripts/verify_phase1.py` written; **not executed**. |
-| Phase 2 | 24-table ORM, migrations 001 / 002, X1 seed / reset, services, orders / plans / negotiations API (C5 errors), negotiation persistence, audit writes, A2A transport spike (three endpoints, same app), Agents SDK + Ollama spike. **Executed so far:** module import checks, route listing, and offline HTTP calls (health, agent cards, validation error format, a refused A2A envelope). **Not executed:** migrations, seed, any database code, the DB tests, a live Ollama call. |
+| Phase 1 | `schemas/`, `mrpii/`, `negotiation/`, `llm/`, X1 fixture. Tests pass (46 offline tests: Phase 1 plus config and contract examples). |
+| Phase 2 | 24-table ORM, migrations 001 / 002 applied to Neon, X1 seed / reset, services, orders / plans / negotiations API (C5 errors), negotiation persistence, audit writes, A2A transport spike (three endpoints, same app), Agents SDK + Ollama spike. Tests pass: 27 tests (DB tests on the Neon `test` branch, HTTP / A2A flow, Agents SDK configuration). |
+| Not verified | A live Ollama call (the Agents SDK / Ollama spike is only checked for configuration); the A2A spike client script against a running server. |
 | Working values | See `docs/DECISIONS.md` P2-01 ("Working values, not yet decided"). |
 
 ## Not implemented
