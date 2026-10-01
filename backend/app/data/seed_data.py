@@ -44,7 +44,7 @@ def reset(db: Session) -> None:
     db.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
 
 
-def seed(db: Session) -> None:
+def seed(db: Session, include_order: bool = True) -> None:
     db.add(
         core.Item(
             id=uuid.UUID(x1.PRODUCT_ID), sku=_sku(x1.PRODUCT), name=x1.PRODUCT,
@@ -102,6 +102,8 @@ def seed(db: Session) -> None:
 
     db.add(sales.Customer(id=CUSTOMER_ID, name="Demo Customer", location="Demo City", contact_info={}))
     db.flush()
+    if not include_order:  # demo start with no orders: the tester enters them through the order form
+        return
     order = x1.x1_order()
     db.add(
         sales.CustomerOrder(
@@ -119,10 +121,10 @@ def seed(db: Session) -> None:
         )
 
 
-def reset_and_seed(db: Session) -> None:
-    """Return the database to the deterministic X1 baseline (one transaction)."""
+def reset_and_seed(db: Session, include_order: bool = True) -> None:
+    """Return the database to the deterministic X1 baseline (one transaction); optionally without order SO-0001."""
     reset(db)
-    seed(db)
+    seed(db, include_order)
     db.commit()
 
 
