@@ -9,6 +9,7 @@ A round = one Purchasing OFFER (round 1) or COUNTER_OFFER (rounds 2-3) plus the 
         Purchasing AGREEMENT_PROPOSED (after a supplier ACCEPT or COUNTER_OFFER) -> AGREEMENT_PROPOSED
         Purchasing COUNTER_OFFER after round MAX_ROUNDS (no acceptable response) -> FAILED
     AGREEMENT_PROPOSED --COMMIT (approval workflow, after human approval)--> COMMITTED
+    AGREEMENT_PROPOSED --ABORT (approval workflow, after human rejection of the plan, C8)--> ABORTED
 
 The session never decides whether terms are acceptable or feasible. Purchasing decides; deterministic validation
 of an agreement happens outside this module. COMMIT is only representable here: Inventory and Purchasing cannot
@@ -115,9 +116,11 @@ class NegotiationSession:
             return SessionStatus.NEGOTIATING
 
         if self.status == SessionStatus.AGREEMENT_PROPOSED:
-            if kind != MessageType.COMMIT:
-                raise refuse("only COMMIT (by the approval workflow) follows AGREEMENT_PROPOSED")
-            return SessionStatus.COMMITTED
+            if kind == MessageType.COMMIT:
+                return SessionStatus.COMMITTED
+            if kind == MessageType.ABORT:
+                return SessionStatus.ABORTED
+            raise refuse("only COMMIT or ABORT (by the approval workflow) follows AGREEMENT_PROPOSED")
 
         # status NEGOTIATING
         if self._awaiting_supplier:

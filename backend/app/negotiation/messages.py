@@ -26,6 +26,8 @@ ROUTES: dict[MessageType, frozenset[tuple[AgentType, AgentType]]] = {
     MessageType.AGREEMENT_PROPOSED: frozenset({(PUR, INV)}),
     # COMMIT is an approval/lifecycle action, never sent by Inventory or Purchasing.
     MessageType.COMMIT: frozenset({(APP, INV)}),
+    # ABORT (C8): the approval workflow closes an uncommitted agreement after the human rejects the plan.
+    MessageType.ABORT: frozenset({(APP, INV)}),
 }
 
 # Terms are required by these types; all other types must not carry terms.

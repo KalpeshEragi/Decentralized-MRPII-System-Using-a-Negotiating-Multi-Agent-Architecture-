@@ -27,6 +27,7 @@ class MessageType(StrEnum):
     REJECT = "REJECT"
     AGREEMENT_PROPOSED = "AGREEMENT_PROPOSED"
     COMMIT = "COMMIT"
+    ABORT = "ABORT"  # C8: the approval workflow closes an uncommitted agreement when the human rejects the plan
 
 
 class SessionStatus(StrEnum):
