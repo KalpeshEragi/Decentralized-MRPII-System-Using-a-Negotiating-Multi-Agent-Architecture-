@@ -1,16 +1,28 @@
-"""FastAPI application: orders, plans and negotiations APIs plus the A2A transport spike (three endpoints, one app)."""
+"""FastAPI application: orders, plans, negotiations and agents APIs, the supplier interface, and the three A2A
+endpoints (one app) behind which the Inventory and Purchasing Agents react."""
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import a2a, negotiations, orders, planning
+from app.api import a2a, agents, negotiations, orders, planning, simulation
 from app.core.errors import install_error_handlers
 
-app = FastAPI(title="Decentralized MRPII", version="0.2.0")
+app = FastAPI(title="Decentralized MRPII", version="0.3.0")
 install_error_handlers(app)
+# The Phase 5 demo frontend (Next.js dev server) calls the API from the browser. Local demo only; no auth.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(orders.router)
 app.include_router(planning.router)
 app.include_router(negotiations.router)
+app.include_router(agents.router)
+app.include_router(agents.supplier_router)
+app.include_router(simulation.router)
 a2a.install_a2a_spike(app)
 
 
