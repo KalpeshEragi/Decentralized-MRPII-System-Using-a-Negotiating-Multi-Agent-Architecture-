@@ -36,10 +36,12 @@ class SupplierResponseIn(BaseModel):
 
 
 def refuse_commit(message: NegotiationMessage) -> None:
-    """COMMIT belongs to the approval workflow (C8, later phase); no HTTP route may commit yet."""
-    if message.message_type == MessageType.COMMIT:
+    """COMMIT and ABORT belong to the approval workflow (C8), reached only through the plan approve / reject routes;
+    no message route or A2A endpoint may send them."""
+    if message.message_type in (MessageType.COMMIT, MessageType.ABORT):
         raise AppError(
-            ErrorCode.BUSINESS_RULE_VIOLATION, "COMMIT is performed by the approval workflow, which is not implemented yet"
+            ErrorCode.BUSINESS_RULE_VIOLATION,
+            f"{message.message_type.value} is performed by the approval workflow (approve / reject the plan)",
         )
 
 

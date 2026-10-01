@@ -1,4 +1,5 @@
-"""Plans API: run the deterministic plan for an order, read the persisted plan and its shortages."""
+"""Plans API: run the deterministic plan for an order, read the persisted plan and its shortages, and the human
+approval of plan attempts (C8): list attempts, approve (COMMIT, D8) or reject (replan, at most 2 attempts)."""
 
 import uuid
 
@@ -8,13 +9,18 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.domain import PlanSnapshot
-from app.services import planning_service, supplier_service
+from app.agents import workflow
+from app.services import approval_service, order_service, planning_service, supplier_service
 
 router = APIRouter(prefix="/plans", tags=["plans"])
 
 
 class PlanRequest(BaseModel):
     order_id: uuid.UUID
+
+
+class RejectRequest(BaseModel):
+    reason: str | None = None
 
 
 @router.post("", status_code=201, response_model=PlanSnapshot)
@@ -36,3 +42,24 @@ def get_shortages(order_id: uuid.UUID, db: Session = Depends(get_db)):
         {"shortage": shortage.model_dump(mode="json"), "suppliers": supplier_service.feasibility(db, shortage, plan.planning_date)}
         for shortage in plan.shortages
     ]
+
+
+@router.get("/{order_id}/attempts")
+def list_attempts(order_id: uuid.UUID, db: Session = Depends(get_db)):
+    """Planning attempts (C8) with approval_status, approvable, blockers and negotiations."""
+    order_service.get_order(db, order_id)  # 404 for an unknown order
+    return approval_service.attempts(db, order_id)
+
+
+@router.post("/{order_id}/attempts/{attempt_number}/approve")
+def approve_attempt(order_id: uuid.UUID, attempt_number: int, db: Session = Depends(get_db)):
+    """The human approves: COMMIT every agreement, re-plan with the committed receipts, reserve stock (D8)."""
+    return workflow.approve_plan(db, order_id, attempt_number)
+
+
+@router.post("/{order_id}/attempts/{attempt_number}/reject")
+def reject_attempt(order_id: uuid.UUID, attempt_number: int, data: RejectRequest | None = None,
+                   db: Session = Depends(get_db)):
+    """The human rejects: uncommitted agreements are aborted; Planning replans (attempt 2), or after attempt 2 the
+    order needs human intervention."""
+    return workflow.reject_plan(db, order_id, attempt_number, data.reason if data else None)
