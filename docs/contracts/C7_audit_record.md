@@ -58,9 +58,12 @@ created_at         TIMESTAMP
 
 ### 3. Open Items
 
-- **Working set in Phase 2 (`audit_service.DecisionType`, not final):** `ORDER_RECEIVED`, `PLAN_CREATED` (Planning agent); `SHORTAGE_DETECTED`, `NEGOTIATION_REQUEST`, `AGREEMENT_COMMITTED` (Inventory agent); `NEGOTIATION_MESSAGE`, `AGREEMENT_PROPOSED`, `NEGOTIATION_REJECTED`, `NEGOTIATION_FAILED` (Purchasing agent). `context` carries `order_id` / `item_id` / `negotiation_id`; `PLAN_CREATED.decision` also stores the parts of the plan snapshot that have no table (finished-goods netting, capacity checks, validation, planning date). Supplier-interface responses other than REJECT are not audited (not an agent decision). **PENDING:** the final list.
+- **Working set in Phase 2 (`audit_service.DecisionType`, not final):** `ORDER_RECEIVED`, `PLAN_CREATED` (Planning agent); `SHORTAGE_DETECTED`, `NEGOTIATION_REQUEST`, `AGREEMENT_COMMITTED` (Inventory agent); `NEGOTIATION_MESSAGE`, `AGREEMENT_PROPOSED`, `NEGOTIATION_REJECTED`, `NEGOTIATION_FAILED` (Purchasing agent). `context` carries `order_id` / `item_id` / `negotiation_id`; `PLAN_CREATED.decision` also stores the parts of the plan snapshot that have no table (finished-goods netting, capacity checks, validation, planning date). Supplier-interface responses other than REJECT are not audited (not an agent decision). Phase 3 adds (P3-01):
+  `AVAILABILITY_ASSESSED` (Inventory), `REQUISITION_CREATED`, `NEGOTIATION_DECISION` (Purchasing: source LLM / POLICY,
+  rationale), `LLM_PROPOSAL_REJECTED` (any agent), `NEGOTIATION_RESULT_RECEIVED` (Inventory, Planning). **PENDING:** the final list.
 - **PENDING:** JSON shapes of `context` and `decision`, including how they reference `order_id`, `negotiation_id` and `item_id`.
 - **PENDING:** how an invalid LLM output is recorded (its own `decision_type`, or part of the decision it affected).
+  Phase 3 working choice: its own `LLM_PROPOSAL_REJECTED` record with the structured proposal (never raw text) and the problems.
 - **To confirm:** how human approval and rejection are recorded, since `agent_id` references `agent.agents` and the tester is not an agent (with C8).
 - **To confirm:** whether actions of non-agent components (Negotiation Engine, Scenario Manager) are audited here or only in their own tables.
 

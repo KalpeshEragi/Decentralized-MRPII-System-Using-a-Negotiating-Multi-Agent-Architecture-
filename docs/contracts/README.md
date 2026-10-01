@@ -16,9 +16,10 @@ JSON examples**. They are specifications, not code: nothing in this folder is im
 | C5 | `C5_errors.md` — API error format (per-router API models added from Phase 2) | CONFIRMED | Phase 2 | `backend/app/core/`, `backend/app/api/` |
 | C6 | `C6_agent_state.md` — agent state JSON shapes | CONFIRMED (`OfferTerms` fields follow C4 §5) | Phase 3 | Phase 2 ORM (`agent.agent_state`), Phase 3 `backend/app/agents/base` |
 | C7 | `C7_audit_record.md` — audit record shape | CONFIRMED (open items stay PENDING, needed by Phase 3) | Phase 3 | Phase 2 audit service, Phase 3 agents, Phase 5 decision log |
+| C8 | `C8_approval_replan.md` — plan approval states, attempt counter, reject → replan | DRAFT | Phase 4 | Phase 4 approval service and API |
+| C9 | `C9_simulation_events.md` — simulation event types and parameters | DRAFT | Phase 4 | Phase 4 `backend/app/simulation/` |
 
-C3 (service signatures, Phase 2), C8 (approval and replan state, Phase 4) and C9 (simulation events, Phase 4) are
-written when their phase needs them.
+C3 (service signatures) is written when needed. D8 (what approve does) is `docs/DECISIONS.md` P4-01 (PROPOSED).
 
 C2, C4 and C7 use the sections Status, Purpose, Scope, Does Not Define, Specification. C1, C5 and C6 use a compact
 header followed by the specification. Each contract ends with its open items.

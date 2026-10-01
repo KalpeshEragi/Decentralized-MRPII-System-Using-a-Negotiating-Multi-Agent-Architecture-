@@ -60,8 +60,11 @@ ACCEPT
 REJECT
 AGREEMENT_PROPOSED
 COMMIT
+ABORT
 ```
 
+`ABORT` (added Phase 4, C8 §5): sent only by `APPROVAL_WORKFLOW` to Inventory, only from `AGREEMENT_PROPOSED`, when the
+human rejects the plan; the session ends `ABORTED` and the uncommitted agreement is never a scheduled receipt.
 Message types are separate from session statuses (P0-05). `WITHDRAW` and `ABORT` are possible extensions and are not part of the 25% (`system_spec.md` §5.1).
 
 ### 3. Session Statuses and Lifecycle
@@ -204,9 +207,12 @@ From `system_spec.md` P3:
 - **Decided (P1-07):** Purchasing may `REJECT` early; sender type `SUPPLIER_INTERFACE` is the supplier form, not an agent.
 - **Decided (P2-01):** supplier-side messages are stored with `sender_type` / `receiver_type` and a null agent id. The offers table holds every OFFER / COUNTER_OFFER that opens or answers a round (a Purchasing counter that trips the round limit is stored as a message only). The envelope travels as one data part of an A2A `SendMessage` (three endpoints, same app). Earlier open question, now answered: how supplier-side messages are stored while `negotiation_messages` sender/receiver reference `agent.agents` (Phase 2).
 - **Decided (P1-04):** `COMMIT` is sent only by the approval workflow after human approval. **PENDING C8:** the approval workflow itself and the fate of an uncommitted agreement after plan rejection (Phase 4).
-- **PENDING (Phase 3):** content of the shortage-context message sent by Inventory to Purchasing.
+- **PENDING (Phase 3):** content of the shortage-context message sent by Inventory to Purchasing. Working choice
+  (P3-01, proposed): the `REQUEST` carries the four `OfferTerms` plus a one-line `payload.message`; the full context is
+  the session `objective` (C1 `Shortage`).
 - **PENDING P0-12:** read path from committed agreements to scheduled receipts (with C2).
-- **PENDING P1-06:** whether Planning ↔ Inventory allocation uses a negotiation session (Phase 3).
+- **PENDING P1-06:** whether Planning ↔ Inventory allocation uses a negotiation session. Phase 3 interim (P3-01): an
+  in-process request, no session.
 - **To confirm:** values of `negotiation_type` and participant `role`.
 - **PENDING D13:** A2A SDK compatibility with the OpenAI Agents SDK and Ollama no-reasoning mode (Phase 2 spike).
 

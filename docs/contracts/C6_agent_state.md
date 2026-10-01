@@ -156,4 +156,6 @@ All numbers and policy strings above are **illustrative**, not fixture values (D
 ## 4. Open items affecting C6
 
 C8 attempt counter and the approval workflow that sends `COMMIT`.
+One row per agent while several sessions can be open (X1 baseline: two shortages): Phase 3 keeps the state of the
+negotiation (or order) the agent handled last and rebuilds offer histories from `negotiation.*` (P3-01, proposed).
 `AGREEMENT_PROPOSED` is sent by Purchasing (P1-04).
