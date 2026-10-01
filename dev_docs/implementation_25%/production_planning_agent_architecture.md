@@ -40,15 +40,15 @@ Simulation Disruption → Re-evaluate + Replan → Revised Production Plan
 ```
 
 # 4 . Tools / Services
-get_customer_orders()
-get_bom(item_id)
-create_mps_plan(...)
-run_mrp(...)
-get_inventory_availability(...)
-get_negotiation_result(...)
-validate_plan(...)
-submit_plan_for_approval(...)
-apply_revised_plan(...)
+- get_customer_orders()
+- get_bom(item_id)
+- create_mps_plan(...)
+- run_mrp(...)
+- get_inventory_availability(...)
+- get_negotiation_result(...)
+- validate_plan(...)
+- submit_plan_for_approval(...)
+- apply_revised_plan(...)
 
 How Planning's availability request to Inventory is exchanged (plain service request or negotiation session) is open: P1-06 in `docs/DECISIONS.md`.
 

@@ -35,15 +35,15 @@ Simulation Disruption → Re-evaluate + Re-negotiate → Revised procurement agr
 ```
 
 # 4 . Tools / Services
-get_procurement_request(...)
-get_supplier_options(...)
-get_supplier_item_details(...)
-compare_supplier_options(...)
-create_purchase_requisition(...)
-send_supplier_offer(...)
-get_supplier_response(...)
-propose_agreement(...)
-validate_procurement_terms(...)
+- get_procurement_request(...)
+- get_supplier_options(...)
+- get_supplier_item_details(...)
+- compare_supplier_options(...)
+- create_purchase_requisition(...)
+- send_supplier_offer(...)
+- get_supplier_response(...)
+- propose_agreement(...)
+- validate_procurement_terms(...)
 
 # 5. Separation
 - Agent: procurement decisions, supplier evaluation, goals, constraints, preferences, negotiation strategy
