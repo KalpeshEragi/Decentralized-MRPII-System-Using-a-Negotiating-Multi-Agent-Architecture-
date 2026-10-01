@@ -22,6 +22,7 @@ from app.negotiation.session import NegotiationSession
 from app.models import negotiation as db_models
 from app.schemas.domain import ScheduledReceipt, Shortage
 from app.schemas.negotiation import (
+    END_STATUSES,
     AgentRef,
     AgentType,
     MessagePayload,
@@ -81,16 +82,19 @@ def _agent_ids(db: Session) -> dict[AgentType, str]:
 
 
 def open_session(db: Session, order_id: uuid.UUID, item_id: uuid.UUID) -> dict:
-    """Create the one session for a persisted shortage (Inventory is the initiator). No message is sent yet."""
+    """Create the session for a persisted shortage (Inventory is the initiator). No message is sent yet.
+    One active session per shortage; a new one is allowed once the previous one has ended (replanning, C8)."""
     from app.services import planning_service  # local import: planning_service reads receipts from this module
 
     plan = planning_service.get_plan(db, order_id)
     shortage = next((s for s in plan.shortages if s.item_id == str(item_id)), None)
     if shortage is None:
         raise AppError(ErrorCode.BUSINESS_RULE_VIOLATION, "the order has no shortage for this item")
-    for objective in db.scalars(select(db_models.NegotiationSession.objective)):
+    ended = [status.value for status in END_STATUSES]
+    active = select(db_models.NegotiationSession.objective).where(db_models.NegotiationSession.status.not_in(ended))
+    for objective in db.scalars(active):
         if objective.get("mps_entry_id") == shortage.mps_entry_id and objective.get("item_id") == shortage.item_id:
-            raise AppError(ErrorCode.CONFLICT, "a negotiation session already exists for this shortage")
+            raise AppError(ErrorCode.CONFLICT, "an active negotiation session already exists for this shortage")
 
     ids = _agent_ids(db)
     now = _now()
@@ -288,9 +292,31 @@ def _record_audit(db: Session, message: NegotiationMessage, context: dict, sessi
     elif kind == MessageType.COMMIT:
         audit_service.record(db, AGENT_INVENTORY, DecisionType.AGREEMENT_COMMITTED, context, {"committed": True},
                              "Agreement committed by the approval workflow.")
+    elif kind == MessageType.ABORT:
+        audit_service.record(db, AGENT_INVENTORY, DecisionType.AGREEMENT_ABORTED, context, {"committed": False},
+                             "Uncommitted agreement closed by the approval workflow after the plan was rejected.")
 
 
-def submit_supplier_response(
+def send_approval_action(db: Session, negotiation_id: uuid.UUID, kind: MessageType) -> dict:
+    """COMMIT or ABORT from the approval workflow (C8), sent to Inventory, the session initiator. Only the approval
+    service calls this, after the human's decision; the protocol accepts both only from AGREEMENT_PROPOSED."""
+    if kind not in (MessageType.COMMIT, MessageType.ABORT):
+        raise AppError(ErrorCode.VALIDATION_ERROR, "the approval workflow sends only COMMIT or ABORT")
+    _, session = _load(db, negotiation_id)
+    ids = _agent_ids(db)
+    message = NegotiationMessage(
+        message_id=str(uuid.uuid4()),
+        negotiation_id=str(negotiation_id),
+        sender=AgentRef(agent_id=APPROVAL_WORKFLOW_ID, agent_type=AgentType.APPROVAL_WORKFLOW),
+        receiver=AgentRef(agent_id=ids[AgentType.INVENTORY], agent_type=AgentType.INVENTORY),
+        message_type=kind,
+        sequence_number=len(session.messages) + 1,
+        timestamp=_now(),
+    )
+    return submit_message(db, negotiation_id, message)
+
+
+def build_supplier_message(
     db: Session,
     negotiation_id: uuid.UUID,
     round_number: int,
@@ -298,8 +324,9 @@ def submit_supplier_response(
     quantity: Decimal | None = None,
     delivery_date: date | None = None,
     note: str | None = None,
-) -> dict:
-    """The supplier form: one response for the current round (C4 section 7, C5 INVALID_STATE_TRANSITION rules)."""
+) -> NegotiationMessage:
+    """The supplier form as a C4 message from SUPPLIER_INTERFACE: one response for the current round (C4 section 7,
+    C5 INVALID_STATE_TRANSITION rules). Nothing is stored here."""
     if response_type not in (MessageType.ACCEPT, MessageType.COUNTER_OFFER, MessageType.REJECT):
         raise AppError(ErrorCode.VALIDATION_ERROR, "a supplier response is ACCEPT, COUNTER_OFFER or REJECT")
     row, session = _load(db, negotiation_id)
@@ -316,7 +343,7 @@ def submit_supplier_response(
         if quantity is None or delivery_date is None:
             raise AppError(ErrorCode.VALIDATION_ERROR, "a counter offer needs quantity and delivery_date")
         terms = OfferTerms(quantity=quantity, delivery_date=delivery_date)
-    message = NegotiationMessage(
+    return NegotiationMessage(
         message_id=str(uuid.uuid4()),
         negotiation_id=str(negotiation_id),
         sender=AgentRef(agent_id=SUPPLIER_INTERFACE_ID, agent_type=AgentType.SUPPLIER_INTERFACE),
@@ -326,6 +353,20 @@ def submit_supplier_response(
         timestamp=_now(),
         payload=MessagePayload(terms=terms, message=note),
     )
+
+
+def submit_supplier_response(
+    db: Session,
+    negotiation_id: uuid.UUID,
+    round_number: int,
+    response_type: MessageType,
+    quantity: Decimal | None = None,
+    delivery_date: date | None = None,
+    note: str | None = None,
+) -> dict:
+    """Store a supplier-form response directly (Phase 2 path; no agent reacts). The agent-driven path is
+    `supplier_interface_service.respond`, which delivers the same message to the Purchasing Agent over A2A."""
+    message = build_supplier_message(db, negotiation_id, round_number, response_type, quantity, delivery_date, note)
     return submit_message(db, negotiation_id, message)
 
 
@@ -386,6 +427,16 @@ def get_session_view(db: Session, negotiation_id: uuid.UUID) -> dict:
             "committed": agreement.committed,
         },
     }
+
+
+def sessions_for_order(db: Session, order_id: uuid.UUID) -> list[dict]:
+    """Views of every session opened for the order's shortages, oldest first."""
+    ids = db.scalars(
+        select(db_models.NegotiationSession.id)
+        .where(db_models.NegotiationSession.objective["order_id"].astext == str(order_id))
+        .order_by(db_models.NegotiationSession.started_at, db_models.NegotiationSession.id)
+    )
+    return [get_session_view(db, negotiation_id) for negotiation_id in list(ids)]
 
 
 def scheduled_receipts(db: Session, item_ids: set[str]) -> list[ScheduledReceipt]:

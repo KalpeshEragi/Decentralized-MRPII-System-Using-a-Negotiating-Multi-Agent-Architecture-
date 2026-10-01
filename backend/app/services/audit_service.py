@@ -1,7 +1,7 @@
 """Audit writes (C7). Records are append-only and written through this service, never by agents directly.
 
 `decision_type` values and the JSON shape of `context` / `decision` are still PENDING in C7; the values below are the
-Phase 2 working set. `context` always carries the ids the record relates to (order_id, negotiation_id, item_id).
+Phase 2 / Phase 3 working set. `context` always carries the ids the record relates to (order_id, negotiation_id, item_id).
 """
 
 import uuid
@@ -30,6 +30,19 @@ class DecisionType(StrEnum):
     NEGOTIATION_REJECTED = "NEGOTIATION_REJECTED"  # session REJECTED (by Purchasing or the supplier interface)
     NEGOTIATION_FAILED = "NEGOTIATION_FAILED"  # round limit reached without agreement
     AGREEMENT_COMMITTED = "AGREEMENT_COMMITTED"  # COMMIT by the approval workflow, recorded under Inventory
+    AGREEMENT_ABORTED = "AGREEMENT_ABORTED"  # ABORT by the approval workflow (plan rejected), recorded under Inventory
+    # Phase 3 (agents), working values:
+    AVAILABILITY_ASSESSED = "AVAILABILITY_ASSESSED"  # Inventory: requirement-by-requirement stock / procurement decision
+    REQUISITION_CREATED = "REQUISITION_CREATED"  # Purchasing
+    NEGOTIATION_DECISION = "NEGOTIATION_DECISION"  # Purchasing: how a turn was decided (LLM or own policy) and its rationale
+    LLM_PROPOSAL_REJECTED = "LLM_PROPOSAL_REJECTED"  # any agent: LLM output refused by deterministic validation (C7 rule 7)
+    NEGOTIATION_RESULT_RECEIVED = "NEGOTIATION_RESULT_RECEIVED"  # Inventory, then Planning: AGREEMENT or FAILED
+    # Phase 4 (C8), working values; the human's decisions are recorded under Planning with decided_by = HUMAN:
+    PLAN_ATTEMPT_STARTED = "PLAN_ATTEMPT_STARTED"  # Planning: attempt n of 2, its plan status and negotiations
+    PLAN_APPROVED = "PLAN_APPROVED"
+    PLAN_REJECTED = "PLAN_REJECTED"
+    HUMAN_INTERVENTION_REQUIRED = "HUMAN_INTERVENTION_REQUIRED"
+    STOCK_RESERVED = "STOCK_RESERVED"  # Inventory, after COMMIT (D8)
 
 
 def jsonable(value: object) -> object:
@@ -38,10 +51,14 @@ def jsonable(value: object) -> object:
 
 
 def agent_uuid(db: Session, agent_code: str) -> uuid.UUID:
-    agent_id = db.scalar(select(Agent.id).where(Agent.agent_code == agent_code))
-    if agent_id is None:
-        raise AppError(ErrorCode.INTERNAL_ERROR, f"agent {agent_code} is not seeded")
-    return agent_id
+    """The agent's id, cached for the life of the DB session (every agent step needs it; each query is a round trip)."""
+    cache = db.info.setdefault("agent_ids", {})
+    if agent_code not in cache:
+        agent_id = db.scalar(select(Agent.id).where(Agent.agent_code == agent_code))
+        if agent_id is None:
+            raise AppError(ErrorCode.INTERNAL_ERROR, f"agent {agent_code} is not seeded")
+        cache[agent_code] = agent_id
+    return cache[agent_code]
 
 
 def record(
@@ -63,6 +80,23 @@ def record(
     db.add(row)
     db.flush()
     return row
+
+
+def list_decisions(db: Session, order_id: uuid.UUID | None = None, negotiation_id: uuid.UUID | None = None) -> list[dict]:
+    """The decision log: records in creation order, each with the code of the agent that made the decision."""
+    codes = dict(db.execute(select(Agent.id, Agent.agent_code)).all())
+    return [
+        {
+            "id": str(row.id),
+            "agent": codes.get(row.agent_id),
+            "decision_type": row.decision_type,
+            "context": row.context,
+            "decision": row.decision,
+            "reasoning_summary": row.reasoning_summary,
+            "created_at": row.created_at,
+        }
+        for row in list_records(db, order_id, negotiation_id)
+    ]
 
 
 def list_records(db: Session, order_id: uuid.UUID | None = None, negotiation_id: uuid.UUID | None = None) -> list[DecisionAudit]:
