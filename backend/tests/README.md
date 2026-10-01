@@ -5,13 +5,17 @@ pytest suite for the backend. Configuration is in `backend/pytest.ini` (test pat
 
 ## Layout
 
-Subfolders mirror `backend/app/`. Each developer writes tests for what they implement (roadmap Section 7).
+Subfolders mirror `backend/app/`. Tests are written in the same phase as the code they test (roadmap Section 2, phase gate).
 
 | Folder | Contents |
 | --- | --- |
 | `core/` | `test_config.py`: settings defaults and environment overrides. |
 | `contracts/` | `test_contract_examples.py`: every JSON example in `docs/contracts/` parses and has no cost/price key (Phase 0 check). |
-| `mrpii/`, `agents/`, `negotiation/`, `simulation/` | Empty; filled in their phases. |
+| `mrpii/`, `negotiation/`, `llm/` | Phase 1: X1 baseline and scenario numbers, finished-goods netting, protocol state machine, structured-output validation. |
+| `llm/test_agents_spike.py` | Phase 2: Agents SDK configuration (`reasoning.effort = "none"`, base URL / model), offline. |
+| `api/` | Phase 2, no database: C5 error format, A2A agent cards, A2A refusals. |
+| `db/` | Phase 2, **needs `TEST_DATABASE_URL`** (skipped without it): migrations, X1 seed / reset, persisted plan, persisted negotiation (agreement, REJECTED, FAILED after 3 rounds, refused messages), HTTP flow with A2A delivery. These reset the test database. |
+| `agents/`, `simulation/` | Empty; filled in their phases. |
 
 Tests of deterministic logic assert exact values. LLM behaviour is tested with a fake model, never a live one,
 except for one bounded smoke test planned later.
