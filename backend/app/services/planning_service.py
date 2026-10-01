@@ -1,8 +1,13 @@
-"""Run the Phase 1 deterministic plan for an order and persist / read the result.
+"""Run the deterministic plan for an order and persist / read the result.
 
 Flow: order -> finished-goods availability -> net production requirement -> MPS -> capacity -> BOM -> MRP -> shortages.
-The calculations are `app.mrpii.plan.plan_order` (source of truth); this module only loads its inputs and stores its
-outputs. MPS and MRP rows go to `planning.*`. The parts of a PlanSnapshot with no table (finished-goods netting,
+The calculations are `app.mrpii.plan.plan_orders` (source of truth); this module only loads its inputs and stores its
+outputs.
+
+Several orders (Phase 5): an order is planned together with every order already planned (status PLANNED), so the MPS
+and MRP reflect the combined demand (rules in `mrpii/plan.py`). Every included order's rows are stored again. With a
+single order the result is the Phase 1-4 single-order plan. Stock already reserved for included orders (D8, after
+approval) is counted as available to them again, so re-planning never double-counts an order's own reservation. MPS and MRP rows go to `planning.*`. The parts of a PlanSnapshot with no table (finished-goods netting,
 capacity checks, validation, planning date) are stored in the PLAN_CREATED audit record and read back from it.
 """
 
@@ -13,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError, ErrorCode
 from app.mrpii.mrp import find_shortages
-from app.mrpii.plan import plan_order
+from app.mrpii.plan import plan_orders
 from app.models.audit import DecisionAudit
 from app.models.planning import MpsPlan, MrpRequirement
 from app.schemas import domain
@@ -22,26 +27,36 @@ from app.services.audit_service import DecisionType
 
 
 def run_plan(db: Session, order_id: uuid.UUID) -> domain.PlanSnapshot:
-    """Plan (or re-plan) the order from current persisted state, store the result and return it."""
+    """Plan (or re-plan) the order, together with the orders already planned, from current persisted state; store the
+    result of every included order and return this order's plan."""
     order = order_service.get_order(db, order_id)
-    product_ids = [uuid.UUID(line.item_id) for line in order.lines]
+    orders = [o for o in order_service.list_orders(db) if o.status == domain.OrderStatus.PLANNED and o.id != order.id]
+    orders.append(order)
+    product_ids = list(dict.fromkeys(uuid.UUID(line.item_id) for o in orders for line in o.lines))
     bom = bom_service.get_boms(db, product_ids)
     for product_id in product_ids:
         if not any(line.parent_item_id == str(product_id) for line in bom):
             raise AppError(ErrorCode.BUSINESS_RULE_VIOLATION, f"product {product_id} has no active BOM")
     production = capacity_service.production_parameters([str(p) for p in product_ids])
     component_ids = {line.component_item_id for line in bom}
+    credit = inventory_service.reserved_for_orders(db, [uuid.UUID(o.id) for o in orders])
 
-    plan = plan_order(
-        order,
+    def positions(item_ids):
+        return {
+            item_id: p.model_copy(update={"reserved": max(p.reserved - credit.get(item_id, 0), 0)})
+            for item_id, p in inventory_service.get_positions(db, item_ids).items()
+        }
+
+    plans = plan_orders(
+        orders,
         bom,
         production,
-        inventory_service.get_positions(db, component_ids),
+        positions(component_ids),
         negotiation_service.scheduled_receipts(db, component_ids),
-        planning_date=order.order_date,
-        finished_goods=inventory_service.get_positions(db, product_ids),
+        finished_goods=positions(product_ids),
     )
-    _persist(db, order_id, plan)
+    for plan in plans:
+        _persist(db, uuid.UUID(plan.order_id), plan)
     return get_plan(db, order_id)  # what was stored, in the stored (deterministic) order
 
 
@@ -81,6 +96,7 @@ def _persist(db: Session, order_id: uuid.UUID, plan: domain.PlanSnapshot) -> Non
             )
         )
     order_service.set_status(db, order_id, domain.OrderStatus.PLANNED)
+    db.flush()
 
     audit_service.record(
         db,

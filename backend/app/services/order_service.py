@@ -23,8 +23,11 @@ class OrderLineIn(BaseModel):
 
 
 class OrderCreate(BaseModel):
-    order_number: Annotated[str, Field(min_length=1)]
-    customer_id: uuid.UUID
+    """Either `customer_id` or `customer_name` (found or created). `order_number` is generated when omitted."""
+
+    order_number: Annotated[str, Field(min_length=1)] | None = None
+    customer_id: uuid.UUID | None = None
+    customer_name: Annotated[str, Field(min_length=1, max_length=120)] | None = None
     order_date: date
     due_date: date
     priority: Annotated[int, Field(ge=1, le=5)]  # 1 = highest
@@ -61,6 +64,29 @@ def list_orders(db: Session) -> list[domain.CustomerOrder]:
     return [get_order(db, order_id) for order_id in list(ids)]
 
 
+def _customer_by_name(db: Session, name: str) -> uuid.UUID:
+    customer_id = db.scalar(select(sales.Customer.id).where(sales.Customer.name == name))
+    if customer_id is None:
+        customer = sales.Customer(id=uuid.uuid4(), name=name, location="", contact_info={})
+        db.add(customer)
+        db.flush()
+        customer_id = customer.id
+    return customer_id
+
+
+def _next_order_number(db: Session) -> str:
+    numbers = db.scalars(select(sales.CustomerOrder.order_number).where(sales.CustomerOrder.order_number.like("SO-%")))
+    highest = max((int(n[3:]) for n in numbers if n[3:].isdigit()), default=0)
+    return f"SO-{highest + 1:04d}"
+
+
+def overview(db: Session) -> list[dict]:
+    """Orders with their customer name, for display (planning priority first, then due date)."""
+    customers = dict(db.execute(select(sales.Customer.id, sales.Customer.name)).all())
+    orders = sorted(list_orders(db), key=lambda o: (o.priority, o.due_date, o.order_number))
+    return [{**o.model_dump(mode="json"), "customer_name": customers.get(uuid.UUID(o.customer_id))} for o in orders]
+
+
 def create_order(db: Session, data: OrderCreate) -> domain.CustomerOrder:
     if data.due_date < data.order_date:
         raise AppError(
@@ -68,8 +94,15 @@ def create_order(db: Session, data: OrderCreate) -> domain.CustomerOrder:
             "due_date must be on or after order_date",
             [{"field": "due_date", "issue": "must be >= order_date"}],
         )
+    if data.customer_id is None and data.customer_name is None:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "customer_id or customer_name is required",
+                       [{"field": "customer_name", "issue": "required"}])
+    if data.customer_id is None:
+        data = data.model_copy(update={"customer_id": _customer_by_name(db, data.customer_name.strip())})
     if db.get(sales.Customer, data.customer_id) is None:
         raise AppError(ErrorCode.NOT_FOUND, "customer not found")
+    if data.order_number is None:
+        data = data.model_copy(update={"order_number": _next_order_number(db)})
     if db.scalar(select(sales.CustomerOrder.id).where(sales.CustomerOrder.order_number == data.order_number)):
         raise AppError(ErrorCode.CONFLICT, f"order number {data.order_number} already exists")
     for index, line in enumerate(data.lines):

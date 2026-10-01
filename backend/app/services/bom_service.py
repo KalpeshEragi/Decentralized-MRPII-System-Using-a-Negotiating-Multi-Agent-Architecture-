@@ -1,4 +1,4 @@
-"""BOM reads. Single-level BOM (P1-02): the active version of each parent item."""
+"""BOM and item reads. Single-level BOM (P1-02): the active version of each parent item."""
 
 import uuid
 from collections.abc import Iterable
@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.core import Bom, BomItem
-from app.schemas.domain import BOMLine
+from app.models.core import Item as ItemRow
+from app.schemas.domain import BOMLine, Item
 
 
 def get_bom(db: Session, parent_item_id: uuid.UUID) -> list[BOMLine]:
@@ -30,3 +31,9 @@ def get_bom(db: Session, parent_item_id: uuid.UUID) -> list[BOMLine]:
 
 def get_boms(db: Session, parent_item_ids: Iterable[uuid.UUID]) -> list[BOMLine]:
     return [line for parent in parent_item_ids for line in get_bom(db, parent)]
+
+
+def list_items(db: Session) -> list[Item]:
+    """All items (master data), finished products first."""
+    rows = db.scalars(select(ItemRow).order_by(ItemRow.item_type.desc(), ItemRow.name))
+    return [Item(id=str(r.id), sku=r.sku, name=r.name, item_type=r.item_type, unit=r.unit) for r in rows]

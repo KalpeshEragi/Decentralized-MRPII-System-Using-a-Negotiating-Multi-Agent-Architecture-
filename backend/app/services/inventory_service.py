@@ -47,6 +47,19 @@ def get_position(db: Session, item_id: uuid.UUID | str) -> InventoryPosition:
     )
 
 
+def reserved_for_orders(db: Session, order_ids: Iterable[uuid.UUID]) -> dict[str, Decimal]:
+    """ACTIVE reservations held by these orders, per item id (str)."""
+    ids = list(order_ids)
+    if not ids:
+        return {}
+    rows = db.execute(
+        select(InventoryReservation.item_id, func.sum(InventoryReservation.quantity))
+        .where(InventoryReservation.order_id.in_(ids), InventoryReservation.status == ACTIVE)
+        .group_by(InventoryReservation.item_id)
+    )
+    return {str(item_id): quantity for item_id, quantity in rows}
+
+
 def reserve(db: Session, item_id: uuid.UUID, order_id: uuid.UUID, quantity: Decimal) -> uuid.UUID:
     """Reserve stock for an order. Refused if it would exceed available_quantity (safety stock stays untouched)."""
     if quantity <= 0:
