@@ -16,5 +16,8 @@ sqlalchemy==2.1.1
 alembic==1.20.0
 psycopg[binary]==3.3.6
 
+# HTTP client used by scripts/a2a_spike_client.py (also installed with the A2A SDK)
+httpx==0.28.1
+
 # Tests
 pytest==9.1.1
