@@ -11,17 +11,17 @@ Business calculations stay deterministic; an LLM (local Ollama) only assists age
 | Path | Contents |
 | --- | --- |
 | `backend/` | FastAPI backend (Python). Scaffold and configuration only so far. |
-| `frontend/` | Next.js frontend. Not started (Phase 2). |
-| `docs/` | Shared contracts between the two developers and coordination records. |
-| `dev_docs/` | Finalized specifications, decisions, status, and the two-developer roadmap. |
+| `frontend/` | Next.js frontend. Not started (Phase 5). |
+| `docs/` | Contracts and the detailed decision record. |
+| `dev_docs/` | Finalized specifications, decisions, status, and the single-developer roadmap. |
 | `CLAUDE.md` | Rules for Claude Code sessions working on this repository. |
 
 ## Start here
 
-1. `dev_docs/implementation_25%/two_developer_roadmap.md` — phases, who does what, workflow.
+1. `dev_docs/implementation_25%/single_developer_roadmap.md` — phases, working rules, decisions still open.
 2. `dev_docs/DECISIONS.md` — confirmed decisions.
 3. `dev_docs/implementation_25%/system_spec.md` and `scenarios.md` — what the 25% milestone must do.
-4. `docs/contracts/` — shared data and interface contracts.
+4. `docs/contracts/` — data and interface contracts.
 
 ## Setup (current baseline)
 

@@ -1,9 +1,14 @@
-# Project Decisions
+# Project Decisions — Detailed Record
+
+Authoritative, detailed record of coordination decisions: Phase 0 items (P0-xx) and open Phase 1 prerequisites (P1-xx).
+`dev_docs/DECISIONS.md` is the project-level summary; where they differ, this file is corrected first and the summary follows.
+`scenarios.md` is not modified by any item.
 
 ## Decision Status
 
 Use these statuses:
 
+- UNRESOLVED (open; needs a decision)
 - PROPOSED
 - CONFIRMED
 - APPLIED
@@ -35,7 +40,7 @@ APPLIED
 
 ## P0-02 — Who initiates procurement negotiation
 
-**Status:** CONFIRMED
+**Status:** APPLIED
 
 **Problem:**  
 `system_spec.md` §2 shows Planning sending REQUEST to Purchasing. `dev_docs/DECISIONS.md` (finalized, newer) says the Inventory Agent detects the shortage and initiates negotiation with Purchasing over A2A, and Planning receives the result.
@@ -54,7 +59,7 @@ The Inventory Agent detects the shortage and initiates Inventory → Purchasing 
 - `dev_docs/implementation_25%/system_spec.md`
 
 **Implementation Status:**  
-IN_PROGRESS — `system_spec.md` note applied; C4 not yet drafted.
+APPLIED — `system_spec.md` §2 note, C4 §1 and §6, and the three `*_agent_architecture.md` docs (2026-09-30).
 
 ---
 
@@ -102,7 +107,7 @@ Make it nullable; set it only when the session reaches an end status.
 An open session has no completion time.
 
 **Affected Areas:**  
-- C2 — Database schema (Dev 2)
+- C2 — Database schema
 - `dev_docs/implementation_25%/database_schema.md`
 
 **Implementation Status:**  
@@ -128,7 +133,7 @@ Session lifecycle states were listed as message types, mixing two different conc
 
 **Affected Areas:**  
 - C4 — Negotiation protocol
-- C2 — Database schema (Dev 2)
+- C2 — Database schema
 - `dev_docs/implementation_25%/database_schema.md`
 
 **Implementation Status:**  
@@ -153,7 +158,7 @@ Make it nullable; if timeouts are adopted (D9), set it from the round/session de
 No rule defines the value while timeouts (D9) are undecided.
 
 **Affected Areas:**  
-- C2 — Database schema (Dev 2)
+- C2 — Database schema
 - C4 — Negotiation protocol
 - Roadmap D9
 - `dev_docs/implementation_25%/database_schema.md`
@@ -439,4 +444,235 @@ The roadmap and the repository disagreed on the branch name.
 - Roadmap D12
 
 **Implementation Status:**  
-APPLIED
+APPLIED. **Updated 2026-09-30:** with the switch to a single developer, branches are named `phase-N-topic`
+(single-developer roadmap §2); `master` stays the integration branch.
+
+---
+
+# Phase 1 Prerequisites
+
+Recorded 2026-09-30 from the Phase 0 integration review. Unless marked otherwise, none is decided here. Options come
+from the roadmap or existing documents and are listed without choosing. Each needs the developer's confirmation before
+the phase that depends on it starts (single-developer roadmap §5). References to D1–D13 use the numbering of the former
+two-developer roadmap §14.
+
+## P1-01 — D1 SmartPhone X1 fixture spec
+
+**Status:** PROPOSED (2026-09-30) — values proposed to the developer; not yet written to `docs/` or implemented
+
+**Problem:**
+Roadmap Phase 1 requires exact-number MRPII tests on the X1 fixture, and P0-10 requires one fixture spec in `docs/`.
+Missing values are listed in P0-10.
+
+**Needed by:** Phase 1 (`mrpii/` tests, `data/` fixtures); Phase 2 seed.
+
+## P1-02 — D2 BOM depth
+
+**Status:** CONFIRMED (2026-09-30)
+
+**Final Decision:**
+Single-level BOM for the 25% milestone: a finished product has one list of components with `quantity_per`; components
+have no BOM of their own. Multi-level BOM is out of scope.
+
+**Applied in:** C1 §3.2.
+
+## P1-03 — D3 minimal capacity check
+
+**Status:** CONFIRMED (2026-09-30)
+
+**Final Decision:**
+A minimal deterministic capacity check is in scope, using one `capacity_per_day` value per product (P0-14, fixture/config).
+Rule: an MPS entry is feasible only if `planned_quantity <= capacity_per_day × production_lead_time_days` (calendar days of
+the production window, `planned_start` to `planned_end`). Otherwise the plan validator reports `CAPACITY_EXCEEDED`.
+No machines, no scheduling, no optimization.
+
+**Applied in:** C1 §3.9, §3.10.
+
+## P1-04 — D9 AGREEMENT_PROPOSED / COMMIT and timeouts
+
+**Status:** CONFIRMED (2026-09-30), except the item marked PENDING
+
+**Final Decision:**
+- The **Purchasing Agent** sends `AGREEMENT_PROPOSED` (to the Inventory Agent, the session initiator) when an agreement with
+  the supplier is ready. The agreed terms are then validated deterministically (`negotiation_agreements.validated`).
+- `COMMIT` happens **only after the required human approval** of the plan that uses the agreement. Until then the session stays
+  `AGREEMENT_PROPOSED` and nothing is reserved or committed. `COMMIT` is an approval/lifecycle action, not an autonomous
+  negotiation decision: the application/approval workflow (sender type `APPROVAL_WORKFLOW`, not an agent) performs it after
+  human approval. Inventory and Purchasing must not commit an agreement themselves. Phase 1 represents the transition
+  (`COMMIT` valid only after `AGREEMENT_PROPOSED`, only from the approval workflow). The approval workflow itself, and what
+  happens to an uncommitted agreement when the plan is rejected, are defined in C8 (Phase 4) — **PENDING C8**.
+- **Timeouts (simple):** there are no timers, background jobs or automatic expiry in the 25% milestone. Negotiation is bounded
+  only by the 3-round limit, and planning by the 2-attempt limit. `negotiation_sessions.deadline` holds the shortage's
+  required-by date (the latest acceptable delivery), used for validation, not for expiry. `negotiation_offers.valid_until`
+  stays `NULL`. The `EXPIRED` status is not produced automatically in the 25% milestone.
+
+**Applied in:** C4 §3, §6, §7; C2 (column use).
+
+## P1-05 — C4 OfferTerms fields and envelope serialization
+
+**Status:** CONFIRMED (2026-09-30)
+
+**Final Decision:**
+`OfferTerms` has exactly `quantity`, `required_date`, `delivery_date` and `priority`. Not offer terms: `lead_time` (comes
+from supplier data; `delivery_date` is the negotiated commitment), `inventory_impact` (calculated by deterministic
+application logic) and price/cost (out of scope). The Phase 1 envelope is the model in
+`backend/app/schemas/negotiation.py`; carrying it inside an A2A message waits for the Phase 2 spike (D13).
+
+**Applied in:** C4 §4, §5; `schemas/negotiation.py`.
+
+## P1-06 — Planning ↔ Inventory allocation semantics
+
+**Status:** UNRESOLVED
+
+**Problem:**
+P0-02 decided Inventory → Purchasing initiation for shortages. `system_spec.md` §2 and the agent architecture docs also show
+Planning sending a REQUEST to Inventory for allocation. It is not decided whether that allocation exchange is a
+negotiation session (C4 messages, persisted in `negotiation.*`) or a direct availability/allocation request answered
+through the inventory service, nor how the two paths share one deterministic shortage figure.
+
+**Needed by:** C4 confirmation; Phase 3 agents. Not needed by the Phase 1 MRPII code.
+
+## P1-07 — Supplier interaction inside negotiation
+
+**Status:** CONFIRMED (2026-09-30), except supplier-message storage
+
+**Final Decision:**
+- One **round** = one Purchasing `OFFER` / `COUNTER_OFFER` to the supplier interface + the supplier's response.
+  Maximum 3 rounds ("Round N of 3").
+- The supplier responds through the structured form with `ACCEPT`, `COUNTER_OFFER` (quantity, delivery date, optional
+  message; no price) or `REJECT`.
+- **Supplier sender:** `SUPPLIER_INTERFACE` — the supplier form/service only. Supplier = data/service/interface; a Supplier
+  Agent is not part of the 25% implementation.
+- **Purchasing may `REJECT` early**, before the round limit, when it has no acceptable proposal. The supplier interface may
+  also send `REJECT`. Either produces session status `REJECTED`, which is terminal.
+- `REJECTED` = explicit participant rejection. `FAILED` = the 3-round limit was reached without agreement.
+- Planning receives the normalized outcome `FAILED` for both: the shortage stays unresolved and the plan is not updated.
+
+**Still UNRESOLVED:** how supplier-side messages are stored while `negotiation_messages` sender/receiver reference
+`agent.agents` (needed by Phase 2, migration 002).
+
+## P1-08 — Scope of "Phase 1"
+
+**Status:** CONFIRMED (2026-09-30)
+
+**Problem:**
+The former two-developer roadmap and C2 defined Phase 1 as the deterministic core with no database, while the Phase 0
+review request described Phase 1 as the database foundation.
+
+**Final Decision:**
+The project continues with one developer under `dev_docs/implementation_25%/single_developer_roadmap.md`. Phase 1 is the
+deterministic core (MRPII, pure negotiation protocol, LLM client) without a database; database, services and the A2A spike
+are Phase 2.
+
+## P1-09 — Finished-goods netting before the MPS
+
+**Status:** CONFIRMED (2026-09-30)
+
+**Final Decision:**
+- Planning flow: customer order → finished-goods netting → MPS → capacity → BOM → MRP. Available finished goods use
+  `max(0, on_hand - reserved - safety_stock)`; `net_production_requirement = max(0, order_quantity - available_finished_goods)`;
+  the MPS `planned_quantity` is that net quantity and capacity is checked against it.
+- **Same item on several lines of one order:** the lines share the available finished goods, in line order.
+- **Several orders:** each order is planned on its own against the finished-goods position it is given. Allocating one
+  finished-goods stock across several orders is not done in the 25% (the plan handles one order at a time).
+- **Order fully covered by finished goods:** no MPS entry, no capacity check, no MRP rows; the plan is `VALIDATED`.
+- The X1 baseline has no finished-goods stock, so it is unchanged (1,000 planned).
+
+**Applied in:** C1 §3.5a, §3.6, §3.11; `mrpii/mps.py`, `mrpii/plan.py`.
+
+## P2-01 — Phase 2 persistence decisions
+
+**Status:** CONFIRMED (2026-09-30)
+
+**Final Decision:**
+- **Dates (closes P0-16):** `planning.mps_plans.planned_start` / `planned_end`, `planning.mrp_requirements.required_by` and
+  `purchasing.purchase_requisitions.required_by` are `DATE` columns. Other TIMESTAMP columns are `timestamptz`.
+- **Production parameters (closes P0-11, P0-14):** production lead time and `capacity_per_day` are fixture/config values
+  (`app/data/x1_fixture.py`), not columns. No columns are added to `core.items`.
+- **Supplier-side messages (closes P1-07 storage):** `negotiation_messages.sender_agent_id` / `receiver_agent_id` are nullable and
+  `sender_type` / `receiver_type` (NOT NULL) are added. The supplier interface and the approval workflow have no `agent.agents` row.
+- **D7 / test isolation (closes the open part of P0-03):** Alembic covers the 25% tables only (24 tables). DB tests use a separate
+  `TEST_DATABASE_URL` (a second Neon database or branch), start each test from `reset_and_seed`, and skip when it is unset.
+- **Warehouses (P0-10):** inventory is one aggregated position per item (one warehouse in the fixture); services sum across warehouses.
+- **Scheduled receipts read path (closes P0-12):** committed `negotiation_agreements` (`committed = true`) joined to their session
+  objective (item id) give `ScheduledReceipt(item, agreed quantity, agreed delivery_date, source_ref = agreement id)`.
+  Uncommitted agreements never count.
+- **A2A spike (D13, part):** three endpoints of the official A2A SDK (JSON-RPC) in the same FastAPI app carry the C4 envelope as one
+  data part; the protocol validates and rejects, the transport decides nothing. `COMMIT` is refused over HTTP until C8.
+
+**Working values, not yet decided (flagged, easy to change):** `negotiation_type = SHORTAGE_PROCUREMENT`; participant roles
+`INITIATOR` / `RESPONDER`; offer statuses `PROPOSED`, `SUPERSEDED`, `ACCEPTED`, `REJECTED`; reservation statuses `ACTIVE` /
+`RELEASED`; audit `decision_type` values (C7) and which agent each audit row is attributed to; session `objective` = the C1
+`Shortage` JSON; placeholder SKUs, warehouse, demo customer and agent names in the seed.
+
+**Still open (Phase 3+):** whether the OpenAI Agents SDK, A2A and Ollama no-reasoning mode work together end to end (D13): the spike
+configures them but has not been run against a live Ollama; the C8 approval workflow; the content of the shortage-context message.
+
+## P3-01 — Phase 3 agent workflow: interim and working choices
+
+**Status:** PROPOSED (2026-09-30) — implemented in Phase 3, awaiting developer confirmation. Nothing here changes a
+confirmed contract; each item fills an open item with the smallest choice that keeps existing behaviour.
+
+- **Planning → Inventory (P1-06 stays UNRESOLVED):** interim in-process call (`InventoryAgent.assess_requirements`),
+  no negotiation session and no A2A endpoint for Planning. Inventory uses the shortages of the persisted plan
+  (same deterministic figures, P0-02). Covered requirements get an allocation proposal only; nothing is reserved.
+- **Shortage-context message (C4 open item):** the `REQUEST` carries the four `OfferTerms` (quantity = shortage,
+  required_date = required_by, priority) plus a one-line `payload.message`; the full context is the session
+  `objective` (C1 `Shortage`) already stored by `open_session`.
+- **Result to Inventory and Planning:** the message that moves a session to `AGREEMENT_PROPOSED`, `REJECTED` or
+  `FAILED` (whichever endpoint receives it) triggers Inventory's result handling, which passes the result to Planning
+  (`agents/workflow.py`, routing only). A supplier `REJECT` or the round-limit counter never reaches Inventory as a C4
+  message, so a routing notification is needed; it carries no decision.
+- **Round exhaustion:** after the round-3 supplier response, an unacceptable response is answered with the round-limit
+  `COUNTER_OFFER`, so the session ends `FAILED` (never `REJECTED`). Purchasing may `REJECT` earlier, or before round 1
+  when no supplier can cover the shortage alone.
+- **Split procurement:** one session has one supplier interface and `OfferTerms` has no supplier field, so a shortage
+  that no single supplier covers (S3 Display 800) is rejected by Purchasing. **Open for Phase 4** (S3/S4).
+- **LLM failure:** unusable or invalid LLM output is recorded (`LLM_PROPOSAL_REJECTED`, C7 rule 7) and the agent's own
+  deterministic policy decides (C5 §4: handled inside the agent). The runtime proposer is `OllamaClient`; the OpenAI
+  Agents SDK spike is not in the agents' path because D13 was never verified against a live Ollama. **To confirm.**
+- **C6 one row per agent:** the X1 baseline opens two sessions at once, so an agent's state describes the negotiation
+  (or order) it handled last; offer histories are rebuilt from `negotiation.*`, the dialogue history restarts.
+- **Requisitions:** one per session, id = uuid5(session id), created and updated only by Purchasing; statuses `OPEN`,
+  `AGREEMENT_PROPOSED`, `REJECTED`, `FAILED` (working values).
+- **Audit `decision_type` working values added:** `AVAILABILITY_ASSESSED` (Inventory), `REQUISITION_CREATED`,
+  `NEGOTIATION_DECISION` (Purchasing, with source LLM / POLICY and the rationale), `LLM_PROPOSAL_REJECTED`,
+  `NEGOTIATION_RESULT_RECEIVED` (Inventory and Planning). The Phase 2 protocol-fact records written by
+  `negotiation_service` stay; `NEGOTIATION_DECISION` adds how the agent decided.
+- **Phase 2 direct routes kept:** `POST /negotiations/{id}/messages` and `/supplier-responses` still store messages
+  without any agent reacting; agent-driven sessions use `/agents/...` and `/supplier-interface/...`. Whether to retire
+  the direct routes is open.
+
+## P4-01 — D8: what approve does (execute / commit)
+
+**Status:** PROPOSED (2026-09-30), implemented minimally in Phase 4. Works with C8 (DRAFT).
+Implemented order: agreements validated (approvable) → COMMIT → re-plan with committed receipts → Inventory reserves.
+Step 1 is checked through the agreements' deterministic validation before COMMIT; the re-plan result (expected
+`VALIDATED`) is returned, not used to refuse. Requisitions are not moved to `COMMITTED` (not in this cut).
+
+**Problem:**
+Human approval must "execute/commit" the plan, but nothing defines which state changes that means. C4 says COMMIT
+comes only from the approval workflow after approval; the Inventory architecture says reservation follows COMMIT;
+P0-12 says committed agreements are scheduled receipts.
+
+**Proposed decision (on approve of an approvable attempt, C8 §3, in this order):**
+1. **Final validation:** Planning re-runs the deterministic plan with the attempt's validated agreements as scheduled
+   receipts; if it is not `VALIDATED`, approve is refused (`BUSINESS_RULE_VIOLATION`) and nothing changes.
+2. **COMMIT:** the approval workflow (sender `APPROVAL_WORKFLOW`, not an agent) sends `COMMIT` for each
+   `AGREEMENT_PROPOSED` session of the attempt → sessions `COMMITTED`, agreements `committed = true` (they become
+   scheduled receipts, P0-12). Requisitions → `COMMITTED` (Purchasing updates its own records on the result).
+3. **Reservation:** the Inventory Agent, on the committed result, reserves the order's stock allocation through
+   `inventory_service.reserve`: per requirement `min(gross_requirement, available_quantity)` (never safety stock).
+4. **Plan:** attempt `APPROVED`; order status `PLANNED` stays (approval statuses are C8); audit `PLAN_APPROVED`
+   (decided_by HUMAN) plus the agents' own records. No purchase orders, no production execution (out of scope).
+
+Steps 2–4 run in one request; if a step fails after COMMIT, the failure is recorded and shown, and no automatic
+retry happens (no background jobs).
+
+**Consequence to handle in Phase 4:** after step 3 the order's own reservations reduce `available_quantity`, so a
+later re-plan of the same order must credit its own active reservations (otherwise shortages reappear). Option:
+`planning_service` adds back the order's ACTIVE reservations when netting that order. **Decide with C9 re-evaluation.**
+
+**Alternatives considered:** (a) COMMIT only, no reservation until production (simpler, but safety of the allocation
+is not protected against S6-type changes); (b) reserve before COMMIT (rejected: C4/P1-04 say nothing is reserved
+before approval).

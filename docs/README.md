@@ -1,15 +1,15 @@
 # docs
 
-Working documents shared by the two developers. Finalized specifications live in `dev_docs/`.
+Working project documents: contracts and the detailed decision record. Finalized specifications live in `dev_docs/`.
 
 | Folder | Contents |
 | --- | --- |
 | `contracts/` | Shared contracts (C1–C9): shapes and rules both developers build against. |
-| `decisions/` | Coordination items awaiting or recording a joint decision (e.g. Phase 0 items P0-xx). |
+| `DECISIONS.md` | Detailed, authoritative decision record: Phase 0 items (P0-xx) and open Phase 1 prerequisites (P1-xx). `dev_docs/DECISIONS.md` holds the project-level summary. |
 
 ## Folder README template
 
-Every meaningful folder has a concise `README.md` describing the **actual** code in it (roadmap Section 6).
+Every meaningful folder has a concise `README.md` describing the **actual** code in it (roadmap Section 3).
 Use this outline; drop sections that do not apply. Never describe code that does not exist yet.
 
 ```markdown
