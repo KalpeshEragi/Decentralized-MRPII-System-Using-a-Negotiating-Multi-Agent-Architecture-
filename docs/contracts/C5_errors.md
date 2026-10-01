@@ -1,10 +1,10 @@
 # C5 (part) — API Error Format
 
-**Status:** DRAFT · **Drafted by:** Dev 1 · **Reviewed by:** Dev 2 (pending)
+**Status:** CONFIRMED (2026-09-30)
 **Implemented in:** `backend/app/core/` (error type + FastAPI exception handlers), used by every router in `backend/app/api/`.
 
-This file defines only the **error format** shared by all HTTP APIs. Per-slice request/response
-models are drafted by each slice owner at the start of Phase 3 and added as separate C5 files.
+This file defines only the **error format** shared by all HTTP APIs. Per-router request/response
+models are written when each router is built (Phase 2 onward) and added as separate C5 files.
 A2A protocol errors are handled by the A2A SDK and are not covered here.
 
 ---
@@ -45,13 +45,13 @@ No stack traces, SQL, internal paths, raw LLM output or secrets in any field.
 | `SERVICE_UNAVAILABLE` | 503 | A dependency is unreachable (database, Ollama). |
 | `INTERNAL_ERROR` | 500 | Anything unexpected. Logged server-side with context. |
 
-Slice owners may add codes in their C5 files through a reviewed contract PR.
+New codes are added in the per-router C5 files through a contract change made before the code.
 
 ## 3. Results that are NOT errors
 
 These are normal outcomes, returned with `2xx` and their own response models:
 
-- A negotiation session ending `FAILED` (no agreement within 3 rounds).
+- A negotiation ending without agreement: session `REJECTED` (supplier `REJECT`) or `FAILED` (no agreement within 3 rounds); outcome `FAILED` for Planning.
 - A plan that fails deterministic validation (`PlanValidationResult.valid = false`, C1).
 - An MRP run that finds shortages.
 - An agent deciding `REJECT` or `COUNTER_OFFER`.

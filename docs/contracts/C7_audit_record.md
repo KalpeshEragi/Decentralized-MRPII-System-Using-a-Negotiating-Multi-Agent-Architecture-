@@ -2,11 +2,11 @@
 
 ## Status
 
-**Status:** DRAFT
+**Status:** CONFIRMED
 
-**Owner:** Dev 2
+**Owner:** Project developer
 
-**Reviewed By:** Pending (Dev 1)
+**Reviewed:** 2026-09-30 (see Review)
 
 ## Purpose
 
@@ -19,13 +19,13 @@ Defines the shape and rules of the audit records that capture agent decisions fo
 - What a rationale may contain.
 - Which outcomes must be visible through the audit trail.
 
-**Implemented in:** Phase 4 `backend/app/agents/base` (audit writer, paired), used by all agents; read by the Phase 7 decision-log API.
+**Implemented in:** Phase 2 audit service, Phase 3 `backend/app/agents/base` (audit writer), used by all agents; read by the Phase 5 decision-log page.
 
 ## Does Not Define
 
 - Negotiation messages, offers and agreements. These are protocol facts persisted in `negotiation.*` (C4).
 - Agent state (C6).
-- API response models of the decision-log API (C5, Phase 7).
+- API response models of the decision-log API (C5, Phase 5).
 - Table DDL (C2, `database_schema.md`).
 
 ## Specification
@@ -58,8 +58,17 @@ created_at         TIMESTAMP
 
 ### 3. Open Items
 
-- **PENDING:** the list of `decision_type` values.
+- **Working set in Phase 2 (`audit_service.DecisionType`, not final):** `ORDER_RECEIVED`, `PLAN_CREATED` (Planning agent); `SHORTAGE_DETECTED`, `NEGOTIATION_REQUEST`, `AGREEMENT_COMMITTED` (Inventory agent); `NEGOTIATION_MESSAGE`, `AGREEMENT_PROPOSED`, `NEGOTIATION_REJECTED`, `NEGOTIATION_FAILED` (Purchasing agent). `context` carries `order_id` / `item_id` / `negotiation_id`; `PLAN_CREATED.decision` also stores the parts of the plan snapshot that have no table (finished-goods netting, capacity checks, validation, planning date). Supplier-interface responses other than REJECT are not audited (not an agent decision). **PENDING:** the final list.
 - **PENDING:** JSON shapes of `context` and `decision`, including how they reference `order_id`, `negotiation_id` and `item_id`.
 - **PENDING:** how an invalid LLM output is recorded (its own `decision_type`, or part of the decision it affected).
 - **To confirm:** how human approval and rejection are recorded, since `agent_id` references `agent.agents` and the tester is not an agent (with C8).
 - **To confirm:** whether actions of non-agent components (Negotiation Engine, Scenario Manager) are audited here or only in their own tables.
+
+## Review
+
+**Result: CONFIRMED.** The record shape matches `database_schema.md` §10, and the rules (every agent decision recorded,
+own decisions only, append-only, concise rationale, written through a service, `FAILED` visible, invalid LLM output
+recorded without changing state, no cost/price) match `system_spec.md` and `dev_docs/DECISIONS.md`.
+The open items in §3 (`decision_type` values, `context`/`decision` JSON, recording of invalid LLM output, human approval
+recording with C8, non-agent components) stay **PENDING**; they are needed by Phase 3 (`agents/base`) and Phase 4 (C8),
+not by Phase 1.

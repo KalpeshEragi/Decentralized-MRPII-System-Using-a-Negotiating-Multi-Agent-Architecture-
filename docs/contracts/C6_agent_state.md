@@ -1,7 +1,7 @@
 # C6 — Agent State JSON Shapes
 
-**Status:** DRAFT · **Drafted by:** Dev 1 · **Reviewed by:** Dev 2 (pending)
-**Implemented in:** Phase 2 ORM for `agent.agent_state` (Dev 2, C2), Phase 4 `backend/app/agents/base` (paired).
+**Status:** CONFIRMED (2026-09-30) · `OfferTerms` fields follow C4 §5 (`quantity`, `required_date`, `delivery_date`, `priority`)
+**Implemented in:** Phase 2 ORM for `agent.agent_state` (C2), Phase 3 `backend/app/agents/base`.
 
 Defines the JSON stored in the `agent.agent_state` JSONB columns (`database_schema.md` §7) for the
 three 25% agents: `PRODUCTION_PLANNING_AGENT`, `INVENTORY_AGENT`, `PURCHASING_AGENT`.
@@ -14,7 +14,7 @@ data, plans, negotiation records) stays in its owning tables and services.
 ## 1. Rules
 
 1. **One owner.** Each row is read and written only by its own agent, through the agent state
-   service in `agents/base` (Phase 4). No agent reads or writes another agent's state.
+   service in `agents/base` (Phase 3). No agent reads or writes another agent's state.
 2. **No duplication of business tables.** Store references (`order_id`, `negotiation_id`, `item_id`)
    and the few numbers the agent negotiates with. Do not copy inventory balances, BOMs or supplier lists.
 3. **Validated before write.** LLM output is never written directly. It is parsed into a structured
@@ -22,7 +22,7 @@ data, plans, negotiation records) stays in its owning tables and services.
 4. **Concise rationale only.** `dialogue_history` stores short summaries, never chain-of-thought.
 5. **No cost/price** fields anywhere.
 6. **Bounded history.** Offer and dialogue histories cover the **current** negotiation only (at most
-   3 supplier rounds). Past sessions are read from `negotiation.*` tables, not kept here.
+   3 supplier rounds; one round = one Purchasing offer/counter-offer + the supplier response, C4 §7). Past sessions are read from `negotiation.*` tables, not kept here.
 7. **Not here:** the planning-attempt counter and approval state (**PENDING C8**; roadmap proposes the plan record).
 
 ## 2. Common field shapes
@@ -31,9 +31,9 @@ data, plans, negotiation records) stays in its owning tables and services.
 | --- | --- |
 | `current_goal` | `{ "goal_type": string, "description": string, "refs": Refs }` |
 | `current_task` | `{ "task_type": string, "status": "IDLE" \| "IN_PROGRESS" \| "WAITING" \| "DONE", "refs": Refs, "started_at": datetime \| null }` |
-| `preferred_terms` | C4 `OfferTerms` — **PENDING C4** |
+| `preferred_terms` | C4 `OfferTerms` |
 | `reserved_limits` | Agent-specific hard limits (§3). |
-| `initial_proposal` | C4 `OfferTerms` — **PENDING C4** — or `null`. |
+| `initial_proposal` | C4 `OfferTerms` — or `null`. |
 | `own_offer_history` | list of `OfferRecord` |
 | `opponent_offer_history` | list of `OfferRecord` |
 | `dialogue_history` | list of `DialogueEntry` |
@@ -54,8 +54,7 @@ Agent-specific policy items live inside `negotiation_rules.policy`, with no extr
 
 ## 3. Agent-specific content
 
-Terms fields below are written as they are expected to appear in C4; they are **PENDING C4** and
-will be renamed to C4's field names if they differ.
+Terms fields below use C4 §5 `OfferTerms` (`quantity`, `required_date`, `delivery_date`, `priority`).
 
 ### 3.1 Production Planning Agent
 
@@ -129,13 +128,13 @@ will be renamed to C4's field names if they differ.
   "own_offer_history": [
     { "negotiation_id": "6f1c0e2a-0000-4000-8000-000000000500",
       "message_id": "6f1c0e2a-0000-4000-8000-000000000601", "round": 1,
-      "message_type": "REQUEST", "terms": { "quantity": 50, "delivery_date": "2026-10-05" },
+      "message_type": "OFFER", "terms": { "quantity": 50, "delivery_date": "2026-10-05" },
       "at": "2026-10-01T09:05:00Z" }
   ],
   "opponent_offer_history": [
     { "negotiation_id": "6f1c0e2a-0000-4000-8000-000000000500",
       "message_id": "6f1c0e2a-0000-4000-8000-000000000602", "round": 1,
-      "message_type": "OFFER", "terms": { "quantity": 50, "delivery_date": "2026-10-09" },
+      "message_type": "COUNTER_OFFER", "terms": { "quantity": 50, "delivery_date": "2026-10-09" },
       "at": "2026-10-01T09:20:00Z" }
   ],
   "dialogue_history": [
@@ -156,5 +155,5 @@ All numbers and policy strings above are **illustrative**, not fixture values (D
 
 ## 4. Open items affecting C6
 
-C4 `OfferTerms` field names (Dev 2; message types are fixed by P0-05), C8 attempt counter,
-who sends `AGREEMENT_PROPOSED` / `COMMIT` (D9).
+C8 attempt counter and the approval workflow that sends `COMMIT`.
+`AGREEMENT_PROPOSED` is sent by Purchasing (P1-04).
