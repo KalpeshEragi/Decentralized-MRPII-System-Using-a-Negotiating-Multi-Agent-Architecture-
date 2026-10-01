@@ -1,17 +1,20 @@
-"""A2A transport spike (Phase 2): three A2A HTTP endpoints in this same FastAPI app that carry the C4 envelope.
+"""A2A endpoints: three A2A HTTP endpoints in this same FastAPI app that carry the C4 envelope (Phase 2 transport).
 
-    /a2a/inventory           receiver type INVENTORY
-    /a2a/purchasing          receiver type PURCHASING
+    /a2a/inventory           receiver type INVENTORY           -> Inventory Agent
+    /a2a/purchasing          receiver type PURCHASING          -> Purchasing Agent
     /a2a/supplier-interface  receiver type SUPPLIER_INTERFACE  (the supplier form/service, not an agent)
 
-Each is a JSON-RPC endpoint of the official A2A SDK. The client sends an A2A `SendMessage` whose message has one data
-part holding the C4 `NegotiationMessage`; the executor validates it with the Phase 1 protocol, persists it through
-`negotiation_service` and answers with one data part (the acknowledgement). The transport decides nothing: a message
-the protocol refuses is acknowledged with `accepted: false` and the error, and no state changes. There are no agents
-behind the endpoints yet (Phase 3), no auth, and COMMIT is refused until the approval workflow exists (C8).
+Each is a JSON-RPC endpoint of the official A2A SDK. The client (`app/core/a2a_client.py`) sends an A2A `SendMessage`
+whose message has one data part holding the C4 `NegotiationMessage`; the executor validates it with the protocol,
+persists it through `negotiation_service` and answers with one data part (the acknowledgement). A message the protocol
+refuses is acknowledged with `accepted: false` and the error, and nothing changes. An accepted message is then routed
+to the receiving agent (`app/agents/workflow.py`, Phase 3) before the acknowledgement is returned, so the whole
+exchange stays synchronous (no event bus, no background jobs). The transport decides nothing. No auth; COMMIT is
+refused until the approval workflow exists (C8).
 """
 
 import asyncio
+import logging
 import uuid
 
 from a2a.helpers.proto_helpers import get_data_parts, new_data_message
@@ -23,20 +26,25 @@ from a2a.server.tasks import InMemoryTaskStore
 from a2a.types import AgentCapabilities, AgentCard, AgentInterface, AgentSkill
 from fastapi import FastAPI
 
+from app.agents import workflow
 from app.api.negotiations import refuse_commit
+from app.core.a2a_client import PATHS
 from app.core.config import get_settings
 from app.core.database import new_session
 from app.core.errors import AppError, ErrorCode
 from app.negotiation.messages import parse_message
 from app.negotiation.protocol import ProtocolError
-from app.schemas.negotiation import AgentType
+from app.schemas.negotiation import AgentType, NegotiationMessage
 from app.services import negotiation_service
 
-ENDPOINTS = {
-    "/a2a/inventory": (AgentType.INVENTORY, "Inventory endpoint (spike)"),
-    "/a2a/purchasing": (AgentType.PURCHASING, "Purchasing endpoint (spike)"),
-    "/a2a/supplier-interface": (AgentType.SUPPLIER_INTERFACE, "Supplier interface endpoint (spike)"),
+logger = logging.getLogger(__name__)
+
+DESCRIPTIONS = {
+    AgentType.INVENTORY: "Inventory Agent endpoint",
+    AgentType.PURCHASING: "Purchasing Agent endpoint",
+    AgentType.SUPPLIER_INTERFACE: "Supplier interface endpoint (the supplier form/service, not an agent)",
 }
+ENDPOINTS = {path: (receiver_type, DESCRIPTIONS[receiver_type]) for receiver_type, path in PATHS.items()}
 
 
 def _refusal(code: str, message: str, details: list[dict] | None = None) -> dict:
@@ -79,6 +87,23 @@ def deliver(receiver_type: AgentType, data: object) -> dict:
     }
 
 
+def receive(receiver_type: AgentType, data: object) -> dict:
+    """Deliver the envelope; if it was accepted, let the receiving agent react before acknowledging (Phase 3)."""
+    ack = deliver(receiver_type, data)
+    if not ack["accepted"]:
+        return ack
+    db = new_session()
+    try:
+        workflow.after_delivery(db, receiver_type, NegotiationMessage.model_validate(data), ack)
+    except Exception:  # the message itself is stored; report that the reaction did not complete, without internals
+        logger.exception("agent reaction to an accepted A2A message failed")
+        db.rollback()
+        ack = {**ack, "reaction_error": "the receiving agent could not complete its reaction; see the server log"}
+    finally:
+        db.close()
+    return ack
+
+
 class EnvelopeExecutor(AgentExecutor):
     """Receives the C4 envelope for one receiver type. Contains no negotiation logic."""
 
@@ -87,7 +112,7 @@ class EnvelopeExecutor(AgentExecutor):
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         parts = get_data_parts(context.message.parts) if context.message else []
-        ack = await asyncio.to_thread(deliver, self.receiver_type, parts[0] if parts else None)
+        ack = await asyncio.to_thread(receive, self.receiver_type, parts[0] if parts else None)
         await event_queue.enqueue_event(new_data_message(ack))
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
