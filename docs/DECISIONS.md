@@ -607,3 +607,72 @@ are Phase 2.
 
 **Still open (Phase 3+):** whether the OpenAI Agents SDK, A2A and Ollama no-reasoning mode work together end to end (D13): the spike
 configures them but has not been run against a live Ollama; the C8 approval workflow; the content of the shortage-context message.
+
+## P3-01 — Phase 3 agent workflow: interim and working choices
+
+**Status:** PROPOSED (2026-09-30) — implemented in Phase 3, awaiting developer confirmation. Nothing here changes a
+confirmed contract; each item fills an open item with the smallest choice that keeps existing behaviour.
+
+- **Planning → Inventory (P1-06 stays UNRESOLVED):** interim in-process call (`InventoryAgent.assess_requirements`),
+  no negotiation session and no A2A endpoint for Planning. Inventory uses the shortages of the persisted plan
+  (same deterministic figures, P0-02). Covered requirements get an allocation proposal only; nothing is reserved.
+- **Shortage-context message (C4 open item):** the `REQUEST` carries the four `OfferTerms` (quantity = shortage,
+  required_date = required_by, priority) plus a one-line `payload.message`; the full context is the session
+  `objective` (C1 `Shortage`) already stored by `open_session`.
+- **Result to Inventory and Planning:** the message that moves a session to `AGREEMENT_PROPOSED`, `REJECTED` or
+  `FAILED` (whichever endpoint receives it) triggers Inventory's result handling, which passes the result to Planning
+  (`agents/workflow.py`, routing only). A supplier `REJECT` or the round-limit counter never reaches Inventory as a C4
+  message, so a routing notification is needed; it carries no decision.
+- **Round exhaustion:** after the round-3 supplier response, an unacceptable response is answered with the round-limit
+  `COUNTER_OFFER`, so the session ends `FAILED` (never `REJECTED`). Purchasing may `REJECT` earlier, or before round 1
+  when no supplier can cover the shortage alone.
+- **Split procurement:** one session has one supplier interface and `OfferTerms` has no supplier field, so a shortage
+  that no single supplier covers (S3 Display 800) is rejected by Purchasing. **Open for Phase 4** (S3/S4).
+- **LLM failure:** unusable or invalid LLM output is recorded (`LLM_PROPOSAL_REJECTED`, C7 rule 7) and the agent's own
+  deterministic policy decides (C5 §4: handled inside the agent). The runtime proposer is `OllamaClient`; the OpenAI
+  Agents SDK spike is not in the agents' path because D13 was never verified against a live Ollama. **To confirm.**
+- **C6 one row per agent:** the X1 baseline opens two sessions at once, so an agent's state describes the negotiation
+  (or order) it handled last; offer histories are rebuilt from `negotiation.*`, the dialogue history restarts.
+- **Requisitions:** one per session, id = uuid5(session id), created and updated only by Purchasing; statuses `OPEN`,
+  `AGREEMENT_PROPOSED`, `REJECTED`, `FAILED` (working values).
+- **Audit `decision_type` working values added:** `AVAILABILITY_ASSESSED` (Inventory), `REQUISITION_CREATED`,
+  `NEGOTIATION_DECISION` (Purchasing, with source LLM / POLICY and the rationale), `LLM_PROPOSAL_REJECTED`,
+  `NEGOTIATION_RESULT_RECEIVED` (Inventory and Planning). The Phase 2 protocol-fact records written by
+  `negotiation_service` stay; `NEGOTIATION_DECISION` adds how the agent decided.
+- **Phase 2 direct routes kept:** `POST /negotiations/{id}/messages` and `/supplier-responses` still store messages
+  without any agent reacting; agent-driven sessions use `/agents/...` and `/supplier-interface/...`. Whether to retire
+  the direct routes is open.
+
+## P4-01 — D8: what approve does (execute / commit)
+
+**Status:** PROPOSED (2026-09-30), implemented minimally in Phase 4. Works with C8 (DRAFT).
+Implemented order: agreements validated (approvable) → COMMIT → re-plan with committed receipts → Inventory reserves.
+Step 1 is checked through the agreements' deterministic validation before COMMIT; the re-plan result (expected
+`VALIDATED`) is returned, not used to refuse. Requisitions are not moved to `COMMITTED` (not in this cut).
+
+**Problem:**
+Human approval must "execute/commit" the plan, but nothing defines which state changes that means. C4 says COMMIT
+comes only from the approval workflow after approval; the Inventory architecture says reservation follows COMMIT;
+P0-12 says committed agreements are scheduled receipts.
+
+**Proposed decision (on approve of an approvable attempt, C8 §3, in this order):**
+1. **Final validation:** Planning re-runs the deterministic plan with the attempt's validated agreements as scheduled
+   receipts; if it is not `VALIDATED`, approve is refused (`BUSINESS_RULE_VIOLATION`) and nothing changes.
+2. **COMMIT:** the approval workflow (sender `APPROVAL_WORKFLOW`, not an agent) sends `COMMIT` for each
+   `AGREEMENT_PROPOSED` session of the attempt → sessions `COMMITTED`, agreements `committed = true` (they become
+   scheduled receipts, P0-12). Requisitions → `COMMITTED` (Purchasing updates its own records on the result).
+3. **Reservation:** the Inventory Agent, on the committed result, reserves the order's stock allocation through
+   `inventory_service.reserve`: per requirement `min(gross_requirement, available_quantity)` (never safety stock).
+4. **Plan:** attempt `APPROVED`; order status `PLANNED` stays (approval statuses are C8); audit `PLAN_APPROVED`
+   (decided_by HUMAN) plus the agents' own records. No purchase orders, no production execution (out of scope).
+
+Steps 2–4 run in one request; if a step fails after COMMIT, the failure is recorded and shown, and no automatic
+retry happens (no background jobs).
+
+**Consequence to handle in Phase 4:** after step 3 the order's own reservations reduce `available_quantity`, so a
+later re-plan of the same order must credit its own active reservations (otherwise shortages reappear). Option:
+`planning_service` adds back the order's ACTIVE reservations when netting that order. **Decide with C9 re-evaluation.**
+
+**Alternatives considered:** (a) COMMIT only, no reservation until production (simpler, but safety of the allocation
+is not protected against S6-type changes); (b) reserve before COMMIT (rejected: C4/P1-04 say nothing is reserved
+before approval).
