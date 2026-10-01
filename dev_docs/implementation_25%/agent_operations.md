@@ -40,6 +40,7 @@ The Production Planning Agent owns the production plan and material requirements
 - Directly manipulate database tables
 
 ## What the agent knows
+```text
 Customer Order
 ├── Product
 ├── Quantity
@@ -61,10 +62,12 @@ Other-agent responses
 ├── Inventory availability
 ├── Procurement offers
 └── Negotiation results
+```
 
 It doesn't need the entire inventory database or supplier database. It asks other agents through tools/interfaces.
 
 ## What stays INSIDE the agent
+```text
 ProductionPlanningAgent
 │
 ├── current_goal
@@ -84,9 +87,10 @@ ProductionPlanningAgent
 ├── negotiation_rules
 │
 └── decision_context
+```
 
 ## Example:
-
+```text
 {
   "current_goal": "Fulfill order by due date",
   "preferred_terms": {
@@ -98,6 +102,7 @@ ProductionPlanningAgent
   },
   "priority_policy": "minimize production delay"
 }
+```
 
 ### NOTE: 
 The MRP calculation itself should NOT live inside the LLM/agent reasoning. Put it in a deterministic mrp_service.
@@ -138,6 +143,7 @@ The Inventory Agent owns material availability and allocation decisions.
 - Modify another agent's state
 
 ## What the agent knows
+```text
 Inventory
 ├── On-hand quantity
 ├── Reserved quantity
@@ -155,6 +161,7 @@ Negotiation context
 ├── Required-by date
 ├── Other agent's offers
 └── Current negotiation status
+```
 
 For example:
 On hand     = 180
@@ -168,6 +175,7 @@ Available  = 180 - 40 - 40
 The calculation can be implemented in an inventory_service; the agent uses the result to make an allocation/negotiation decision.
 
 ## What stays INSIDE the agent
+```text
 InventoryAgent
 │
 ├── current_goal
@@ -189,6 +197,7 @@ InventoryAgent
 ├── opponent_offer_history
 ├── dialogue_history
 └── negotiation_rules
+```
 
 ## Example internal decision:
 
@@ -239,6 +248,7 @@ For your 25% demo, the "supplier" can initially be a simulated supplier service/
 - Directly manipulate unrelated database tables
 
 ## What the agent knows
+```text
 Procurement Requirement
 ├── Item
 ├── Quantity
@@ -257,6 +267,7 @@ Negotiation
 ├── Counter-offers
 ├── Current agreement
 └── Deadline
+```
 
 ## Example:
 
@@ -275,6 +286,7 @@ Qty = 100
 The Purchasing Agent evaluates this according to its own objective/constraints.
 
 ## What stays INSIDE the agent
+```text
 PurchasingAgent
 │
 ├── current_goal
@@ -295,9 +307,10 @@ PurchasingAgent
 ├── opponent_offer_history
 ├── dialogue_history
 └── negotiation_rules
+```
 
 ## Example:
-
+```text
 {
   "preferred_terms": {
     "quantity": 100,
@@ -307,3 +320,4 @@ PurchasingAgent
     "latest_delivery": "2026-10-07"
   }
 }
+```
