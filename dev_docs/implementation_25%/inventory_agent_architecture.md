@@ -36,17 +36,17 @@ Simulation Disruption → Re-evaluate + Reallocate → Revised Material Allocati
 ```
 
 # 4 . Tools / Services
-get_inventory_balance(...)
-get_inventory_reservations(...)
-calculate_available_quantity(...)
-get_safety_stock(...)
-get_inventory_constraints(...)
-propose_allocation(...)
-reserve_inventory(...)
-release_inventory(...)
-start_negotiation(...)
-validate_allocation(...)
-apply_allocation(...)
+- get_inventory_balance(...)
+- get_inventory_reservations(...)
+- calculate_available_quantity(...)
+- get_safety_stock(...)
+- get_inventory_constraints(...)
+- propose_allocation(...)
+- reserve_inventory(...)
+- release_inventory(...)
+- start_negotiation(...)
+- validate_allocation(...)
+- apply_allocation(...)
 
 How Planning's allocation request reaches this agent (plain service request or negotiation session) is open: P1-06 in `docs/DECISIONS.md`.
 
