@@ -1,6 +1,6 @@
 # C1 — Domain Data Shapes and Enums
 
-**Status:** DRAFT · **Drafted by:** Dev 1 · **Reviewed by:** Dev 2 (pending)
+**Status:** CONFIRMED (2026-09-30) · open items stay **PENDING**
 **Implemented in (Phase 1):** `backend/app/schemas/domain.py` (Pydantic), used by `backend/app/mrpii/`.
 
 This contract defines the in-memory shapes that the deterministic MRPII core consumes and
@@ -10,7 +10,7 @@ It does **not** define database tables (C2), negotiation messages or offer terms
 API request/response models (C5), agent state (C6) or approval state (C8).
 
 Items marked **PENDING** must not be guessed during implementation. See
-`docs/decisions/phase0_coordination.md` for each referenced item (`P0-xx`).
+`docs/DECISIONS.md` for each referenced item (`P0-xx`, `P1-xx`).
 
 ---
 
@@ -30,7 +30,7 @@ Items marked **PENDING** must not be guessed during implementation. See
 | Enum | Values | Notes |
 | --- | --- | --- |
 | `ItemType` | `FINISHED_PRODUCT`, `COMPONENT`, `RAW_MATERIAL` | From `core.items.item_type`. |
-| `OrderStatus` | `NEW`, `PLANNING`, `PLANNED` | Approval-related statuses (approved, rejected, human intervention) are **PENDING C8** (Phase 5). |
+| `OrderStatus` | `NEW`, `PLANNING`, `PLANNED` | Approval-related statuses (approved, rejected, human intervention) are **PENDING C8** (Phase 4). |
 | `PlanStatus` | `DRAFT`, `SHORTAGE`, `VALIDATED`, `INVALID` | `DRAFT` = computed, not yet validated. `SHORTAGE` = at least one unresolved shortage. Approval states (`AWAITING_APPROVAL`, `APPROVED`, `REJECTED`, `SUPERSEDED`) are **PENDING C8 / D8**. |
 | `RequirementStatus` | `COVERED`, `SHORTAGE`, `PROCUREMENT_AGREED`, `PROCUREMENT_FAILED` | The last two record the negotiation result (agreement or `FAILED`, C4). After `FAILED` the requirement stays unresolved. |
 | `ViolationCode` | see §3.9 | |
@@ -51,7 +51,7 @@ Items marked **PENDING** must not be guessed during implementation. See
 
 ### 3.2 BOMLine
 
-Single-level BOM (**PENDING D2**, recommended). One line per component of a finished product.
+Single-level BOM (P1-02, confirmed). One line per component of a finished product; components have no BOM of their own.
 
 ```json
 {
@@ -116,6 +116,26 @@ Incoming material that is committed but not yet on hand. Used only for projected
 Source (P0-12): committed negotiation agreements (agreed quantity and delivery date);
 `source_ref` is the agreement ID. Purchase orders are out of scope. The read path is defined in C2/C4.
 
+### 3.5a FinishedGoodsNetting
+
+Planning order (P1-09): **customer order → finished-goods netting → MPS → capacity → BOM → MRP**. Finished goods are the
+`InventoryPosition` of the finished product, with the same rule `available_finished_goods = max(0, on_hand - reserved - safety_stock)`.
+Component inventory is not used here; it is used later by MRP.
+
+```json
+{
+  "order_id": "6f1c0e2a-0000-4000-8000-000000000100",
+  "item_id": "6f1c0e2a-0000-4000-8000-000000000010",
+  "order_quantity": 100,
+  "available_finished_goods": 50,
+  "net_production_requirement": 50
+}
+```
+
+`net_production_requirement = max(0, order_quantity - available_finished_goods)`. One row per order line.
+Lines of the same item in one order share the available finished goods in line order. One order is netted at a time;
+finished goods are not allocated across orders in the 25% (P1-09).
+
 ### 3.6 MPSEntry
 
 ```json
@@ -131,8 +151,11 @@ Source (P0-12): committed negotiation agreements (agreed quantity and delivery d
 ```
 
 Rules:
-- One entry per order line (order traceability via `order_id`). Entries are not merged across orders.
-- `planned_end <= order.due_date`; `priority` is copied from the order.
+- One entry per order line **with `net_production_requirement > 0`** (order traceability via `order_id`). Entries are not
+  merged across orders. `planned_quantity = net_production_requirement`, so it can be lower than the order line quantity.
+- A line fully covered by finished goods gets **no** MPS entry, no capacity check and no MRP rows. If every line is
+  covered, the plan has no MPS or requirements and is `VALIDATED` (P1-09).
+- Backward scheduling: `planned_end = order.due_date`; `priority` is copied from the order.
 - `planned_start = planned_end - production lead time`. The production lead time is a per-product
   value (P0-11); its storage is chosen in C2 and its value comes from the D1 fixture (**PENDING D1**).
 
@@ -175,7 +198,7 @@ and projected quantity before the next. **Proposed**, to be confirmed in review.
 ### 3.8 Shortage
 
 Derived from every requirement with `net_requirement > 0`. It is the deterministic basis of the
-shortage context that later travels in negotiation (the message content itself is C4 / Phase 4).
+shortage context that later travels in negotiation (the message content itself is C4 / Phase 3).
 
 ```json
 {
@@ -196,16 +219,26 @@ Delivery date / lead time come from supplier data and offers (C3, C4).
 
 ### 3.9 CapacityCheck (minimal)
 
-**PENDING D3** (whether the minimal check is in scope). If it is, `capacity_per_day` is one value per
-product from the fixture/config, with no `production.*` tables (P0-14).
+In scope (P1-03, confirmed). `capacity_per_day` is one value per product from the fixture/config, with no
+`production.*` tables (P0-14). No scheduling or optimization.
+
+```
+working_days     = production lead time in calendar days (planned_start → planned_end)
+required_days    = ceil(required_quantity / capacity_per_day)   # required_quantity = MPS planned_quantity (net)
+max_quantity     = capacity_per_day * working_days
+feasible         = required_days <= working_days   # equivalent to required_quantity <= max_quantity
+```
 
 ```json
 {
+  "mps_entry_id": "6f1c0e2a-0000-4000-8000-000000000400",
   "item_id": "6f1c0e2a-0000-4000-8000-000000000010",
   "required_quantity": 100,
-  "capacity_per_day": null,
-  "working_days": null,
-  "feasible": null
+  "capacity_per_day": 20,
+  "required_days": 5,
+  "working_days": 6,
+  "max_quantity": 120,
+  "feasible": true
 }
 ```
 
@@ -235,7 +268,7 @@ Output of the deterministic plan validator. A failed validation is a **normal re
 | `OVER_ALLOCATION` | Plan consumes more than `available_quantity` + eligible receipts. |
 | `SAFETY_STOCK_VIOLATION` | Plan would consume safety stock. |
 | `INVALID_QUANTITY` | A quantity is negative or zero where positive is required. |
-| `CAPACITY_EXCEEDED` | **PENDING D3.** |
+| `CAPACITY_EXCEEDED` | An MPS entry's `planned_quantity` exceeds its `CapacityCheck.max_quantity` (§3.9). |
 
 ### 3.11 PlanSnapshot
 
@@ -246,9 +279,11 @@ The aggregate the MRPII core returns for one order.
   "order_id": "6f1c0e2a-0000-4000-8000-000000000100",
   "planning_date": "2026-10-01",
   "status": "SHORTAGE",
+  "finished_goods": ["<FinishedGoodsNetting>"],
   "mps": ["<MPSEntry>"],
   "requirements": ["<MaterialRequirement>"],
   "shortages": ["<Shortage>"],
+  "capacity_checks": ["<CapacityCheck>"],
   "validation": "<PlanValidationResult>"
 }
 ```
@@ -267,6 +302,7 @@ The real SmartPhone X1 fixture is **PENDING D1 / P0-10**.
 
 ## 5. Open items affecting C1
 
-Still open: D1 fixture values (P0-10), D2 (BOM depth), D3 (capacity check in scope),
+Still open: D1 fixture values and warehouse aggregation (P0-10 / P1-01),
 C2 storage choices for P0-11 and P0-16, C8 approval states.
-Confirmed and applied here: P0-11, P0-12, P0-13, P0-14, P0-15, P0-16 (see `dev_docs/DECISIONS.md`).
+Confirmed and applied here: P0-11, P0-12, P0-13, P0-14, P0-15, P0-16, P1-02 (single-level BOM), P1-03 (capacity check)
+(see `docs/DECISIONS.md`).
