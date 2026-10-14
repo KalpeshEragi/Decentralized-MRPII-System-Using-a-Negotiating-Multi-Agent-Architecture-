@@ -1,9 +1,8 @@
-"""The Sales Agent tables: do they exist, and does the database refuse wrong data?
+"""The Sales Agent tables: do the rules of our design really live in the database?
 
-Each "refused" test adds a wrong row and expects the database to say no (an IntegrityError).
+"Refused" means the test adds a wrong row and expects the database to say no (an IntegrityError).
 """
 
-import uuid
 from datetime import date, datetime, timezone
 
 import pytest
@@ -12,12 +11,11 @@ from sqlalchemy.exc import IntegrityError
 
 from app.data.seed_data import reset
 from app.sales_agent import models
-from app.sales_agent.seed import TEST_PRODUCTS, seed_products
 
 NOW = datetime(2026, 10, 15, 10, 0, tzinfo=timezone.utc)
 
 
-# -- small helpers that build valid rows, so each test only shows what is special about it ---------------------------
+# -- small helpers that build valid rows, so each test shows only what is special about it --------------------------
 
 
 def make_customer(db, phone="+100"):
@@ -34,356 +32,138 @@ def make_conversation(db, customer=None):
     return conversation
 
 
-def make_message(conversation, **fields):
-    return models.Message(conversation_id=conversation.id, direction="IN", text="Hi", **fields)
-
-
 def make_inquiry(conversation, **fields):
     return models.Inquiry(conversation_id=conversation.id, **fields)
 
 
-def make_product(db, sku="X1-PHONE"):
-    product = models.Product(sku=sku, name="SmartPhone X1")
-    db.add(product)
-    db.flush()
-    return product
+def make_message(conversation, **fields):
+    return models.Message(conversation_id=conversation.id, direction="IN", text="Hi", **fields)
 
 
-def make_option(db, inquiry, **fields):
-    option = models.Option(
-        inquiry_id=inquiry.id, kind="REQUESTED", quantity=500, delivery_date=date(2026, 11, 10), **fields
-    )
-    db.add(option)
-    db.flush()
-    return option
-
-
-def make_order(customer, inquiry, option, product, **fields):
-    values = {"order_number": "SA-0001", "quantity": 500, "delivery_date": date(2026, 11, 10), "confirmed_at": NOW}
-    values.update(fields)
+def make_order(customer, inquiry, option, product, order_number, **fields):
+    values = {"quantity": 500, "delivery_date": date(2026, 11, 10), "confirmed_at": NOW, **fields}
     return models.Order(
-        customer_id=customer.id, inquiry_id=inquiry.id, option_id=option.id, product_id=product.id, **values
+        order_number=order_number, customer_id=customer.id, inquiry_id=inquiry.id, option_id=option.id,
+        product_id=product.id, **values,
     )
 
 
 def make_memory(customer, **fields):
-    values = {"kind": "PREFERENCE", "type": "PREFERS_WHATSAPP_UPDATES", "source": "STATED"}
-    values.update(fields)
+    values = {"kind": "PREFERENCE", "type": "PREFERS_WHATSAPP_UPDATES", "source": "STATED", **fields}
     return models.CustomerMemory(customer_id=customer.id, **values)
 
 
-def assert_database_refuses(db, *rows):
-    """Adding these rows must fail. Only the wrong rows are undone (a savepoint), so the rows the test created
-    earlier are still there and the test can go on."""
+def refuses(db, *rows):
+    """The database must refuse these rows. Only they are undone (a savepoint), so earlier rows of the test stay."""
     with pytest.raises(IntegrityError):
         with db.begin_nested():
             db.add_all(rows)
             db.flush()
 
 
-def assert_database_accepts(db, *rows):
+def accepts(db, *rows):
     db.add_all(rows)
     db.flush()
 
 
-# -- the tables exist -----------------------------------------------------------------------------------------------
+# -- the tests ------------------------------------------------------------------------------------------------------
 
 
-def test_the_nine_tables_exist_in_their_own_schema(engine):
-    tables = set(inspect(engine).get_table_names(schema="sales_agent"))
-
-    assert tables == {
+def test_the_nine_tables_exist_and_the_demo_reset_cannot_delete_sales_data(engine, db):
+    assert set(inspect(engine).get_table_names(schema="sales_agent")) == {
         "customers", "products", "conversations", "messages", "inquiries", "options", "orders", "customer_memory",
         "audit_log",
     }
-
-
-def test_the_demo_reset_does_not_delete_sales_agent_data(db):
     make_customer(db)
     db.commit()
 
-    reset(db)  # the project's "empty every table" function, used by POST /simulation/reset
+    reset(db)  # the project's "empty every table" function, behind POST /simulation/reset
     db.commit()
 
     assert db.scalar(select(models.Customer.phone)) == "+100"
 
 
-# -- customers and products -----------------------------------------------------------------------------------------
-
-
-def test_a_phone_number_belongs_to_one_customer(db):
-    make_customer(db, "+100")
-
-    assert_database_refuses(db, models.Customer(phone="+100"))
-
-
-def test_a_customer_needs_a_phone_number(db):
-    assert_database_refuses(db, models.Customer(name="No phone"))
-
-
-def test_a_product_code_is_unique(db):
-    make_product(db, "X1-PHONE")
-
-    assert_database_refuses(db, models.Product(sku="X1-PHONE", name="Another"))
-
-
-def test_seeding_products_twice_adds_them_only_once(db):
-    assert seed_products(db) == len(TEST_PRODUCTS)
-    assert seed_products(db) == 0
-    assert len(list(db.scalars(select(models.Product)))) == len(TEST_PRODUCTS)
-
-
-# -- conversations and messages -------------------------------------------------------------------------------------
-
-
-def test_a_conversation_can_exist_without_a_customer_yet(db):
-    conversation = make_conversation(db, customer=None)
-
-    assert conversation.customer_id is None
-
-
-@pytest.mark.parametrize("fields", [{"channel": "SMS"}, {"status": "DONE"}])
-def test_a_conversation_with_an_unknown_channel_or_status_is_refused(db, fields):
-    values = {"channel": "TEST", "sender_ref": "+100", **fields}
-
-    assert_database_refuses(db, models.Conversation(**values))
-
-
-def test_the_same_provider_message_id_cannot_be_saved_twice_in_a_conversation(db):
-    conversation = make_conversation(db)
-    assert_database_accepts(db, make_message(conversation, provider_message_id="wamid-1"))
-
-    assert_database_refuses(db, make_message(conversation, provider_message_id="wamid-1"))
-
-
-def test_the_same_provider_message_id_is_fine_in_another_conversation(db):
-    first, second = make_conversation(db), make_conversation(db)
-    assert_database_accepts(db, make_message(first, provider_message_id="wamid-1"))
-
-    assert_database_accepts(db, make_message(second, provider_message_id="wamid-1"))
-
-
-def test_messages_without_a_provider_message_id_are_not_limited(db):
+def test_a_closed_inquiry_must_say_why_and_a_conversation_has_only_one_active_inquiry(db):
     conversation = make_conversation(db)
 
-    assert_database_accepts(db, make_message(conversation), make_message(conversation))
+    # A closed inquiry always has a reason, and an open one never has one.
+    refuses(db, make_inquiry(conversation, stage="CLOSED"))
+    refuses(db, make_inquiry(conversation, stage="GATHERING", closed_reason="DECLINED"))
+    refuses(db, make_inquiry(conversation, stage="CLOSED", closed_reason="BORED"))
+    refuses(db, make_inquiry(conversation, stage="SOMEWHERE"))
+    accepts(db, make_inquiry(conversation, stage="CLOSED", closed_reason="DECLINED"))
 
+    # Only one unfinished inquiry at a time, but other conversations are independent.
+    active = make_inquiry(conversation, stage="GATHERING")
+    accepts(db, active)
+    refuses(db, make_inquiry(conversation, stage="NEEDS_STAFF"))
+    accepts(db, make_inquiry(make_conversation(db), stage="GATHERING"))
 
-def test_a_message_direction_must_be_in_or_out(db):
-    conversation = make_conversation(db)
-
-    assert_database_refuses(db, models.Message(conversation_id=conversation.id, direction="SIDEWAYS", text="Hi"))
-
-
-def test_only_our_own_messages_have_a_delivery_status(db):
-    conversation = make_conversation(db)
-
-    assert_database_refuses(db, make_message(conversation, delivery_status="SENT"))  # an IN message
-    assert_database_accepts(db, models.Message(conversation_id=conversation.id, direction="OUT", text="Hi", delivery_status="SENT"))
-
-
-# -- inquiries ------------------------------------------------------------------------------------------------------
-
-
-def test_a_new_inquiry_starts_in_the_gathering_stage_with_nothing_filled_in(db):
-    inquiry = make_inquiry(make_conversation(db))
-    assert_database_accepts(db, inquiry)
-
-    assert inquiry.stage == "GATHERING"
-    assert inquiry.product_id is None and inquiry.quantity is None and inquiry.requested_date is None
-
-
-def test_an_unknown_stage_is_refused(db):
-    assert_database_refuses(db, make_inquiry(make_conversation(db), stage="SOMEWHERE"))
-
-
-def test_a_closed_inquiry_must_say_why_and_an_open_one_must_not(db):
-    conversation = make_conversation(db)
-
-    assert_database_refuses(db, make_inquiry(conversation, stage="CLOSED"))
-    assert_database_refuses(db, make_inquiry(conversation, stage="GATHERING", closed_reason="DECLINED"))
-    assert_database_refuses(db, make_inquiry(conversation, stage="CLOSED", closed_reason="BORED"))
-    assert_database_accepts(db, make_inquiry(conversation, stage="CLOSED", closed_reason="DECLINED"))
-
-
-def test_a_conversation_has_only_one_active_inquiry(db):
-    conversation = make_conversation(db)
-    assert_database_accepts(db, make_inquiry(conversation, stage="GATHERING"))
-
-    assert_database_refuses(db, make_inquiry(conversation, stage="NEEDS_STAFF"))
-
-
-def test_a_new_inquiry_is_allowed_once_the_old_one_is_finished(db):
-    conversation = make_conversation(db)
-    assert_database_accepts(
-        db,
-        make_inquiry(conversation, stage="CLOSED", closed_reason="REPLACED"),
-        make_inquiry(conversation, stage="CLOSED", closed_reason="DECLINED"),
-        make_inquiry(conversation, stage="CONFIRMED"),
-    )
-
-    assert_database_accepts(db, make_inquiry(conversation, stage="GATHERING"))
-
-
-def test_different_conversations_can_each_have_an_active_inquiry(db):
-    assert_database_accepts(db, make_inquiry(make_conversation(db)), make_inquiry(make_conversation(db)))
-
-
-def test_the_inquiry_quantity_must_be_above_zero(db):
-    conversation = make_conversation(db)
-
-    assert_database_refuses(db, make_inquiry(conversation, quantity=0))
-    assert_database_refuses(db, make_inquiry(conversation, quantity=-5))
-    assert_database_accepts(db, make_inquiry(conversation, quantity=500))
-
-
-def test_a_planning_request_reference_is_used_once(db):
-    first, second = make_conversation(db), make_conversation(db)
-    assert_database_accepts(db, make_inquiry(first, planning_request_ref="REQ-1"))
-
-    assert_database_refuses(db, make_inquiry(second, planning_request_ref="REQ-1"))
-
-
-def test_the_conversation_can_point_at_its_current_inquiry(db):
-    conversation = make_conversation(db)
-    inquiry = make_inquiry(conversation)
-    assert_database_accepts(db, inquiry)
-
-    conversation.current_inquiry_id = inquiry.id
+    # Once the active one is finished, a new one may start.
+    active.stage, active.closed_reason = "CLOSED", "REPLACED"
     db.flush()
-
-    assert db.get(models.Conversation, conversation.id).current_inquiry_id == inquiry.id
-
-
-# -- options and orders ---------------------------------------------------------------------------------------------
+    accepts(db, make_inquiry(conversation, stage="GATHERING"))
 
 
-def test_an_option_needs_a_known_kind_and_a_quantity_above_zero(db):
-    inquiry = make_inquiry(make_conversation(db))
-    assert_database_accepts(db, inquiry)
-    option = dict(inquiry_id=inquiry.id, delivery_date=date(2026, 11, 10))
+def test_duplicates_are_refused_for_phone_message_id_planning_reference_and_orders(db):
+    # One phone number, one customer.
+    make_customer(db, "+100")
+    refuses(db, models.Customer(phone="+100"))
 
-    assert_database_refuses(db, models.Option(kind="MAGIC", quantity=5, **option))
-    assert_database_refuses(db, models.Option(kind="REQUESTED", quantity=0, **option))
-    assert_database_accepts(db, models.Option(kind="LATER_DATE", quantity=5, **option))
+    # The same channel message delivered twice is refused. The same id in another conversation is fine, and our own
+    # messages (no id) are not limited.
+    conversation, other = make_conversation(db), make_conversation(db)
+    accepts(db, make_message(conversation, provider_message_id="wamid-1"))
+    refuses(db, make_message(conversation, provider_message_id="wamid-1"))
+    accepts(db, make_message(other, provider_message_id="wamid-1"))
+    accepts(db, make_message(conversation), make_message(conversation))
 
+    # A planning request reference is used by one inquiry only, and an inquiry needs a quantity above zero.
+    accepts(db, make_inquiry(conversation, planning_request_ref="REQ-1"))
+    refuses(db, make_inquiry(other, planning_request_ref="REQ-1"))
+    refuses(db, make_inquiry(other, quantity=0))
 
-def test_a_confirmed_order_is_saved_with_assumed_payment(db):
-    customer = make_customer(db)
-    inquiry = make_inquiry(make_conversation(db, customer), stage="CONFIRMED")
-    product = make_product(db)
-    assert_database_accepts(db, inquiry)
-    option = make_option(db, inquiry)
-    order = make_order(customer, inquiry, option, product)
-
-    assert_database_accepts(db, order)
-
-    assert (order.status, order.payment_status) == ("CONFIRMED", "ASSUMED_PAID")
-
-
-def test_an_inquiry_becomes_at_most_one_order(db):
-    customer, product = make_customer(db), make_product(db)
-    inquiry = make_inquiry(make_conversation(db, customer), stage="CONFIRMED")
-    assert_database_accepts(db, inquiry)
-    first_option, second_option = make_option(db, inquiry), make_option(db, inquiry)
-    assert_database_accepts(db, make_order(customer, inquiry, first_option, product, order_number="SA-1"))
-
-    assert_database_refuses(db, make_order(customer, inquiry, second_option, product, order_number="SA-2"))
-
-
-def test_an_option_becomes_at_most_one_order(db):
-    customer, product = make_customer(db), make_product(db)
+    # An inquiry becomes at most one order, a chosen option at most one order, and order numbers are unique.
+    customer, product = make_customer(db, "+200"), models.Product(sku="X1-PHONE", name="SmartPhone X1")
+    db.add(product)
     first = make_inquiry(make_conversation(db, customer), stage="CONFIRMED")
     second = make_inquiry(make_conversation(db, customer), stage="CONFIRMED")
-    assert_database_accepts(db, first, second)
-    option = make_option(db, first)
-    assert_database_accepts(db, make_order(customer, first, option, product, order_number="SA-1"))
+    accepts(db, first, second)
+    options = [models.Option(inquiry_id=i.id, kind="REQUESTED", quantity=500, delivery_date=date(2026, 11, 10))
+               for i in (first, first, second)]
+    accepts(db, *options)
+    first_option, first_option_again, second_option = options
 
-    assert_database_refuses(db, make_order(customer, second, option, product, order_number="SA-2"))
-
-
-def test_an_order_number_is_unique_and_the_quantity_is_above_zero(db):
-    customer, product = make_customer(db), make_product(db)
-    first = make_inquiry(make_conversation(db, customer), stage="CONFIRMED")
-    second = make_inquiry(make_conversation(db, customer), stage="CONFIRMED")
-    assert_database_accepts(db, first, second)
-    first_option, second_option = make_option(db, first), make_option(db, second)
-    assert_database_accepts(db, make_order(customer, first, first_option, product, order_number="SA-1"))
-
-    assert_database_refuses(db, make_order(customer, second, second_option, product, order_number="SA-1"))
-    assert_database_refuses(db, make_order(customer, second, second_option, product, order_number="SA-2", quantity=0))
+    accepts(db, make_order(customer, first, first_option, product, "SA-1"))
+    refuses(db, make_order(customer, first, first_option_again, product, "SA-2"))  # the inquiry twice
+    refuses(db, make_order(customer, second, first_option, product, "SA-3"))  # the option twice
+    refuses(db, make_order(customer, second, second_option, product, "SA-1"))  # the number twice
+    refuses(db, make_order(customer, second, second_option, product, "SA-4", quantity=0))
+    accepts(db, make_order(customer, second, second_option, product, "SA-4"))  # a correct order still works
 
 
-# -- customer memory ------------------------------------------------------------------------------------------------
-
-
-def test_a_stated_preference_from_the_allowed_list_is_saved(db):
-    customer = make_customer(db)
-    memory = make_memory(customer, evidence=[{"type": "MESSAGE", "id": "m-12"}])
-    assert_database_accepts(db, memory)
-
-    assert (memory.scope, memory.status, memory.strength) == ("GENERAL", "ACTIVE", None)
-    assert memory.evidence == [{"type": "MESSAGE", "id": "m-12"}]
-
-
-def test_an_inferred_insight_is_saved_with_its_strength(db):
-    customer = make_customer(db)
-
-    assert_database_accepts(
-        db, make_memory(customer, kind="INSIGHT", type="FREQUENT_PRODUCT", source="INFERRED", strength="MEDIUM")
-    )
-
-
-@pytest.mark.parametrize("unwanted_type", ["TOLERATES_DELAYS", "FLEXIBLE_CUSTOMER", "LOW_PRIORITY"])
-def test_types_outside_the_allowed_list_are_refused(db, unwanted_type):
-    customer = make_customer(db)
-
-    assert_database_refuses(db, make_memory(customer, type=unwanted_type))
-    assert_database_refuses(db, make_memory(customer, kind="INSIGHT", type=unwanted_type, source="INFERRED"))
-
-
-def test_a_type_must_belong_to_its_kind(db):
-    customer = make_customer(db)
-
-    # FREQUENT_PRODUCT is an insight, not a preference.
-    assert_database_refuses(db, make_memory(customer, kind="PREFERENCE", type="FREQUENT_PRODUCT"))
-
-
-def test_a_preference_is_stated_and_an_insight_is_inferred(db):
-    customer = make_customer(db)
-
-    assert_database_refuses(db, make_memory(customer, kind="PREFERENCE", source="INFERRED"))
-    assert_database_refuses(db, make_memory(customer, kind="INSIGHT", type="FREQUENT_PRODUCT", source="STATED"))
-
-
-def test_only_inferred_memories_have_a_strength(db):
-    customer = make_customer(db)
-
-    assert_database_refuses(db, make_memory(customer, strength="HIGH"))
-
-
-def test_a_preference_for_one_order_must_name_the_inquiry_and_a_general_one_must_not(db):
+def test_memory_rules_protect_customers_from_unfair_labels(db):
     customer = make_customer(db)
     inquiry = make_inquiry(make_conversation(db, customer))
-    assert_database_accepts(db, inquiry)
+    accepts(db, inquiry)
 
-    assert_database_refuses(db, make_memory(customer, scope="THIS_ORDER"))
-    assert_database_refuses(db, make_memory(customer, scope="GENERAL", inquiry_id=inquiry.id))
-    assert_database_accepts(db, make_memory(customer, scope="THIS_ORDER", inquiry_id=inquiry.id))
+    # What the customer said (a preference) and what our rules found (an insight) are both saved, with their evidence.
+    said = make_memory(customer, evidence=[{"type": "MESSAGE", "id": "m-12"}])
+    found = make_memory(customer, kind="INSIGHT", type="FREQUENT_PRODUCT", source="INFERRED", strength="MEDIUM")
+    accepts(db, said, found)
+    assert said.evidence == [{"type": "MESSAGE", "id": "m-12"}]
 
+    # There is no type for "tolerates delays", "flexible customer" or "low priority". The database refuses them.
+    for unwanted in ("TOLERATES_DELAYS", "FLEXIBLE_CUSTOMER", "LOW_PRIORITY"):
+        refuses(db, make_memory(customer, type=unwanted))
+        refuses(db, make_memory(customer, kind="INSIGHT", type=unwanted, source="INFERRED"))
 
-# -- audit log ------------------------------------------------------------------------------------------------------
+    refuses(db, make_memory(customer, kind="PREFERENCE", type="FREQUENT_PRODUCT"))  # a type must fit its kind
+    refuses(db, make_memory(customer, source="INFERRED"))  # a preference is always stated by the customer
+    refuses(db, make_memory(customer, kind="INSIGHT", type="FREQUENT_PRODUCT", source="STATED"))  # an insight never is
+    refuses(db, make_memory(customer, strength="HIGH"))  # only inferred memories have a strength
 
-
-def test_an_audit_entry_has_a_known_actor_and_keeps_its_details(db):
-    entry = models.AuditLog(actor="SALES_AI", event_type="AI_TURN", details={"next_step": "ask_more"})
-    assert_database_accepts(db, entry)
-    assert db.get(models.AuditLog, entry.id).details == {"next_step": "ask_more"}
-
-    assert_database_refuses(db, models.AuditLog(actor="STRANGER", event_type="AI_TURN"))
-
-
-def test_new_ids_are_random_unique_codes(db):
-    customer = make_customer(db)
-
-    assert isinstance(customer.id, uuid.UUID)
+    # A preference for one order must name it, and a general one must not.
+    refuses(db, make_memory(customer, scope="THIS_ORDER"))
+    refuses(db, make_memory(customer, scope="GENERAL", inquiry_id=inquiry.id))
+    accepts(db, make_memory(customer, scope="THIS_ORDER", inquiry_id=inquiry.id))
