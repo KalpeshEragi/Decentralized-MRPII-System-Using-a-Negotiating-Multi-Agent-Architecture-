@@ -678,3 +678,30 @@ def test_a_customer_with_many_accepted_delays_gets_exactly_the_same_request_and_
     request = next(i for i in all_rows(db, models.Inquiry) if i.planning_request["customer"]["phone"] == "+300").planning_request
     assert request["customer_context"]["is_known_customer"] is True  # the history is passed on, for information only
     assert "priority" not in json.dumps(request).lower() and "tolerat" not in json.dumps(request).lower()
+
+
+# -- Planning that does not answer ----------------------------------------------------------------------------------
+
+
+def test_a_request_planning_never_answers_is_reported_once_and_a_late_answer_still_works(db, products, engine):
+    model = FakeLLMClient([ask_planning(13), ai("Here is your option. A) 13 x SmartPhone X1 by November 10, 2026. Would you like it?")])
+    planning = planning_that_answers(engine, model)
+    talk(db, model, "13 X1 phones by November 10", planning=planning)  # 13 is the quantity Planning never answers
+    inquiry = the_inquiry(db)
+
+    assert manager.sweep_late_planning_requests(db) == 0  # not late yet
+    later = datetime.now(timezone.utc) + timedelta(hours=1)
+    assert manager.sweep_late_planning_requests(db, now=later) == 1
+    assert manager.sweep_late_planning_requests(db, now=later) == 0  # reported once, not again
+    db.expire_all()
+    assert messages_of(db, inquiry.conversation_id)[-1].text == planning_module.planning_late_reply()
+    assert audit_events(db, "PLANNING_TIMEOUT") and audit_events(db, "STAFF_FLAGGED")
+    assert inquiry.stage == "WAITING_FOR_PLANNING"  # still open
+
+    # Planning answers after all: the answer is accepted and explained like any other.
+    late_answer = PlanningResult(request_ref=inquiry.planning_request_ref, status="READY",
+                                 options=[OfferedOption(kind="REQUESTED", quantity=13, delivery_date=ASKED_FOR_DATE)])
+    assert manager.handle_planning_result(db, late_answer).status == "received"
+    manager.process_conversation(db, inquiry.conversation_id, model, TODAY, planning)
+    db.refresh(inquiry)
+    assert inquiry.stage == "OPTIONS_PRESENTED"
