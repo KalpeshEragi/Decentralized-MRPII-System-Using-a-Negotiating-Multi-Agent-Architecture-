@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import a2a, agents, negotiations, orders, planning, simulation
 from app.core.errors import install_error_handlers
+from app.sales_agent import api as sales_test_channel
 
 app = FastAPI(title="Decentralized MRPII", version="0.3.0")
 install_error_handlers(app)
@@ -23,6 +24,7 @@ app.include_router(negotiations.router)
 app.include_router(agents.router)
 app.include_router(agents.supplier_router)
 app.include_router(simulation.router)
+app.include_router(sales_test_channel.router)
 a2a.install_a2a_spike(app)
 
 
