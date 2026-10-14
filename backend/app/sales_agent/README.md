@@ -5,6 +5,7 @@ The Sales Agent. Design notes: `dev_docs/sales_agent/`. Built in checkpoints:
 1. A test chat window where the tester talks to the language model, which behaves like a salesperson. The chat
    history is still kept in memory only.
 2. The database: the nine Sales Agent tables exist (migration `003`), but nothing in the chat uses them yet.
+3. The read-only tools and the order-details check. They are not connected to the chat yet (the manager comes next).
 
 | File | What it does |
 | --- | --- |
@@ -12,6 +13,9 @@ The Sales Agent. Design notes: `dev_docs/sales_agent/`. Built in checkpoints:
 | `chat.py` | Keeps one conversation per phone number in memory and asks the model for the reply. |
 | `models.py` | The nine tables as Python classes, in the `sales_agent` schema. They use their own base, so the demo reset (`/simulation/reset`) cannot delete Sales Agent data. |
 | `seed.py` | Three placeholder test products. Safe to run twice. |
+| `rules.py` | Plain checks, no database: is the product, quantity and date valid (`check_order_details`), and phone number cleaning. The language model only suggests details; this code decides. |
+| `data_access.py` | The only code that reads the Sales Agent tables for the tools. Read-only for now. |
+| `tools.py` | The five read-only tools: `get_customer_info`, `get_order_history`, `get_product_list`, `check_order_details`, `get_order_status`. They return plain data for the language model. |
 | `api.py` | Temporary test-channel door: the chat page, `POST /sales-test/chat`, and `GET` / `DELETE /sales-test/history/{phone}`. Replaced by the real API doors in a later checkpoint. |
 | `test_channel/chat.html` | The test chat page (plain HTML and JavaScript). Open `/sales-test` while the backend runs. |
 
