@@ -25,9 +25,14 @@ ASKED_FOR_DATE = date.fromisoformat(ASKED_FOR)
 # -- helpers --------------------------------------------------------------------------------------------------------
 
 
-def ai(reply="Which product do you need?", step="ask_more", chosen=None, **details) -> str:
+def ai(reply="Which product do you need?", step="ask_more", **details) -> str:
     """One scripted answer of the language model, in the fixed JSON form."""
-    return json.dumps({"reply": reply, "next_step": step, "chosen_option": chosen, "details": details, "reason": "test"})
+    return json.dumps({"reply": reply, "next_step": step, "details": details, "reason": "test"})
+
+
+def dec(decision, option=None) -> str:
+    """One scripted answer of the small classification question ("what does the customer's reply mean?")."""
+    return json.dumps({"decision": decision, "option": option})
 
 
 def ask_planning(quantity: int, reply="I will check with the planning team.") -> str:
@@ -118,7 +123,8 @@ def test_details_are_collected_over_several_messages_and_the_request_goes_to_pla
         ai("Which quantity?", product="SmartPhone X1"),
         ai("By what date?", quantity="500"),
         ai("Noted."),  # says nothing about the details: they must not be erased
-        ask_planning(500, "So 500 SmartPhone X1 by November 10. I will check with the planning team."),
+        # All three details are known but the model only says ask_more: our rule sends the request anyway.
+        ai("So 500 SmartPhone X1 by November 10.", "ask_more", product="SmartPhone X1", quantity=500, requested_date=ASKED_FOR),
     ])
 
     talk(db, model, "X1 phones please")
@@ -136,7 +142,8 @@ def test_details_are_collected_over_several_messages_and_the_request_goes_to_pla
     talk(db, model, "thanks")
     assert the_inquiry(db).quantity == Decimal("500")
 
-    talk(db, model, "by November 10")
+    reply = talk(db, model, "by November 10")
+    assert reply.endswith("I am checking this with the planning team.")
     inquiry = the_inquiry(db)
     assert (inquiry.product_id, inquiry.quantity, inquiry.requested_date) == (x1.id, Decimal("500"), date(2026, 11, 10))
     assert inquiry.stage == "WAITING_FOR_PLANNING" and inquiry.planning_request_ref
@@ -472,7 +479,7 @@ def reach_options(db, engine, *next_answers, phone=PHONE):
 
 def test_a_choice_and_a_clear_yes_make_the_order_and_only_then(db, products, engine):
     model, planning, question = reach_options(
-        db, engine, ai("Great choice!", "select_option", chosen="B"), ai("Done, it is all confirmed!", "confirm_order"))
+        db, engine, dec("choose", "B"), dec("yes"))
 
     # Choosing does not order anything: our own question repeats the exact quantity, date and payment note.
     assert talk(db, model, "B please", planning=planning) == question
@@ -488,7 +495,6 @@ def test_a_choice_and_a_clear_yes_make_the_order_and_only_then(db, products, eng
     assert (order.quantity, order.delivery_date.isoformat(), order.status, order.payment_status) == (
         500, "2026-11-10", "CONFIRMED", "ASSUMED_PAID")
     assert reply == planning_module.order_confirmed_reply(order.order_number, 500, ASKED_FOR_DATE, "SmartPhone X1")
-    assert "all confirmed" not in reply
     assert inquiry.stage == "CONFIRMED" and inquiry.confirmation_message_id is not None and order.inquiry_id == inquiry.id
     assert [o[3] for o in options_of(db, inquiry)] == ["RELEASED", "SELECTED"]
     # The new customer is saved, and Planning is told what was decided.
@@ -500,23 +506,20 @@ def test_a_choice_and_a_clear_yes_make_the_order_and_only_then(db, products, eng
 
 
 def test_a_yes_that_is_early_unclear_changed_or_late_never_makes_an_order(db, products, engine):
-    # The model says "confirm" before any option was chosen: refused twice, so our own reply is used.
-    model, planning, _ = reach_options(
-        db, engine, ai("Confirmed!", "confirm_order"), ai("Confirmed!", "confirm_order"), phone="+1001")
-    talk(db, model, "ok", phone="+1001", planning=planning)
+    # A "yes" while two options are on the table does not say which one: nothing is chosen, the customer is asked.
+    model, planning, _ = reach_options(db, engine, dec("yes"), ai("Which option would you like, A or B?"), phone="+1001")
+    assert talk(db, model, "ok", phone="+1001", planning=planning) == "Which option would you like, A or B?"
     assert all_rows(db, models.Order) == [] and the_inquiry(db).stage == "OPTIONS_PRESENTED"
-    assert audit_events(db, "AI_TURN")[-1].details["used_fallback"] is True
 
     # A choice the model cannot name (letter Z) selects nothing.
-    model, planning, _ = reach_options(
-        db, engine, ai("ok", "select_option", chosen="Z"), ai("ok", "select_option", chosen="Z"), phone="+1002")
+    model, planning, _ = reach_options(db, engine, dec("choose", "Z"), ai("Which option, A or B?"), phone="+1002")
     talk(db, model, "the last one", phone="+1002", planning=planning)
     assert not [o for o in all_rows(db, models.Option) if o.status == "SELECTED"]
 
     # A "yes" that does not answer our question (we said something else in between) is not enough: we ask again.
     model, planning, question = reach_options(
-        db, engine, ai("Great choice!", "select_option", chosen="B"), ai("You can ask me anything.", "ask_more"),
-        ai("Confirmed!", "confirm_order"), ai("Confirmed!", "confirm_order"), phone="+1003")
+        db, engine, dec("choose", "B"), dec("question"), ai("You can ask me anything."), dec("yes"), dec("yes"),
+        phone="+1003")
     talk(db, model, "B", phone="+1003", planning=planning)
     talk(db, model, "can I ask something?", phone="+1003", planning=planning)
     assert talk(db, model, "yes", phone="+1003", planning=planning) == question
@@ -527,27 +530,27 @@ def test_a_yes_that_is_early_unclear_changed_or_late_never_makes_an_order(db, pr
 
     # Two messages at once are not one clear answer to the question.
     model, planning, question = reach_options(
-        db, engine, ai("Great choice!", "select_option", chosen="B"), ai("Confirmed!", "confirm_order"), phone="+1004")
+        db, engine, dec("choose", "B"), dec("yes"), phone="+1004")
     talk(db, model, "B", phone="+1004", planning=planning)
     first = manager.accept_message(db, "TEST", "+1004", str(uuid.uuid4()), "yes")
     manager.accept_message(db, "TEST", "+1004", str(uuid.uuid4()), "yes")
     manager.process_conversation(db, first.conversation_id, model, TODAY, planning)
     assert len(all_rows(db, models.Order)) == 1  # still only the one from the scenario before
 
-    # A "yes" together with a changed quantity is a new request, not a confirmation.
+    # A "yes" together with a changed quantity is a new request, not a confirmation (even if the model says "yes").
     model, planning, _ = reach_options(
-        db, engine, ai("Great choice!", "select_option", chosen="B"),
-        ai("Confirmed!", "confirm_order", product="SmartPhone X1", quantity=300, requested_date=ASKED_FOR), phone="+1005")
+        db, engine, dec("choose", "B"), dec("yes"),
+        ai("Okay, 300 then.", product="SmartPhone X1", quantity=300, requested_date=ASKED_FOR), phone="+1005")
     talk(db, model, "B", phone="+1005", planning=planning)
-    reply = talk(db, model, "yes but make it 300", phone="+1005", planning=QUIET_PLANNING)
-    assert reply == planning_module.request_changed_reply() and len(all_rows(db, models.Order)) == 1
+    talk(db, model, "yes but make it 300", phone="+1005", planning=QUIET_PLANNING)
+    assert len(all_rows(db, models.Order)) == 1  # still only the one from an earlier scenario
     assert "REPLACED" in [i.closed_reason for i in all_rows(db, models.Inquiry)]
 
 
 def test_declining_an_expired_offer_and_a_staff_case_are_handled_without_an_order(db, products, engine):
     # "No thanks" closes the inquiry and releases the options.
     model, planning, _ = reach_options(
-        db, engine, ai("Great choice!", "select_option", chosen="A"), ai("Fine!", "decline"), phone="+1101")
+        db, engine, dec("choose", "A"), dec("no"), phone="+1101")
     talk(db, model, "A", phone="+1101", planning=planning)
     assert talk(db, model, "no, forget it", phone="+1101", planning=planning) == planning_module.declined_reply()
     inquiry = all_rows(db, models.Inquiry)[0]
@@ -555,7 +558,7 @@ def test_declining_an_expired_offer_and_a_staff_case_are_handled_without_an_orde
     assert {o[3] for o in options_of(db, inquiry)} == {"RELEASED"} and all_rows(db, models.Order) == []
 
     # A "yes" after the offer ran out is not accepted: the same request goes to Planning again.
-    model, planning, _ = reach_options(db, engine, ai("Great choice!", "select_option", chosen="B"), phone="+1102")
+    model, planning, _ = reach_options(db, engine, dec("choose", "B"), phone="+1102")
     talk(db, model, "B", phone="+1102", planning=planning)
     waiting = next(i for i in all_rows(db, models.Inquiry) if i.stage == "AWAITING_CONFIRMATION")
     waiting.offer_valid_until = datetime(2020, 1, 1, tzinfo=timezone.utc)
@@ -649,7 +652,7 @@ def test_the_frequent_product_insight_is_found_by_our_rule_after_an_order_and_ne
     x1, _ = products
     give_history(db, x1, PHONE, 2)  # two earlier X1 orders: the third makes it frequent
     model, planning, _ = reach_options(
-        db, engine, ai("Great choice!", "select_option", chosen="B"), ai("Yes!", "confirm_order"))
+        db, engine, dec("choose", "B"), dec("yes"))
     talk(db, model, "B", planning=planning)
     assert memory_rows(db) == []  # choosing is not ordering
 

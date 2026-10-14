@@ -140,3 +140,23 @@ def test_preferences_must_be_on_the_allowed_list_and_the_frequent_product_rule_l
     assert frequent_product(["a"] * 3 + ["b"] * 8) == ("b", 7, "HIGH")  # only the newest ten orders count
     assert frequent_product(["x"] * 2 + ["a"] * 3 + ["x"] * 9) == ("x", 7, "HIGH")
     assert frequent_product([]) is None
+
+
+def test_a_classified_reply_only_acts_when_it_is_clear():
+    from app.sales_agent.agent import Decision
+    from app.sales_agent.rules import decision_to_step
+
+    def step(decision, stage, letters, text="x", option=None):
+        return decision_to_step(Decision(decision=decision, option=option), stage, letters, text)
+
+    assert step("choose", "OPTIONS_PRESENTED", "AB", option="b") == ("select_option", "B")
+    assert step("choose", "OPTIONS_PRESENTED", "AB", option="Z") is None  # not one of the options
+    assert step("choose", "OPTIONS_PRESENTED", "AB") is None
+    assert step("no", "AWAITING_CONFIRMATION", "AB") == ("decline", None)
+    assert step("yes", "AWAITING_CONFIRMATION", "AB", "yes please") == ("confirm_order", None)
+    assert step("yes", "OPTIONS_PRESENTED", "A", "yes") == ("select_option", "A")  # one option: a yes means that one
+    assert step("yes", "OPTIONS_PRESENTED", "AB", "yes") is None  # which one?
+    assert step("yes", "AWAITING_CONFIRMATION", "AB", "yes but make it 300") is None  # a number: it is a change
+    assert step("yes", "AWAITING_CONFIRMATION", "AB", "yes " + "very " * 8 + "much") is None  # not a plain yes
+    for other in ("question", "change", "unclear"):
+        assert step(other, "AWAITING_CONFIRMATION", "AB") is None
