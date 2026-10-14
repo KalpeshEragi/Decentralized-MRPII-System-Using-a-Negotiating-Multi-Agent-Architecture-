@@ -17,6 +17,9 @@ The Sales Agent. Design notes: `dev_docs/sales_agent/`. Built in checkpoints:
    "payment assumed", and only a clear "yes" to that question makes the order (guarded by code, see `rules.confirmation_problem`).
    Declining, an expired offer (24 hours) and a "yes" mixed with a change are handled without an order. Planning is
    sent a confirmation notice (the fake one keeps them).
+8. Timeouts: a request Planning has not answered within 10 minutes is reported to the customer and staff once, by a
+   manual sweep (`POST /sales/maintenance/sweep`, door 9; there are no timers). A late answer is still accepted.
+   `tests/sales_agent/db/test_live_model.py` runs one whole order with the real model (`RUN_LIVE_MODEL=1`).
 
 | File | What it does |
 | --- | --- |
@@ -47,6 +50,7 @@ Door numbers follow `dev_docs/sales_agent/3_sales_agent_backend.md`. Door 7 (hea
 | 5 | `GET /sales/inquiries/{id}` | An inquiry with its options. |
 | 6 | `GET /sales/customers/{id}` or `GET /sales/customers?phone=` | A customer, saved notes and recent orders. |
 | 8 | `POST /sales/test-channel/reset` | Closes every open test conversation (nothing is deleted). |
+| 9 | `POST /sales/maintenance/sweep` | Reports requests Planning has not answered in time (customer message and staff flag, once each). |
 | page | `GET /sales/test-channel`, `GET` / `DELETE /sales/test-channel/history/{phone}` | The test chat page and its helpers. |
 
 ## Trying the fake Planning
@@ -80,7 +84,7 @@ Create the tables in the database of `DATABASE_URL` (from `backend/`): `alembic 
 
 ## Tests
 
-From `backend/`: `python -m pytest tests/sales_agent` (36 tests). The plain-code tests and the model tests use a fake
+From `backend/`: `python -m pytest tests/sales_agent` (37 tests, plus one live-model test that is skipped by default). The plain-code tests and the model tests use a fake
 model, so they do not need Ollama. The database tests in `tests/sales_agent/db/` need `TEST_DATABASE_URL` (a separate
 database) and are skipped without it. Run only one test session at a time against the same test database.
 

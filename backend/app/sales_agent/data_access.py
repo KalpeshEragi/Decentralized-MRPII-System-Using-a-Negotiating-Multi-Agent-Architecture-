@@ -329,6 +329,12 @@ def find_inquiry_by_request_ref(db: Session, request_ref: str) -> Inquiry | None
     return db.scalar(select(Inquiry).where(Inquiry.planning_request_ref == request_ref))
 
 
+def list_late_planning_requests(db: Session, sent_before: datetime) -> list[Inquiry]:
+    """Requests that went to Planning before this time and have had no answer of any kind."""
+    return list(db.scalars(select(Inquiry).where(
+        Inquiry.stage == "WAITING_FOR_PLANNING", Inquiry.planning_result.is_(None), Inquiry.updated_at < sent_before)))
+
+
 def save_options(db: Session, inquiry_id: uuid.UUID, options: list[dict]) -> list[Option]:
     """Save Planning's options in the order given. Each option's time is one microsecond after the one before, so the
     order is kept when they are read back."""

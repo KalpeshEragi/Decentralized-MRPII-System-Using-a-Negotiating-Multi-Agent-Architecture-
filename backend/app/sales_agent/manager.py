@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 MAX_HISTORY_MESSAGES = 20  # the small model works better with a short history
 RECENT_ORDERS_IN_SUMMARY = 3
 OFFER_VALIDITY = timedelta(hours=24)
+PLANNING_WAIT_LIMIT = timedelta(minutes=10)  # after this, a request with no answer is reported to the customer and staff
 
 NEXT_STEP_SEND_REQUEST = "send_request"
 NEXT_STEP_PASS_TO_STAFF = "pass_to_staff"
@@ -766,6 +767,22 @@ def _refresh_insights(db: Session, customer_id: uuid.UUID, conversation_id: uuid
 
 
 # -- clearing test chats --------------------------------------------------------------------------------------------
+
+
+def sweep_late_planning_requests(db: Session, now: datetime | None = None, wait_limit: timedelta = PLANNING_WAIT_LIMIT) -> int:
+    """There are no timers, so this is run by hand (door 9) or by a scheduler later. Every request that Planning has
+    not answered within the limit gets a message to the customer and a staff flag, once. The request stays open: a late
+    answer is still accepted. Returns how many requests were reported."""
+    now = now or datetime.now(timezone.utc)
+    late = data_access.list_late_planning_requests(db, now - wait_limit)
+    for inquiry in late:
+        note = {"conversation_id": inquiry.conversation_id, "inquiry_id": inquiry.id}
+        inquiry.planning_result = {"status": "WORKING", "reason_code": "NO_ANSWER_IN_TIME", "options": [], "announced": True}
+        data_access.save_message(db, inquiry.conversation_id, "OUT", planning_module.planning_late_reply(), delivery_status="SENT")
+        data_access.save_audit_note(db, "SYSTEM", "PLANNING_TIMEOUT", {"request_ref": inquiry.planning_request_ref}, **note)
+        data_access.save_audit_note(db, "SYSTEM", "STAFF_FLAGGED", {"reason": "Planning did not answer in time"}, **note)
+    db.commit()
+    return len(late)
 
 
 def clear_chat(db: Session, channel: str, sender_ref: str) -> None:

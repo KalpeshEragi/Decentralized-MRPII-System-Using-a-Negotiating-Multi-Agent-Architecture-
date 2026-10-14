@@ -241,5 +241,10 @@ def offer_expired_reply() -> str:
     return "That offer is no longer valid, so I am checking with the planning team again. I will come back to you shortly."
 
 
+def planning_late_reply() -> str:
+    return ("The planning team needs a little more time for your request. It is still open, and a team member has been "
+            "told. I will write to you as soon as I have an answer.")
+
+
 def request_changed_reply() -> str:
     return "Thank you, I have noted your change. Nothing is ordered yet. I am checking the new request with the planning team."

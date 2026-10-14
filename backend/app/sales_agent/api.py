@@ -10,6 +10,7 @@ Door numbers follow dev_docs/sales_agent/3_sales_agent_backend.md. Door 7 (healt
     5  GET    /sales/inquiries/{id}                 an inquiry with its options
     6  GET    /sales/customers/{id}  or  /sales/customers?phone=      a customer, saved notes and recent orders
     8  POST   /sales/test-channel/reset             close every test conversation
+    9  POST   /sales/maintenance/sweep              report requests Planning has not answered in time
        GET    /sales/test-channel                   the test chat page
        GET    /sales/test-channel/history/{phone}   the open conversation of a test phone number (for the page)
        DELETE /sales/test-channel/history/{phone}   clear one test chat
@@ -186,6 +187,15 @@ def planning_result_arrives(
 def reset_test_channel(db: Session = Depends(get_db)):
     """Closes every open test conversation. Nothing is deleted."""
     return {"status": "reset", "closed_conversations": manager.reset_test_channel(db)}
+
+
+# -- door 9 ---------------------------------------------------------------------------------------------------------
+
+
+@router.post("/maintenance/sweep")
+def sweep(db: Session = Depends(get_db)):
+    """Tells the customer and flags staff for every request that Planning has not answered in time (once each)."""
+    return {"reported": manager.sweep_late_planning_requests(db)}
 
 
 # -- doors 2, 4, 5, 6 -----------------------------------------------------------------------------------------------
