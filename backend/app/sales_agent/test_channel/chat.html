@@ -54,6 +54,8 @@
     let conversationId = null;
     let lastMessageId = null;
     let typingNote = null;  // shown from sending until the agent's reply arrives
+    let shownIds = new Set();  // every message is drawn once, however many times the backend returns it
+    let pollRunning = false;  // a new check starts only when the last one has finished
 
     function currentPhone() {
       return phoneInput.value.trim();
@@ -63,12 +65,23 @@
       chatWindow.scrollTop = chatWindow.scrollHeight;
     }
 
-    function addMessage(role, text) {
+    function addMessage(role, text, id) {
       const bubble = document.createElement("div");
       bubble.className = "message " + (role === "user" ? "customer" : "agent");
       bubble.textContent = text;  // textContent (not innerHTML), so typed text can never run as code
+      if (id) bubble.dataset.id = id;
       chatWindow.appendChild(bubble);
       scrollToBottom();
+      return bubble;
+    }
+
+    // A message we typed is drawn at once, before the backend has given it an id. When the backend lists it, that
+    // bubble gets the id instead of a second bubble being drawn.
+    function adoptPendingBubble(message) {
+      const pending = [...chatWindow.querySelectorAll(".message.customer:not([data-id])")]
+        .find((bubble) => bubble.textContent === message.text);
+      if (pending) pending.dataset.id = message.id;
+      return Boolean(pending);
     }
 
     function addNote(cssClass, text) {
@@ -98,17 +111,21 @@
 
     function showMessages(messages) {
       messages.forEach((message) => {
-        if (message.direction === "OUT") stopWaiting();
-        if (typingNote) typingNote.remove();  // keep the typing note below the newest message
-        addMessage(message.role, message.text);
-        if (typingNote) chatWindow.appendChild(typingNote);
         lastMessageId = message.id;
+        if (shownIds.has(message.id)) return;
+        shownIds.add(message.id);
+        if (message.direction === "OUT") stopWaiting();
+        if (message.direction === "IN" && adoptPendingBubble(message)) return;
+        if (typingNote) typingNote.remove();  // keep the typing note below the newest message
+        addMessage(message.role, message.text, message.id);
+        if (typingNote) chatWindow.appendChild(typingNote);
       });
     }
 
     async function loadHistory() {
       stopWaiting();
       chatWindow.innerHTML = "";
+      shownIds = new Set();
       conversationId = null;
       lastMessageId = null;
       if (!currentPhone()) return;
@@ -124,7 +141,8 @@
 
     // The agent answers in the background, and Planning's answer arrives later still, so we keep asking for new messages.
     async function pollForNewMessages() {
-      if (!conversationId) return;
+      if (!conversationId || pollRunning) return;
+      pollRunning = true;
       try {
         let url = "/sales/conversations/" + conversationId + "/messages";
         if (lastMessageId) url += "?after=" + lastMessageId;
@@ -133,6 +151,8 @@
         showMessages((await response.json()).messages);
       } catch (problem) {
         // the backend may be restarting; try again at the next tick
+      } finally {
+        pollRunning = false;
       }
     }
 
@@ -158,7 +178,9 @@
         }
         const received = await response.json();
         conversationId = received.conversation_id;
-        lastMessageId = received.message_id;  // our own message is already shown
+        shownIds.add(received.message_id);  // our own message is already shown
+        const mine = chatWindow.querySelector(".message.customer:not([data-id])");
+        if (mine) mine.dataset.id = received.message_id;
         typingNote = addNote("status", "Sales Agent is typing...");
       } catch (problem) {
         addNote("error", "Could not reach the backend. Is it running?");
