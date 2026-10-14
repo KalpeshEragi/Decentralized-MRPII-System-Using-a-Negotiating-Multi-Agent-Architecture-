@@ -2,26 +2,30 @@
 
 The Sales Agent. Design notes: `dev_docs/sales_agent/`. Built in checkpoints:
 
-1. A test chat window where the tester talks to the language model, which behaves like a salesperson. The chat
-   history is still kept in memory only.
-2. The database: the nine Sales Agent tables exist (migration `003`), but nothing in the chat uses them yet.
-3. The read-only tools and the order-details check. They are not connected to the chat yet (the manager comes next).
+1. A test chat window where the tester talks to the language model, which behaves like a salesperson.
+2. The database: the nine Sales Agent tables (migration `003`).
+3. The read-only tools and the order-details check.
+4. The conversation manager: chats are saved in the database, the model answers in a fixed format, and our code checks
+   the answer. The agent collects product, quantity and delivery date. Planning is not connected yet: when all three
+   are collected the manager only records a `READY_FOR_PLANNING` audit note.
 
 | File | What it does |
 | --- | --- |
-| `prompts.py` | The Sales Agent's role and rules, written as instructions for the language model. |
-| `chat.py` | Keeps one conversation per phone number in memory and asks the model for the reply. |
+| `prompts.py` | The Sales Agent's role and rules, the answer format, and the "situation" section, written as instructions for the language model. |
+| `agent.py` | The model's "thinking" step: it answers in a fixed JSON format (`AgentTurn`). It only suggests; it saves and sends nothing. |
+| `rules.py` | Plain checks, no database: order details (`check_order_details`), merging what the model found into what is collected (`merge_details`), checking the model's answer (`check_ai_output`), our own safe reply (`fallback_reply`), and phone number cleaning. The model suggests; this code decides. |
+| `manager.py` | Runs one customer message: save it, load what is known, ask the model, check the answer (asking once more if needed, or using our own reply), and save the result. |
+| `data_access.py` | The only code that reads and writes the Sales Agent tables. |
+| `tools.py` | The five read-only tools: `get_customer_info`, `get_order_history`, `get_product_list`, `check_order_details`, `get_order_status`. They return plain data for the language model. |
 | `models.py` | The nine tables as Python classes, in the `sales_agent` schema. They use their own base, so the demo reset (`/simulation/reset`) cannot delete Sales Agent data. |
 | `seed.py` | Three placeholder test products. Safe to run twice. |
-| `rules.py` | Plain checks, no database: is the product, quantity and date valid (`check_order_details`), and phone number cleaning. The language model only suggests details; this code decides. |
-| `data_access.py` | The only code that reads the Sales Agent tables for the tools. Read-only for now. |
-| `tools.py` | The five read-only tools: `get_customer_info`, `get_order_history`, `get_product_list`, `check_order_details`, `get_order_status`. They return plain data for the language model. |
 | `api.py` | Temporary test-channel door: the chat page, `POST /sales-test/chat`, and `GET` / `DELETE /sales-test/history/{phone}`. Replaced by the real API doors in a later checkpoint. |
 | `test_channel/chat.html` | The test chat page (plain HTML and JavaScript). Open `/sales-test` while the backend runs. |
 
 ## Run it
 
-Needs Ollama running with the model in `OLLAMA_MODEL` (default `qwen3.5:4b`). From the repository root:
+Needs Ollama running with the model in `OLLAMA_MODEL` (default `qwen3.5:4b`), and the Sales Agent tables in the
+database of `DATABASE_URL` (see below). From the repository root:
 
 ```
 backend/.venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --port 8010
@@ -36,5 +40,6 @@ Create the tables in the database of `DATABASE_URL` (from `backend/`): `alembic 
 
 ## Tests
 
-From `backend/`: `python -m pytest tests/sales_agent`. The chat tests use a fake model, so they do not need Ollama. The
-database tests in `tests/sales_agent/db/` need `TEST_DATABASE_URL` (a separate database) and are skipped without it.
+From `backend/`: `python -m pytest tests/sales_agent` (20 tests). The plain-code tests and the model tests use a fake
+model, so they do not need Ollama. The database tests in `tests/sales_agent/db/` need `TEST_DATABASE_URL` (a separate
+database) and are skipped without it. Run only one test session at a time against the same test database.
