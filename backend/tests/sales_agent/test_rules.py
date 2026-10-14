@@ -122,3 +122,21 @@ def test_a_yes_becomes_an_order_only_when_every_guard_passes():
                    {"offer_valid_until": None}, {"messages_at_once": 2}, {"last_reply": "You can ask me anything."},
                    {"last_reply": None}):
         assert confirmation_problem(**{**good, **broken}), broken
+
+
+def test_preferences_must_be_on_the_allowed_list_and_the_frequent_product_rule_looks_only_at_products():
+    from app.sales_agent.agent import PreferenceSuggestion
+    from app.sales_agent.rules import frequent_product, read_preference
+
+    assert read_preference(PreferenceSuggestion(type="prefers whatsapp updates", applies_to="this_order")) == (
+        "PREFERS_WHATSAPP_UPDATES", "THIS_ORDER")
+    assert read_preference(PreferenceSuggestion(type="WANTS_EARLY_DATE_CHANGE_NOTICE")) == (
+        "WANTS_EARLY_DATE_CHANGE_NOTICE", "GENERAL")
+    assert read_preference(PreferenceSuggestion(type="TOLERATES_DELAY")) is None and read_preference(None) is None
+
+    assert frequent_product(["a", "b", "a"]) is None  # two of the same is not yet "frequent"
+    assert frequent_product(["a", "b", "a", "a"]) == ("a", 3, "LOW")
+    assert frequent_product(["a"] * 4) == ("a", 4, "MEDIUM") and frequent_product(["a"] * 5) == ("a", 5, "HIGH")
+    assert frequent_product(["a"] * 3 + ["b"] * 8) == ("b", 7, "HIGH")  # only the newest ten orders count
+    assert frequent_product(["x"] * 2 + ["a"] * 3 + ["x"] * 9) == ("x", 7, "HIGH")
+    assert frequent_product([]) is None

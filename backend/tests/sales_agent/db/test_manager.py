@@ -4,7 +4,7 @@ test database."""
 import functools
 import json
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -573,3 +573,108 @@ def test_declining_an_expired_offer_and_a_staff_case_are_handled_without_an_orde
     talk(db, model, "77 X1 phones by November 10", phone="+1103", planning=planning)
     assert talk(db, model, "any news?", phone="+1103", planning=planning) == "Thank you, a team member will be in touch."
     assert all_rows(db, models.Order) == []
+
+
+# -- memory and fairness --------------------------------------------------------------------------------------------
+
+
+def give_history(db, product, phone, orders, delay_days=0):
+    """A returning customer with this many past confirmed orders of the product, each delivered `delay_days` late."""
+    customer = models.Customer(phone=phone)
+    db.add(customer)
+    db.flush()
+    old_chat = models.Conversation(customer_id=customer.id, channel="TEST", sender_ref=phone, status="CLOSED")
+    db.add(old_chat)
+    db.flush()
+    for number in range(orders):
+        asked = date(2026, 6, 1 + number)
+        inquiry = models.Inquiry(conversation_id=old_chat.id, customer_id=customer.id, stage="CONFIRMED",
+                                 product_id=product.id, quantity=100, requested_date=asked)
+        db.add(inquiry)
+        db.flush()
+        option = models.Option(inquiry_id=inquiry.id, kind="LATER_DATE", quantity=100,
+                               delivery_date=asked + timedelta(days=delay_days))
+        db.add(option)
+        db.flush()
+        db.add(models.Order(order_number=f"OLD-{phone}-{number}", customer_id=customer.id, inquiry_id=inquiry.id,
+                            option_id=option.id, product_id=product.id, quantity=100, delivery_date=option.delivery_date,
+                            confirmed_at=datetime(2026, 7, 1 + number, tzinfo=timezone.utc)))
+    db.commit()
+    return customer
+
+
+def memory_rows(db):
+    db.expire_all()
+    return all_rows(db, models.CustomerMemory)
+
+
+def test_only_allowed_preferences_the_customer_asked_for_are_saved_with_the_message_as_evidence(db, products):
+    x1, _ = products
+    customer = give_history(db, x1, PHONE, 1)
+    ask = {"type": "PREFERS_WHATSAPP_UPDATES", "applies_to": "always"}
+    answers = [
+        json.dumps({**json.loads(ai("Noted, I will update you on WhatsApp.")), "preference": ask}),
+        json.dumps({**json.loads(ai("Noted.")), "preference": ask}),  # said again: not saved twice
+        json.dumps({**json.loads(ai("Noted.")), "preference": {"type": "TOLERATES_DELAY", "applies_to": "always"}}),
+        json.dumps({**json.loads(ai("Noted.")), "preference": {"type": "WANTS_EARLY_DATE_CHANGE_NOTICE", "applies_to": "this_order"}}),
+    ]
+    model = FakeLLMClient(answers)
+
+    talk(db, model, "please update me on WhatsApp")
+    talk(db, model, "yes, WhatsApp please")
+    talk(db, model, "and I am fine with any delay")
+    talk(db, model, "warn me early if the date changes for this order")
+
+    saved = {(m.type, m.scope): m for m in memory_rows(db)}
+    assert set(saved) == {("PREFERS_WHATSAPP_UPDATES", "GENERAL"), ("WANTS_EARLY_DATE_CHANGE_NOTICE", "THIS_ORDER")}
+    whatsapp = saved[("PREFERS_WHATSAPP_UPDATES", "GENERAL")]
+    assert (whatsapp.kind, whatsapp.source, whatsapp.customer_id) == ("PREFERENCE", "STATED", customer.id)
+    stating_message = next(m for m in all_rows(db, models.Message) if m.text == "please update me on WhatsApp")
+    assert whatsapp.evidence == [{"message_id": str(stating_message.id)}]
+    assert saved[("WANTS_EARLY_DATE_CHANGE_NOTICE", "THIS_ORDER")].inquiry_id is not None
+    assert audit_events(db, "PREFERENCE_REFUSED")  # the delay "preference" was refused and nothing was saved for it
+
+    # A first-time customer has no record yet, so nothing is saved (and that is noted).
+    talk(db, FakeLLMClient([answers[0]]), "please update me on WhatsApp", phone="+200")
+    assert len(memory_rows(db)) == 2 and audit_events(db, "PREFERENCE_NOT_SAVED")
+
+    # Even if code asked for it, the database itself refuses a type that is not on the list.
+    db.add(models.CustomerMemory(customer_id=customer.id, kind="PREFERENCE", type="TOLERATES_DELAY", source="STATED"))
+    with pytest.raises(Exception):
+        db.commit()
+    db.rollback()
+
+
+def test_the_frequent_product_insight_is_found_by_our_rule_after_an_order_and_never_by_the_model(db, products, engine):
+    x1, _ = products
+    give_history(db, x1, PHONE, 2)  # two earlier X1 orders: the third makes it frequent
+    model, planning, _ = reach_options(
+        db, engine, ai("Great choice!", "select_option", chosen="B"), ai("Yes!", "confirm_order"))
+    talk(db, model, "B", planning=planning)
+    assert memory_rows(db) == []  # choosing is not ordering
+
+    talk(db, model, "yes", planning=planning)
+    (insight,) = memory_rows(db)
+    assert (insight.kind, insight.type, insight.source, insight.strength, insight.status) == (
+        "INSIGHT", "FREQUENT_PRODUCT", "INFERRED", "LOW", "ACTIVE")
+    assert insight.value["product"] == "SmartPhone X1" and len(insight.evidence) == 3  # the three orders are the evidence
+
+
+def test_a_customer_with_many_accepted_delays_gets_exactly_the_same_request_and_options_as_a_new_one(db, products, engine):
+    x1, _ = products
+    give_history(db, x1, "+300", 6, delay_days=30)  # always accepted a month's delay
+    seen = {}
+    for phone in ("+300", "+400"):  # +400 has no history at all
+        model, planning, _ = reach_options(db, engine, phone=phone)
+        db.expire_all()
+        inquiry = next(i for i in all_rows(db, models.Inquiry) if i.planning_request["customer"]["phone"] == phone)
+        seen[phone] = (
+            {k: v for k, v in inquiry.planning_request["order"].items()},
+            options_of(db, inquiry),
+            sorted(inquiry.planning_request),
+            audit_events(db, "OPTIONS_PRESENTED")[-1].details["options"],
+        )
+    assert seen["+300"] == seen["+400"]  # same order block, same keys, same options, same explanation
+    request = next(i for i in all_rows(db, models.Inquiry) if i.planning_request["customer"]["phone"] == "+300").planning_request
+    assert request["customer_context"]["is_known_customer"] is True  # the history is passed on, for information only
+    assert "priority" not in json.dumps(request).lower() and "tolerat" not in json.dumps(request).lower()
