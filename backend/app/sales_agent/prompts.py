@@ -44,7 +44,7 @@ Style:
 
 ANSWER_FORMAT_PROMPT = """\
 Answer with one JSON object and nothing else, in exactly this form:
-{"reply": "<your message to the customer>", "next_step": "ask_more", "chosen_option": null, "details": {"product": null, "quantity": null, \
+{"reply": "<your message to the customer>", "next_step": "ask_more", "chosen_option": null, "preference": null, "details": {"product": null, "quantity": null, \
 "requested_date": null}, "reason": "<one short sentence>"}
 
 - reply: the message the customer will read.
@@ -58,6 +58,7 @@ YYYY-MM-DD. Use today's \
 date from the situation to understand words like "tomorrow". If the customer gives a day and month without a year, \
 use the nearest date that is today or later: this year if that date is still ahead, otherwise next year. Never take \
 the year from an earlier message.
+- preference: normally null. Only when the customer clearly asks in their latest message that we remember something, write {"type": "PREFERS_WHATSAPP_UPDATES" or "WANTS_EARLY_DATE_CHANGE_NOTICE", "applies_to": "always" or "this_order"}. Never write a preference the customer did not ask for, and no other types exist.
 - reason: one short sentence on why you chose this next_step.
 """
 

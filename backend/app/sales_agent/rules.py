@@ -26,6 +26,14 @@ ALLOWED_STEPS = {
     "NEEDS_STAFF": {"ask_more", "pass_to_staff"},
 }
 
+# The only preferences a customer can ask us to remember (the database allows the same list). There is deliberately no
+# "tolerates delay" or "flexible" type: what a customer accepted once must never become a reason to treat them worse.
+PREFERENCE_TYPES = ("PREFERS_WHATSAPP_UPDATES", "WANTS_EARLY_DATE_CHANGE_NOTICE")
+
+# FREQUENT_PRODUCT insight: the same product in at least this many of the customer's last orders.
+FREQUENT_PRODUCT_WINDOW = 10
+FREQUENT_PRODUCT_MIN_ORDERS = 3
+
 FIELD_LABELS = {"product": "product", "quantity": "quantity", "requested_date": "delivery date"}
 
 
@@ -203,6 +211,30 @@ def merge_details(
             collected.requested_date = requested_date
 
     return MergeResult(collected=collected, problems=problems)
+
+
+def read_preference(suggestion) -> tuple[str, str] | None:
+    """The preference type and scope (GENERAL or THIS_ORDER) if the model's suggestion is on the allowed list."""
+    if suggestion is None:
+        return None
+    kind = suggestion.type.strip().upper().replace(" ", "_")
+    if kind not in PREFERENCE_TYPES:
+        return None
+    return kind, "THIS_ORDER" if suggestion.applies_to == "this_order" else "GENERAL"
+
+
+def frequent_product(product_ids: Sequence[str]) -> tuple[str, int, str] | None:
+    """The insight rule: (product id, number of orders, strength) if one product is in at least three of the last ten
+    orders (given newest first), else None. It looks at products only, never at delays or dates."""
+    counts: dict[str, int] = {}
+    for product_id in product_ids[:FREQUENT_PRODUCT_WINDOW]:
+        counts[product_id] = counts.get(product_id, 0) + 1
+    if not counts:
+        return None
+    best = max(counts, key=lambda product_id: counts[product_id])  # a tie goes to the more recently ordered product
+    if counts[best] < FREQUENT_PRODUCT_MIN_ORDERS:
+        return None
+    return best, counts[best], "HIGH" if counts[best] >= 5 else "MEDIUM" if counts[best] >= 4 else "LOW"
 
 
 def is_action_allowed(stage: str, step: str) -> bool:

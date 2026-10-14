@@ -352,6 +352,7 @@ def _make_order(
         conversation.customer_id = inquiry.customer_id = customer.id
     order = data_access.create_order(db, f"SA-{uuid.uuid4().hex[:8].upper()}", inquiry, option, conversation.customer_id, now)
     inquiry.stage, inquiry.confirmed_at, inquiry.confirmation_message_id = "CONFIRMED", now, yes_message.id
+    _refresh_insights(db, conversation.customer_id, conversation.id, inquiry.id)
     for other in data_access.list_options(db, inquiry.id):
         if other.id != option.id and other.status in ("OFFERED", "SELECTED"):
             other.status = "RELEASED"
@@ -704,7 +705,64 @@ def _save_turn(
     }, **note)
     if outcome.next_step == NEXT_STEP_PASS_TO_STAFF:
         data_access.save_audit_note(db, "SALES_AI", "PASSED_TO_STAFF", {"message": answered[-1].text}, **note)
+    _remember_preference(db, conversation, inquiry, answered, outcome)
     db.commit()
+
+
+# -- memory: preferences the customer asked for, insights found by our rules ----------------------------------------
+
+
+def _remember_preference(
+    db: Session, conversation: Conversation, inquiry: Inquiry, answered: list[Message], outcome: TurnOutcome
+) -> None:
+    """Save a preference the model reported, if it is on the allowed list and we know the customer. The model only
+    suggests: a type that is not allowed is refused, and nothing else about the customer is ever saved by the model."""
+    suggestion = (outcome.ai_answer or {}).get("preference")
+    if not suggestion or outcome.used_fallback or not answered:
+        return
+    note = {"conversation_id": conversation.id, "inquiry_id": inquiry.id}
+    read = rules.read_preference(agent.PreferenceSuggestion.model_validate(suggestion))
+    if read is None:
+        data_access.save_audit_note(db, "SYSTEM", "PREFERENCE_REFUSED", {"suggested": suggestion}, **note)
+        return
+    kind, scope = read
+    if conversation.customer_id is None:  # there is no customer record to attach it to until the first order
+        data_access.save_audit_note(db, "SYSTEM", "PREFERENCE_NOT_SAVED", {"type": kind, "reason": "new customer"}, **note)
+        return
+    same = [m for m in data_access.find_active_memory(db, conversation.customer_id, "PREFERENCE", kind)
+            if m.scope == scope and (scope == "GENERAL" or m.inquiry_id == inquiry.id)]
+    if same:
+        return  # already saved
+    data_access.save_memory(
+        db, conversation.customer_id, "PREFERENCE", kind, {}, [{"message_id": str(answered[-1].id)}], scope=scope,
+        inquiry_id=inquiry.id if scope == "THIS_ORDER" else None,
+    )
+    data_access.save_audit_note(db, "SALES_AI", "PREFERENCE_SAVED", {"type": kind, "scope": scope}, **note)
+
+
+def _refresh_insights(db: Session, customer_id: uuid.UUID, conversation_id: uuid.UUID, inquiry_id: uuid.UUID) -> None:
+    """After a confirmed order, apply the fixed insight rule again. An insight that no longer holds, or whose strength
+    changed, is retired or superseded, so nothing stays on a customer's record without current evidence."""
+    orders = data_access.list_recent_order_rows(db, customer_id, rules.FREQUENT_PRODUCT_WINDOW)
+    found = rules.frequent_product([str(order.product_id) for order in orders])
+    current = data_access.find_active_memory(db, customer_id, "INSIGHT", "FREQUENT_PRODUCT")
+    up_to_date = False
+    for old in current:
+        if found and old.value.get("product_id") == found[0] and old.strength == found[2]:
+            up_to_date = True
+        else:
+            old.status = "SUPERSEDED" if found else "RETIRED"
+    if found and not up_to_date:
+        product_id, count, strength = found
+        data_access.save_memory(
+            db, customer_id, "INSIGHT", "FREQUENT_PRODUCT",
+            {"product_id": product_id, "product": data_access.get_product(db, uuid.UUID(product_id)).name, "orders": count},
+            [{"order_id": str(order.id)} for order in orders if str(order.product_id) == product_id], strength=strength,
+        )
+    data_access.save_audit_note(
+        db, "SYSTEM", "INSIGHTS_REFRESHED", {"frequent_product": found[0] if found else None},
+        conversation_id=conversation_id, inquiry_id=inquiry_id,
+    )
 
 
 # -- clearing test chats --------------------------------------------------------------------------------------------

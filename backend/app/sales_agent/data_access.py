@@ -49,6 +49,33 @@ def list_active_memory(db: Session, customer_id: uuid.UUID, limit: int) -> list[
     return list(db.scalars(query))
 
 
+def list_recent_order_rows(db: Session, customer_id: uuid.UUID, limit: int) -> list[Order]:
+    """The customer's confirmed orders themselves (ids and product ids), newest first."""
+    return list(db.scalars(
+        select(Order).where(Order.customer_id == customer_id).order_by(Order.confirmed_at.desc(), Order.id).limit(limit)))
+
+
+def find_active_memory(db: Session, customer_id: uuid.UUID, kind: str, type_: str) -> list[CustomerMemory]:
+    return list(db.scalars(select(CustomerMemory).where(
+        CustomerMemory.customer_id == customer_id, CustomerMemory.kind == kind, CustomerMemory.type == type_,
+        CustomerMemory.status == "ACTIVE")))
+
+
+def save_memory(
+    db: Session, customer_id: uuid.UUID, kind: str, type_: str, value: dict, evidence: list, scope: str = "GENERAL",
+    inquiry_id: uuid.UUID | None = None, strength: str | None = None,
+) -> CustomerMemory:
+    """A preference (kind PREFERENCE, the customer said it) or an insight (kind INSIGHT, a rule found it). The database
+    refuses types that are not on the allowed list."""
+    memory = CustomerMemory(
+        customer_id=customer_id, kind=kind, type=type_, value=value, evidence=evidence, scope=scope,
+        inquiry_id=inquiry_id, strength=strength, source="STATED" if kind == "PREFERENCE" else "INFERRED",
+    )
+    db.add(memory)
+    db.flush()
+    return memory
+
+
 def _past_orders_query(customer_id: uuid.UUID):
     """This customer's orders, newest first."""
     return (

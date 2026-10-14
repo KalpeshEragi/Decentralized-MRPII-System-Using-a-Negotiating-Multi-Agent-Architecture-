@@ -23,6 +23,15 @@ class Details(BaseModel):
     requested_date: str | None = None
 
 
+class PreferenceSuggestion(BaseModel):
+    """A preference the customer clearly asked for. Only types from the allowed list are ever saved (rules.py)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    type: str
+    applies_to: Literal["always", "this_order"] = "always"
+
+
 class AgentTurn(BaseModel):
     """What the model answers each turn."""
 
@@ -32,6 +41,7 @@ class AgentTurn(BaseModel):
     next_step: Literal["ask_more", "send_request", "select_option", "confirm_order", "decline", "pass_to_staff"]
     chosen_option: str | None = None  # the letter of the option the customer picked, with select_option
     details: Details = Details()
+    preference: PreferenceSuggestion | None = None
     reason: str = ""
 
 
