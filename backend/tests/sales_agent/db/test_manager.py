@@ -1,5 +1,7 @@
-"""The conversation manager, tested with a fake language model whose answers we script, on the test database."""
+"""The conversation manager, tested with a fake language model and a fake Planning whose answers we script, on the
+test database."""
 
+import functools
 import json
 import uuid
 from datetime import date, datetime, timezone
@@ -9,24 +11,44 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
+from app.core.errors import AppError, ErrorCode
 from app.llm.client import FakeLLMClient, LLMError
-from app.sales_agent import manager, models, views
+from app.sales_agent import api, manager, models, planning as planning_module, views
+from app.sales_agent.planning import FakePlanning, OfferedOption, PlanningResult
 
 TODAY = date(2026, 10, 15)
 PHONE = "+919876543210"
+ASKED_FOR = "2026-11-10"  # the requested date used in the scenarios below
+ASKED_FOR_DATE = date.fromisoformat(ASKED_FOR)
 
 
 # -- helpers --------------------------------------------------------------------------------------------------------
 
 
-def ai(reply="Which product do you need?", step="ask_more", **details) -> str:
+def ai(reply="Which product do you need?", step="ask_more", chosen=None, **details) -> str:
     """One scripted answer of the language model, in the fixed JSON form."""
-    return json.dumps({"reply": reply, "next_step": step, "details": details, "reason": "test"})
+    return json.dumps({"reply": reply, "next_step": step, "chosen_option": chosen, "details": details, "reason": "test"})
+
+
+def ask_planning(quantity: int, reply="I will check with the planning team.") -> str:
+    """The model's answer when it has all three details and sends the request to Planning."""
+    return ai(reply, "send_request", product="SmartPhone X1", quantity=quantity, requested_date=ASKED_FOR)
 
 
 class BrokenModel:
     def complete(self, messages):
         raise LLMError("Ollama is not running")
+
+
+class ModelThatFailsAfterTheFirstCall:
+    def __init__(self, first_answer):
+        self.first_answer, self.calls = first_answer, 0
+
+    def complete(self, messages):
+        self.calls += 1
+        if self.calls > 1:
+            raise LLMError("Ollama stopped")
+        return self.first_answer
 
 
 @pytest.fixture
@@ -37,12 +59,16 @@ def products(db):
     return x1, x2
 
 
-def talk(db, model, text="Hi", phone=PHONE) -> str:
-    """The customer writes, the agent answers; returns the newest reply."""
-    accepted = manager.accept_message(db, "TEST", phone, str(uuid.uuid4()), text)
-    manager.process_conversation(db, accepted.conversation_id, model, TODAY)
-    replies = [m for m in messages_of(db, accepted.conversation_id) if m.direction == "OUT"]
-    return replies[-1].text
+QUIET_PLANNING = FakePlanning(delay_seconds=0)  # computes an answer but has nowhere to deliver it: it never answers
+
+
+def planning_that_answers(engine, model) -> FakePlanning:
+    """A fake Planning that answers at once, through the same path as the real door 3 (its own sessions, then the
+    customer is told). It calls back while the first worker still has the conversation, like in real life."""
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    planning = FakePlanning(delay_seconds=0)
+    planning.deliver = functools.partial(api.deliver_planning_result, factory, model, planning)
+    return planning
 
 
 def messages_of(db, conversation_id):
@@ -50,6 +76,14 @@ def messages_of(db, conversation_id):
         select(models.Message).where(models.Message.conversation_id == conversation_id)
         .order_by(models.Message.created_at, models.Message.id)
     ))
+
+
+def talk(db, model, text="Hi", phone=PHONE, planning=QUIET_PLANNING) -> str:
+    """The customer writes, the agent answers; returns the newest reply."""
+    accepted = manager.accept_message(db, "TEST", phone, str(uuid.uuid4()), text)
+    manager.process_conversation(db, accepted.conversation_id, model, TODAY, planning)
+    db.expire_all()
+    return [m for m in messages_of(db, accepted.conversation_id) if m.direction == "OUT"][-1].text
 
 
 def all_rows(db, model_class):
@@ -68,18 +102,23 @@ def what_the_model_was_told(model, call_number=0) -> str:
     return model.calls[call_number][0]["content"]  # the instructions, with the situation at the end
 
 
-# -- the tests ------------------------------------------------------------------------------------------------------
+def options_of(db, inquiry):
+    db.expire_all()
+    return [(o.kind, o.quantity, o.delivery_date.isoformat(), o.status) for o in
+            db.scalars(select(models.Option).where(models.Option.inquiry_id == inquiry.id)
+                       .order_by(models.Option.created_at))]
 
 
-def test_details_are_collected_over_several_messages_and_planning_is_told_only_when_complete(db, products):
+# -- collecting the details -----------------------------------------------------------------------------------------
+
+
+def test_details_are_collected_over_several_messages_and_the_request_goes_to_planning_only_when_complete(db, products):
     x1, _ = products
     model = FakeLLMClient([
         ai("Which quantity?", product="SmartPhone X1"),
         ai("By what date?", quantity="500"),
         ai("Noted."),  # says nothing about the details: they must not be erased
-        ai("So 500 SmartPhone X1 by November 10. I will check with the planning team.", "send_request",
-           product="SmartPhone X1", quantity=500, requested_date="2026-11-10"),
-        ai("Noted.", quantity=300),  # the customer changes their mind
+        ask_planning(500, "So 500 SmartPhone X1 by November 10. I will check with the planning team."),
     ])
 
     talk(db, model, "X1 phones please")
@@ -92,7 +131,7 @@ def test_details_are_collected_over_several_messages_and_planning_is_told_only_w
     assert "product = SmartPhone X1; quantity = not yet known; requested delivery date = not yet known" in situation
     assert "Still missing: quantity, delivery date." in situation
     assert [m["role"] for m in model.calls[1][1:]] == ["user", "assistant", "user"]
-    assert audit_events(db, "READY_FOR_PLANNING") == []  # a detail is still missing
+    assert audit_events(db, "PLANNING_REQUEST_SENT") == [] and the_inquiry(db).stage == "GATHERING"
 
     talk(db, model, "thanks")
     assert the_inquiry(db).quantity == Decimal("500")
@@ -100,11 +139,8 @@ def test_details_are_collected_over_several_messages_and_planning_is_told_only_w
     talk(db, model, "by November 10")
     inquiry = the_inquiry(db)
     assert (inquiry.product_id, inquiry.quantity, inquiry.requested_date) == (x1.id, Decimal("500"), date(2026, 11, 10))
-    ready = audit_events(db, "READY_FOR_PLANNING")
-    assert [a.details for a in ready] == [{"product": "SmartPhone X1", "quantity": 500, "requested_date": "2026-11-10"}]
-
-    talk(db, model, "actually 300")
-    assert the_inquiry(db).quantity == Decimal("300")
+    assert inquiry.stage == "WAITING_FOR_PLANNING" and inquiry.planning_request_ref
+    assert [a.details["order"]["quantity"] for a in audit_events(db, "PLANNING_REQUEST_SENT")] == [500]
 
 
 def test_a_wrong_detail_is_never_saved_or_repeated_back_as_if_it_was_fine(db, products):
@@ -130,17 +166,165 @@ def test_unusable_model_answers_get_safe_replies_and_a_false_planning_claim_is_n
     assert len(model.calls) == 2
 
     # 2. The model says "I will check with the planning team" while a detail is still missing: that claim would be
-    #    false, so it never reaches the customer and nothing is marked ready for planning.
+    #    false, so it never reaches the customer and nothing is sent to Planning.
     model = FakeLLMClient([ai("I will check with the planning team.", "send_request", product="SmartPhone X1")])
     reply = talk(db, model, phone="+200")
     assert "planning team" not in reply
-    assert audit_events(db, "READY_FOR_PLANNING") == []
+    assert audit_events(db, "PLANNING_REQUEST_SENT") == []
 
     # 3. Too many questions: the model is told, answers again, and the better answer is used.
     model = FakeLLMClient([ai("Which model? How many? By when?"), ai("Which model? How many?")])
     assert talk(db, model, phone="+300") == "Which model? How many?"
     assert "Your reply has 3 questions" in model.calls[1][-1]["content"]
     assert any(a.details["asked_again"] for a in audit_events(db, "AI_TURN"))
+
+    # 4. The model invents a date nobody gave it: it is told, and when it does it again our own reply is used.
+    model = FakeLLMClient([ai("Sure, we can deliver by December 12!")])
+    reply = talk(db, model, phone="+400")
+    assert "December 12" not in reply and reply.startswith("Sorry, I did not quite get that.")
+    assert "not one of the dates you were given" in model.calls[1][-1]["content"]
+
+
+# -- Planning answers, and the options are explained ----------------------------------------------------------------
+
+
+def test_the_options_planning_gives_are_explained_with_exactly_its_dates_and_quantities(db, products, engine):
+    options_reply = ("Here are your options. A) 800 x SmartPhone X1 by November 24, 2026. "
+                     "B) 500 x SmartPhone X1 by November 10, 2026. Which would you like?")
+    model = FakeLLMClient([ask_planning(800), ai(options_reply)])
+    planning = planning_that_answers(engine, model)
+
+    talk(db, model, "800 X1 phones by November 10 please", planning=planning)
+
+    inquiry = the_inquiry(db)
+    db.expire_all()
+    # The customer was told "checking" first, then got the options in the model's words.
+    assert [m.text for m in messages_of(db, inquiry.conversation_id) if m.direction == "OUT"] == [
+        "I will check with the planning team.", options_reply]
+    # Planning's options are saved in its order, copied exactly, with a validity time. Nothing is confirmed.
+    assert options_of(db, inquiry) == [("LATER_DATE", 800, "2026-11-24", "OFFERED"),
+                                       ("LESS_QUANTITY", 500, "2026-11-10", "OFFERED")]
+    assert inquiry.stage == "OPTIONS_PRESENTED" and inquiry.offer_valid_until > datetime.now(timezone.utc)
+    assert inquiry.planning_result["announced"] is True
+    # The model was told it may only use these options, and Planning received no price and no priority.
+    told = what_the_model_was_told(model, 1)
+    assert "A) 800 x SmartPhone X1 by 2026-11-24" in told and "B) 500 x SmartPhone X1 by 2026-11-10" in told
+    assert "price" not in json.dumps(inquiry.planning_request).lower()
+    assert audit_events(db, "OPTIONS_PRESENTED")[0].details["used_own_text"] is False
+
+
+def test_an_invented_date_or_a_missing_option_never_reaches_the_customer_and_our_own_text_is_used(db, products, engine):
+    own_text = ("Here is what we can offer:\n"
+                "A) 800 x SmartPhone X1 by 2026-11-24 (the full quantity, but later than you asked)\n"
+                "B) 500 x SmartPhone X1 by 2026-11-10 (a smaller quantity, on the date you asked for)\n"
+                "Which option would you like?")
+
+    # The model invents a date for the options, twice.
+    invented = FakeLLMClient([ask_planning(800), ai("A) 800 by November 30, B) 500 by November 10. Which one?")])
+    assert talk(db, invented, phone="+100", planning=planning_that_answers(engine, invented)) == own_text
+
+    # The model leaves out an option, twice.
+    forgetful = FakeLLMClient([ask_planning(800), ai("I can do 800 units by November 24. Would that suit you?")])
+    assert talk(db, forgetful, phone="+200", planning=planning_that_answers(engine, forgetful)) == own_text
+    assert "must present the option of 500" in forgetful.calls[2][-1]["content"]
+
+    # The model goes down just when the options must be explained: the customer still gets them.
+    down = ModelThatFailsAfterTheFirstCall(ask_planning(800))
+    assert talk(db, down, phone="+300", planning=planning_that_answers(engine, down)) == own_text
+    assert len(audit_events(db, "AI_FAILED")) == 1
+    assert [i.stage for i in all_rows(db, models.Inquiry)] == ["OPTIONS_PRESENTED"] * 3
+
+
+def test_nothing_feasible_and_staff_answers_are_told_plainly_and_waiting_is_not_hidden(db, products, engine):
+    def start(quantity, phone):
+        model = FakeLLMClient([ask_planning(quantity), ai("Still checking, thank you for waiting.")])
+        reply = talk(db, model, f"{quantity} X1 phones by November 10", phone=phone,
+                     planning=planning_that_answers(engine, model))
+        return model, reply
+
+    # Nothing feasible: said honestly, and the inquiry is closed so a new request can start.
+    _, reply = start(9000, "+100")
+    assert reply == planning_module.nothing_feasible_reply("SmartPhone X1")
+    nothing = all_rows(db, models.Inquiry)[0]
+    assert (nothing.stage, nothing.closed_reason) == ("CLOSED", "NO_OPTION")
+
+    # Planning needs a team member: the customer is told, and staff is flagged.
+    _, reply = start(77, "+200")
+    assert reply == planning_module.needs_staff_reply()
+    assert [i.stage for i in all_rows(db, models.Inquiry) if i.id != nothing.id] == ["NEEDS_STAFF"]
+    assert [a.details["reason"] for a in audit_events(db, "STAFF_FLAGGED")] == ["Planning asked for a team member"]
+
+    # Planning does not answer: the customer asks, and the model is told we are still waiting (it may not promise).
+    model, _ = start(13, "+300")
+    talk(db, model, "any news?", phone="+300")
+    assert "waiting for their answer" in what_the_model_was_told(model, 1)
+    waiting = [i for i in all_rows(db, models.Inquiry) if i.stage == "WAITING_FOR_PLANNING"]
+    assert len(waiting) == 1 and waiting[0].planning_result is None
+
+
+def test_planning_answers_that_are_duplicate_unknown_inconsistent_or_late_change_nothing(db, products):
+    talk(db, FakeLLMClient([ask_planning(800)]))
+    inquiry = the_inquiry(db)
+    ref = inquiry.planning_request_ref
+    good = PlanningResult(request_ref=ref, status="READY", options=[
+        OfferedOption(kind="LATER_DATE", quantity=800, delivery_date=date(2026, 11, 24))])
+
+    # An answer for a request we never sent, and one that does not fit what we asked.
+    with pytest.raises(AppError) as unknown:
+        manager.handle_planning_result(db, PlanningResult(request_ref="REQ-NOPE", status="NOTHING_FEASIBLE"))
+    assert unknown.value.code == ErrorCode.NOT_FOUND
+    wrong = PlanningResult(request_ref=ref, status="READY", options=[
+        OfferedOption(kind="LATER_DATE", quantity=800, delivery_date=ASKED_FOR_DATE)])  # not later than asked
+    with pytest.raises(AppError) as inconsistent:
+        manager.handle_planning_result(db, wrong)
+    assert inconsistent.value.code == ErrorCode.BUSINESS_RULE_VIOLATION
+    db.expire_all()
+    assert the_inquiry(db).planning_result is None and options_of(db, inquiry) == []
+
+    # A "still working" note does not stop the real answer, and the first real answer wins.
+    assert manager.handle_planning_result(db, PlanningResult(request_ref=ref, status="WORKING")).status == "received"
+    assert manager.handle_planning_result(db, good).status == "received"
+    assert manager.handle_planning_result(db, good).status == "duplicate"
+    other = PlanningResult(request_ref=ref, status="NOTHING_FEASIBLE")
+    assert manager.handle_planning_result(db, other).status == "duplicate"
+    db.expire_all()
+    assert the_inquiry(db).planning_result["status"] == "READY" and len(options_of(db, inquiry)) == 1
+
+    # An answer for a request that is no longer waiting (the inquiry was closed) is ignored.
+    stale = the_inquiry(db)
+    stale.planning_result, stale.stage, stale.closed_reason = None, "CLOSED", "ABANDONED"
+    db.commit()
+    assert manager.handle_planning_result(db, good).status == "ignored"
+
+
+def test_changing_the_request_replaces_the_inquiry_and_sends_a_new_request(db, products, engine):
+    model = FakeLLMClient([
+        ask_planning(13),  # Planning never answers this one
+        ai("Noted, 300 instead. I will check with the planning team.", quantity=300),
+        ai("Here is what we can offer: 300 x SmartPhone X1 by November 10. Which option would you like?"),
+    ])
+    planning = planning_that_answers(engine, model)
+    talk(db, model, "13 X1 phones by November 10", planning=planning)
+    first = the_inquiry(db)
+    first_ref = first.planning_request_ref
+    assert first.stage == "WAITING_FOR_PLANNING"
+
+    talk(db, model, "actually make it 300", planning=planning)
+
+    db.expire_all()
+    inquiries = {i.id: i for i in all_rows(db, models.Inquiry)}
+    assert (inquiries[first.id].stage, inquiries[first.id].closed_reason) == ("CLOSED", "REPLACED")
+    new = [i for i in inquiries.values() if i.id != first.id][0]
+    assert (new.stage, new.quantity) == ("OPTIONS_PRESENTED", Decimal("300"))
+    assert new.planning_request_ref != first_ref
+    assert options_of(db, new) == [("REQUESTED", 300, ASKED_FOR, "OFFERED")]
+    # The old request can still be answered by Planning, but nothing happens with it.
+    late = PlanningResult(request_ref=first_ref, status="NOTHING_FEASIBLE")
+    assert manager.handle_planning_result(db, late).status == "ignored"
+    assert len(audit_events(db, "INQUIRY_REPLACED")) == 1
+
+
+# -- failures, duplicates and the customer's background -------------------------------------------------------------
 
 
 def test_a_model_that_is_down_gets_an_apology_keeps_the_messages_and_flags_staff_after_two_failures(db, products):
@@ -179,15 +363,15 @@ def test_messages_that_arrive_while_the_model_thinks_are_answered_together_by_on
             self.calls.append(messages)
             if len(self.calls) == 1:
                 manager.accept_message(other_session, "TEST", PHONE, "m2", "and I need them quickly")
-                manager.process_conversation(other_session, self.holder["id"], second_worker_model, TODAY)
-            return ai(f"reply {len(self.calls)}")
+                manager.process_conversation(other_session, self.holder["id"], second_worker_model, TODAY, QUIET_PLANNING)
+            return ai("First reply." if len(self.calls) == 1 else "Second reply.")
 
     holder = {}
     model = ModelThatTakesTime(holder)
     first = manager.accept_message(db, "TEST", PHONE, "m1", "X1 phones please")
     holder["id"] = first.conversation_id
 
-    manager.process_conversation(db, first.conversation_id, model, TODAY)
+    manager.process_conversation(db, first.conversation_id, model, TODAY, QUIET_PLANNING)
     other_session.close()
 
     assert second_worker_model.calls == []  # the conversation was taken, so the second worker did nothing
@@ -196,7 +380,7 @@ def test_messages_that_arrive_while_the_model_thinks_are_answered_together_by_on
     assert first_turn_users == ["X1 phones please"]  # the first turn did not see it, so it must not mark it answered
     assert "and I need them quickly" in [m["content"] for m in model.calls[1][1:]]
     assert [(m.direction, m.text) for m in messages_of(db, first.conversation_id)] == [
-        ("IN", "X1 phones please"), ("IN", "and I need them quickly"), ("OUT", "reply 1"), ("OUT", "reply 2")]
+        ("IN", "X1 phones please"), ("IN", "and I need them quickly"), ("OUT", "First reply."), ("OUT", "Second reply.")]
     db.expire_all()
     assert all(m.processed for m in all_rows(db, models.Message) if m.direction == "IN")
     assert all_rows(db, models.Conversation)[0].busy is False
@@ -268,3 +452,124 @@ def test_history_survives_a_restart_clearing_starts_fresh_and_staff_questions_ar
     assert (the_inquiry(db).stage, the_inquiry(db).closed_reason) == ("CLOSED", "ABANDONED")
     talk(db, model, "Hi again")
     assert sorted(c.status for c in all_rows(db, models.Conversation)) == ["CLOSED", "OPEN"]
+
+
+# -- choosing and confirming ----------------------------------------------------------------------------------------
+
+OPTIONS_TEXT = ("Here are your options. A) 800 x SmartPhone X1 by November 24, 2026. "
+                "B) 500 x SmartPhone X1 by November 10, 2026. Which would you like?")
+
+
+def reach_options(db, engine, *next_answers, phone=PHONE):
+    """A customer asks for 800 phones and Planning offers A) all 800 later, B) 500 on time. Returns the scripted model,
+    the fake Planning (which keeps the confirmation notices) and the question that follows a choice of B."""
+    model = FakeLLMClient([ask_planning(800), ai(OPTIONS_TEXT), *next_answers])
+    planning = planning_that_answers(engine, model)
+    talk(db, model, "800 X1 phones by November 10 please", phone=phone, planning=planning)
+    question = planning_module.confirmation_question(500, ASKED_FOR_DATE, "SmartPhone X1")
+    return model, planning, question
+
+
+def test_a_choice_and_a_clear_yes_make_the_order_and_only_then(db, products, engine):
+    model, planning, question = reach_options(
+        db, engine, ai("Great choice!", "select_option", chosen="B"), ai("Done, it is all confirmed!", "confirm_order"))
+
+    # Choosing does not order anything: our own question repeats the exact quantity, date and payment note.
+    assert talk(db, model, "B please", planning=planning) == question
+    assert "payment is assumed" in question and all_rows(db, models.Order) == []
+    inquiry = the_inquiry(db)
+    assert inquiry.stage == "AWAITING_CONFIRMATION"
+    assert [o[3] for o in options_of(db, inquiry)] == ["OFFERED", "SELECTED"]
+
+    # The clear yes makes the order. The customer reads our words, not the model's.
+    reply = talk(db, model, "yes", planning=planning)
+    (order,) = all_rows(db, models.Order)
+    db.refresh(inquiry)
+    assert (order.quantity, order.delivery_date.isoformat(), order.status, order.payment_status) == (
+        500, "2026-11-10", "CONFIRMED", "ASSUMED_PAID")
+    assert reply == planning_module.order_confirmed_reply(order.order_number, 500, ASKED_FOR_DATE, "SmartPhone X1")
+    assert "all confirmed" not in reply
+    assert inquiry.stage == "CONFIRMED" and inquiry.confirmation_message_id is not None and order.inquiry_id == inquiry.id
+    assert [o[3] for o in options_of(db, inquiry)] == ["RELEASED", "SELECTED"]
+    # The new customer is saved, and Planning is told what was decided.
+    (customer,) = all_rows(db, models.Customer)
+    assert order.customer_id == customer.id and customer.phone == PHONE
+    (notice,) = planning.confirmations
+    assert (notice["order_number"], notice["quantity"], notice["payment"]) == (order.order_number, 500, "ASSUMED_PAID")
+    assert audit_events(db, "CONFIRMATION_ACCEPTED")
+
+
+def test_a_yes_that_is_early_unclear_changed_or_late_never_makes_an_order(db, products, engine):
+    # The model says "confirm" before any option was chosen: refused twice, so our own reply is used.
+    model, planning, _ = reach_options(
+        db, engine, ai("Confirmed!", "confirm_order"), ai("Confirmed!", "confirm_order"), phone="+1001")
+    talk(db, model, "ok", phone="+1001", planning=planning)
+    assert all_rows(db, models.Order) == [] and the_inquiry(db).stage == "OPTIONS_PRESENTED"
+    assert audit_events(db, "AI_TURN")[-1].details["used_fallback"] is True
+
+    # A choice the model cannot name (letter Z) selects nothing.
+    model, planning, _ = reach_options(
+        db, engine, ai("ok", "select_option", chosen="Z"), ai("ok", "select_option", chosen="Z"), phone="+1002")
+    talk(db, model, "the last one", phone="+1002", planning=planning)
+    assert not [o for o in all_rows(db, models.Option) if o.status == "SELECTED"]
+
+    # A "yes" that does not answer our question (we said something else in between) is not enough: we ask again.
+    model, planning, question = reach_options(
+        db, engine, ai("Great choice!", "select_option", chosen="B"), ai("You can ask me anything.", "ask_more"),
+        ai("Confirmed!", "confirm_order"), ai("Confirmed!", "confirm_order"), phone="+1003")
+    talk(db, model, "B", phone="+1003", planning=planning)
+    talk(db, model, "can I ask something?", phone="+1003", planning=planning)
+    assert talk(db, model, "yes", phone="+1003", planning=planning) == question
+    assert all_rows(db, models.Order) == [] and audit_events(db, "CONFIRMATION_REFUSED")
+    # Now our question was the last thing said, so the next yes counts.
+    talk(db, model, "yes", phone="+1003", planning=planning)
+    assert len(all_rows(db, models.Order)) == 1
+
+    # Two messages at once are not one clear answer to the question.
+    model, planning, question = reach_options(
+        db, engine, ai("Great choice!", "select_option", chosen="B"), ai("Confirmed!", "confirm_order"), phone="+1004")
+    talk(db, model, "B", phone="+1004", planning=planning)
+    first = manager.accept_message(db, "TEST", "+1004", str(uuid.uuid4()), "yes")
+    manager.accept_message(db, "TEST", "+1004", str(uuid.uuid4()), "yes")
+    manager.process_conversation(db, first.conversation_id, model, TODAY, planning)
+    assert len(all_rows(db, models.Order)) == 1  # still only the one from the scenario before
+
+    # A "yes" together with a changed quantity is a new request, not a confirmation.
+    model, planning, _ = reach_options(
+        db, engine, ai("Great choice!", "select_option", chosen="B"),
+        ai("Confirmed!", "confirm_order", product="SmartPhone X1", quantity=300, requested_date=ASKED_FOR), phone="+1005")
+    talk(db, model, "B", phone="+1005", planning=planning)
+    reply = talk(db, model, "yes but make it 300", phone="+1005", planning=QUIET_PLANNING)
+    assert reply == planning_module.request_changed_reply() and len(all_rows(db, models.Order)) == 1
+    assert "REPLACED" in [i.closed_reason for i in all_rows(db, models.Inquiry)]
+
+
+def test_declining_an_expired_offer_and_a_staff_case_are_handled_without_an_order(db, products, engine):
+    # "No thanks" closes the inquiry and releases the options.
+    model, planning, _ = reach_options(
+        db, engine, ai("Great choice!", "select_option", chosen="A"), ai("Fine!", "decline"), phone="+1101")
+    talk(db, model, "A", phone="+1101", planning=planning)
+    assert talk(db, model, "no, forget it", phone="+1101", planning=planning) == planning_module.declined_reply()
+    inquiry = all_rows(db, models.Inquiry)[0]
+    assert (inquiry.stage, inquiry.closed_reason) == ("CLOSED", "DECLINED")
+    assert {o[3] for o in options_of(db, inquiry)} == {"RELEASED"} and all_rows(db, models.Order) == []
+
+    # A "yes" after the offer ran out is not accepted: the same request goes to Planning again.
+    model, planning, _ = reach_options(db, engine, ai("Great choice!", "select_option", chosen="B"), phone="+1102")
+    talk(db, model, "B", phone="+1102", planning=planning)
+    waiting = next(i for i in all_rows(db, models.Inquiry) if i.stage == "AWAITING_CONFIRMATION")
+    waiting.offer_valid_until = datetime(2020, 1, 1, tzinfo=timezone.utc)
+    db.commit()
+    calls_before = len(model.calls)
+    assert talk(db, model, "yes", phone="+1102", planning=QUIET_PLANNING) == planning_module.offer_expired_reply()
+    db.expire_all()
+    renewed = next(i for i in all_rows(db, models.Inquiry) if i.stage == "WAITING_FOR_PLANNING")
+    assert (waiting.closed_reason, renewed.quantity, renewed.requested_date) == ("EXPIRED", Decimal("800"), ASKED_FOR_DATE)
+    assert len(model.calls) == calls_before and all_rows(db, models.Order) == []  # the model was not even asked
+
+    # After Planning asks for a team member, the customer can still write and is answered, but nothing is ordered.
+    model = FakeLLMClient([ask_planning(77), ai("Thank you, a team member will be in touch.")])
+    planning = planning_that_answers(engine, model)
+    talk(db, model, "77 X1 phones by November 10", phone="+1103", planning=planning)
+    assert talk(db, model, "any news?", phone="+1103", planning=planning) == "Thank you, a team member will be in touch."
+    assert all_rows(db, models.Order) == []

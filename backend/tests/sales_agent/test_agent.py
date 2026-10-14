@@ -41,6 +41,6 @@ def test_a_broken_answer_is_asked_for_again_once_and_then_refused():
 
     # Valid JSON that breaks our rules is refused too: nothing empty or huge reaches a customer, and the next step
     # must be one we know.
-    for bad_fields in ({"reply": "   "}, {"reply": "x" * 1001}, {"next_step": "confirm_order"}):
+    for bad_fields in ({"reply": "   "}, {"reply": "x" * 1001}, {"next_step": "delete_everything"}):
         with pytest.raises(StructuredOutputError):
             ai_understand_and_reply(FakeLLMClient([answer(**bad_fields)]), MESSAGES)

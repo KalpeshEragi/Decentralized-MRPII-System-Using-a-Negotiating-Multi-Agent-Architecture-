@@ -105,3 +105,20 @@ def test_a_bad_model_answer_is_caught_and_the_safe_reply_asks_for_what_is_wrong(
     )
     assert fallback_reply(["requested_date"], [], names).startswith("I could not use that delivery date.")
     assert fallback_reply([], [], names) == "Sorry, I did not quite get that. Could you say that again, please?"
+
+
+def test_a_yes_becomes_an_order_only_when_every_guard_passes():
+    from datetime import datetime, timedelta, timezone
+
+    from app.sales_agent.rules import confirmation_problem
+
+    now = datetime(2026, 10, 15, 12, 0, tzinfo=timezone.utc)
+    question = "Just to be sure: ... Shall I confirm this order?"
+    good = dict(stage="AWAITING_CONFIRMATION", option_chosen=True, offer_valid_until=now + timedelta(hours=1), now=now,
+                messages_at_once=1, last_reply=question, confirmation_question=question)
+
+    assert confirmation_problem(**good) is None
+    for broken in ({"stage": "OPTIONS_PRESENTED"}, {"option_chosen": False}, {"offer_valid_until": now - timedelta(seconds=1)},
+                   {"offer_valid_until": None}, {"messages_at_once": 2}, {"last_reply": "You can ask me anything."},
+                   {"last_reply": None}):
+        assert confirmation_problem(**{**good, **broken}), broken
