@@ -22,7 +22,7 @@ MAX_ORDERS_IN_HISTORY = 5
 STATUS_IN_WORDS = {"CONFIRMED": "confirmed"}
 
 
-def _number(value: Decimal) -> int | float:
+def json_number(value: Decimal) -> int | float:
     return int(value) if value == value.to_integral_value() else float(value)
 
 
@@ -34,7 +34,7 @@ def _order_to_dict(order: PastOrder) -> dict[str, Any]:
     return {
         "order_number": order.order_number,
         "product": order.product_name,
-        "quantity": _number(order.quantity),
+        "quantity": json_number(order.quantity),
         "requested_date": _day(order.requested_date),
         "delivery_date": _day(order.delivery_date),
         "status": order.status,
@@ -79,7 +79,7 @@ def check_order_details(db: Session, product, quantity, requested_date, today: d
     result = rules.check_order_details(data_access.list_active_products(db), product, quantity, requested_date, today)
     answer = result.model_dump(mode="json")
     if result.quantity is not None:
-        answer["quantity"] = _number(result.quantity)  # a number, not the text "500"
+        answer["quantity"] = json_number(result.quantity)  # a number, not the text "500"
     return answer
 
 
@@ -105,7 +105,7 @@ def get_order_status(db: Session, customer_id: uuid.UUID | None, order_number: s
         **_order_to_dict(order),
         "status_in_words": status_in_words,
         "message": (
-            f"Order {order.order_number} for {_number(order.quantity)} x {order.product_name} is {status_in_words}. "
+            f"Order {order.order_number} for {json_number(order.quantity)} x {order.product_name} is {status_in_words}. "
             f"Delivery date: {order.delivery_date.isoformat()}."
         ),
     }
