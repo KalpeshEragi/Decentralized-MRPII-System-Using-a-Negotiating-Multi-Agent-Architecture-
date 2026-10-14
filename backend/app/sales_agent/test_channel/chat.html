@@ -49,14 +49,14 @@
     const clearButton = document.getElementById("clear-button");
 
     const POLL_EVERY_MS = 1000;
-    const GIVE_UP_AFTER_MS = 150000;
+
+    // What the page knows about the open conversation. New messages are fetched with ?after=<last message id>.
+    let conversationId = null;
+    let lastMessageId = null;
+    let typingNote = null;  // shown from sending until the agent's reply arrives
 
     function currentPhone() {
       return phoneInput.value.trim();
-    }
-
-    function sleep(milliseconds) {
-      return new Promise((resolve) => setTimeout(resolve, milliseconds));
     }
 
     function scrollToBottom() {
@@ -80,6 +80,12 @@
       return note;
     }
 
+    function stopWaiting() {
+      if (typingNote) typingNote.remove();
+      typingNote = null;
+      sendButton.disabled = false;
+    }
+
     // The backend answers errors as {"error": {"message": "..."}}.
     async function readErrorMessage(response) {
       try {
@@ -90,8 +96,21 @@
       }
     }
 
+    function showMessages(messages) {
+      messages.forEach((message) => {
+        if (message.direction === "OUT") stopWaiting();
+        if (typingNote) typingNote.remove();  // keep the typing note below the newest message
+        addMessage(message.role, message.text);
+        if (typingNote) chatWindow.appendChild(typingNote);
+        lastMessageId = message.id;
+      });
+    }
+
     async function loadHistory() {
+      stopWaiting();
       chatWindow.innerHTML = "";
+      conversationId = null;
+      lastMessageId = null;
       if (!currentPhone()) return;
       const response = await fetch("/sales/test-channel/history/" + encodeURIComponent(currentPhone()));
       if (!response.ok) {
@@ -99,21 +118,22 @@
         return;
       }
       const body = await response.json();
-      body.messages.forEach((message) => addMessage(message.role, message.text));
+      conversationId = body.conversation_id;
+      showMessages(body.messages);
     }
 
-    // The agent answers in the background, so we ask for new messages until a reply from the agent shows up.
-    async function waitForReply(conversationId, afterMessageId) {
-      const deadline = Date.now() + GIVE_UP_AFTER_MS;
-      while (Date.now() < deadline) {
-        await sleep(POLL_EVERY_MS);
-        const response = await fetch("/sales/conversations/" + conversationId + "/messages?after=" + afterMessageId);
-        if (!response.ok) throw new Error(await readErrorMessage(response));
-        const body = await response.json();
-        const replies = body.messages.filter((message) => message.direction === "OUT");
-        if (replies.length > 0) return replies;
+    // The agent answers in the background, and Planning's answer arrives later still, so we keep asking for new messages.
+    async function pollForNewMessages() {
+      if (!conversationId) return;
+      try {
+        let url = "/sales/conversations/" + conversationId + "/messages";
+        if (lastMessageId) url += "?after=" + lastMessageId;
+        const response = await fetch(url);
+        if (!response.ok) return;
+        showMessages((await response.json()).messages);
+      } catch (problem) {
+        // the backend may be restarting; try again at the next tick
       }
-      return null;
     }
 
     async function sendMessage() {
@@ -123,7 +143,6 @@
       addMessage("user", text);
       messageInput.value = "";
       sendButton.disabled = true;
-      let typingNote = null;
 
       try {
         // crypto.randomUUID is the message id; sending the same id twice would not make the agent answer twice.
@@ -134,24 +153,18 @@
         });
         if (!response.ok) {
           addNote("error", await readErrorMessage(response));
+          stopWaiting();
           return;
         }
         const received = await response.json();
+        conversationId = received.conversation_id;
+        lastMessageId = received.message_id;  // our own message is already shown
         typingNote = addNote("status", "Sales Agent is typing...");
-        const replies = await waitForReply(received.conversation_id, received.message_id);
-        typingNote.remove();
-        if (replies === null) {
-          addNote("error", "No reply yet. The agent may still be working. Reload the page to check.");
-        } else {
-          replies.forEach((reply) => addMessage("assistant", reply.text));
-        }
       } catch (problem) {
-        if (typingNote) typingNote.remove();
         addNote("error", "Could not reach the backend. Is it running?");
-      } finally {
-        sendButton.disabled = false;
-        messageInput.focus();
+        stopWaiting();
       }
+      messageInput.focus();
     }
 
     async function clearChat() {
@@ -171,6 +184,7 @@
     });
 
     loadHistory();
+    setInterval(pollForNewMessages, POLL_EVERY_MS);
   </script>
 </body>
 </html>
