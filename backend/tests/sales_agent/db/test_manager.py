@@ -1,6 +1,7 @@
 """The conversation manager, tested with a fake language model whose answers we script, on the test database."""
 
 import json
+import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
@@ -8,9 +9,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import sessionmaker
 
-from app.core.errors import AppError, ErrorCode
 from app.llm.client import FakeLLMClient, LLMError
-from app.sales_agent import manager, models
+from app.sales_agent import manager, models, views
 
 TODAY = date(2026, 10, 15)
 PHONE = "+919876543210"
@@ -38,7 +38,18 @@ def products(db):
 
 
 def talk(db, model, text="Hi", phone=PHONE) -> str:
-    return manager.handle_customer_message(db, "TEST", phone, text, model, TODAY)
+    """The customer writes, the agent answers; returns the newest reply."""
+    accepted = manager.accept_message(db, "TEST", phone, str(uuid.uuid4()), text)
+    manager.process_conversation(db, accepted.conversation_id, model, TODAY)
+    replies = [m for m in messages_of(db, accepted.conversation_id) if m.direction == "OUT"]
+    return replies[-1].text
+
+
+def messages_of(db, conversation_id):
+    return list(db.scalars(
+        select(models.Message).where(models.Message.conversation_id == conversation_id)
+        .order_by(models.Message.created_at, models.Message.id)
+    ))
 
 
 def all_rows(db, model_class):
@@ -132,18 +143,63 @@ def test_unusable_model_answers_get_safe_replies_and_a_false_planning_claim_is_n
     assert any(a.details["asked_again"] for a in audit_events(db, "AI_TURN"))
 
 
-def test_model_down_keeps_the_customers_message_and_the_next_turn_sees_it(db, products):
-    with pytest.raises(AppError) as error:
-        talk(db, BrokenModel(), "Hello?")
-    assert error.value.code == ErrorCode.SERVICE_UNAVAILABLE
-    assert [(m.direction, m.text, m.processed) for m in all_rows(db, models.Message)] == [("IN", "Hello?", False)]
+def test_a_model_that_is_down_gets_an_apology_keeps_the_messages_and_flags_staff_after_two_failures(db, products):
+    # The customer gets an apology, their message is kept unanswered, and nothing stays locked.
+    assert talk(db, BrokenModel(), "Hello?") == manager.SAFE_APOLOGY
+    assert [(m.direction, m.processed) for m in all_rows(db, models.Message)] == [("IN", False), ("OUT", False)]
+    assert all_rows(db, models.Conversation)[0].busy is False
+    assert audit_events(db, "STAFF_FLAGGED") == []
 
+    # The second failure in a row flags staff, once. A third does not flag again.
+    talk(db, BrokenModel(), "Anyone there?")
+    assert len(audit_events(db, "STAFF_FLAGGED")) == 1
+    talk(db, BrokenModel(), "Hello???")
+    assert len(audit_events(db, "AI_FAILED")) == 3 and len(audit_events(db, "STAFF_FLAGGED")) == 1
+
+    # When the model is back, it sees everything the customer wrote meanwhile and answers it.
     model = FakeLLMClient([ai("Sorry for the wait. Which product?")])
-    talk(db, model, "Anyone there?")
-
-    assert [m["content"] for m in model.calls[0][1:]] == ["Hello?", "Anyone there?"]
+    assert talk(db, model, "I need phones") == "Sorry for the wait. Which product?"
+    said_by_customer = [m["content"] for m in model.calls[0][1:] if m["role"] == "user"]
+    assert said_by_customer == ["Hello?", "Anyone there?", "Hello???", "I need phones"]
     db.expire_all()
     assert all(m.processed for m in all_rows(db, models.Message) if m.direction == "IN")
+
+
+def test_messages_that_arrive_while_the_model_thinks_are_answered_together_by_one_worker(db, products, engine):
+    other_session = sessionmaker(bind=engine, expire_on_commit=False)()
+    second_worker_model = FakeLLMClient([ai("this must never be used")])
+
+    class ModelThatTakesTime:
+        """On its first call the customer writes again, and a second worker tries to answer the same conversation."""
+
+        def __init__(self, conversation_id_holder):
+            self.calls, self.holder = [], conversation_id_holder
+
+        def complete(self, messages):
+            self.calls.append(messages)
+            if len(self.calls) == 1:
+                manager.accept_message(other_session, "TEST", PHONE, "m2", "and I need them quickly")
+                manager.process_conversation(other_session, self.holder["id"], second_worker_model, TODAY)
+            return ai(f"reply {len(self.calls)}")
+
+    holder = {}
+    model = ModelThatTakesTime(holder)
+    first = manager.accept_message(db, "TEST", PHONE, "m1", "X1 phones please")
+    holder["id"] = first.conversation_id
+
+    manager.process_conversation(db, first.conversation_id, model, TODAY)
+    other_session.close()
+
+    assert second_worker_model.calls == []  # the conversation was taken, so the second worker did nothing
+    assert len(model.calls) == 2  # the message that arrived meanwhile got its own turn
+    first_turn_users = [m["content"] for m in model.calls[0][1:]]
+    assert first_turn_users == ["X1 phones please"]  # the first turn did not see it, so it must not mark it answered
+    assert "and I need them quickly" in [m["content"] for m in model.calls[1][1:]]
+    assert [(m.direction, m.text) for m in messages_of(db, first.conversation_id)] == [
+        ("IN", "X1 phones please"), ("IN", "and I need them quickly"), ("OUT", "reply 1"), ("OUT", "reply 2")]
+    db.expire_all()
+    assert all(m.processed for m in all_rows(db, models.Message) if m.direction == "IN")
+    assert all_rows(db, models.Conversation)[0].busy is False
 
 
 def test_a_returning_customers_background_is_given_to_the_model_but_nothing_is_assumed(db, products):
@@ -200,16 +256,15 @@ def test_history_survives_a_restart_clearing_starts_fresh_and_staff_questions_ar
     assert [n.details for n in notes] == [{"message": "I want to cancel my order SO-1"}]
 
     fresh_session = sessionmaker(bind=engine, expire_on_commit=False)()  # like the backend after a restart
-    history = manager.read_chat_history(fresh_session, "TEST", PHONE)
+    history = views.chat_of_sender(fresh_session, "TEST", PHONE)["messages"]
     fresh_session.close()
-    assert history == [
-        {"role": "user", "content": "Hi"}, {"role": "assistant", "content": "Hello!"},
-        {"role": "user", "content": "I want to cancel my order SO-1"},
-        {"role": "assistant", "content": "A team member will follow up."},
+    assert [(m["role"], m["text"]) for m in history] == [
+        ("user", "Hi"), ("assistant", "Hello!"),
+        ("user", "I want to cancel my order SO-1"), ("assistant", "A team member will follow up."),
     ]
 
     manager.clear_chat(db, "TEST", PHONE)
-    assert manager.read_chat_history(db, "TEST", PHONE) == []
+    assert views.chat_of_sender(db, "TEST", PHONE)["messages"] == []
     assert (the_inquiry(db).stage, the_inquiry(db).closed_reason) == ("CLOSED", "ABANDONED")
     talk(db, model, "Hi again")
     assert sorted(c.status for c in all_rows(db, models.Conversation)) == ["CLOSED", "OPEN"]
