@@ -48,8 +48,15 @@
     const sendButton = document.getElementById("send-button");
     const clearButton = document.getElementById("clear-button");
 
+    const POLL_EVERY_MS = 1000;
+    const GIVE_UP_AFTER_MS = 150000;
+
     function currentPhone() {
       return phoneInput.value.trim();
+    }
+
+    function sleep(milliseconds) {
+      return new Promise((resolve) => setTimeout(resolve, milliseconds));
     }
 
     function scrollToBottom() {
@@ -86,13 +93,27 @@
     async function loadHistory() {
       chatWindow.innerHTML = "";
       if (!currentPhone()) return;
-      const response = await fetch("/sales-test/history/" + encodeURIComponent(currentPhone()));
+      const response = await fetch("/sales/test-channel/history/" + encodeURIComponent(currentPhone()));
       if (!response.ok) {
         addNote("error", await readErrorMessage(response));
         return;
       }
       const body = await response.json();
-      body.messages.forEach((message) => addMessage(message.role, message.content));
+      body.messages.forEach((message) => addMessage(message.role, message.text));
+    }
+
+    // The agent answers in the background, so we ask for new messages until a reply from the agent shows up.
+    async function waitForReply(conversationId, afterMessageId) {
+      const deadline = Date.now() + GIVE_UP_AFTER_MS;
+      while (Date.now() < deadline) {
+        await sleep(POLL_EVERY_MS);
+        const response = await fetch("/sales/conversations/" + conversationId + "/messages?after=" + afterMessageId);
+        if (!response.ok) throw new Error(await readErrorMessage(response));
+        const body = await response.json();
+        const replies = body.messages.filter((message) => message.direction === "OUT");
+        if (replies.length > 0) return replies;
+      }
+      return null;
     }
 
     async function sendMessage() {
@@ -102,23 +123,30 @@
       addMessage("user", text);
       messageInput.value = "";
       sendButton.disabled = true;
-      const typingNote = addNote("status", "Sales Agent is typing...");
+      let typingNote = null;
 
       try {
-        const response = await fetch("/sales-test/chat", {
+        // crypto.randomUUID is the message id; sending the same id twice would not make the agent answer twice.
+        const response = await fetch("/sales/test-channel/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone: currentPhone(), message: text }),
+          body: JSON.stringify({ phone: currentPhone(), message_id: crypto.randomUUID(), text: text }),
         });
-        typingNote.remove();
-        if (response.ok) {
-          const body = await response.json();
-          addMessage("assistant", body.reply);
-        } else {
+        if (!response.ok) {
           addNote("error", await readErrorMessage(response));
+          return;
+        }
+        const received = await response.json();
+        typingNote = addNote("status", "Sales Agent is typing...");
+        const replies = await waitForReply(received.conversation_id, received.message_id);
+        typingNote.remove();
+        if (replies === null) {
+          addNote("error", "No reply yet. The agent may still be working. Reload the page to check.");
+        } else {
+          replies.forEach((reply) => addMessage("assistant", reply.text));
         }
       } catch (problem) {
-        typingNote.remove();
+        if (typingNote) typingNote.remove();
         addNote("error", "Could not reach the backend. Is it running?");
       } finally {
         sendButton.disabled = false;
@@ -128,7 +156,7 @@
 
     async function clearChat() {
       if (!currentPhone()) return;
-      await fetch("/sales-test/history/" + encodeURIComponent(currentPhone()), { method: "DELETE" });
+      await fetch("/sales/test-channel/history/" + encodeURIComponent(currentPhone()), { method: "DELETE" });
       loadHistory();
     }
 
