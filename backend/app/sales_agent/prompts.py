@@ -44,13 +44,12 @@ Style:
 
 ANSWER_FORMAT_PROMPT = """\
 Answer with one JSON object and nothing else, in exactly this form:
-{"reply": "<your message to the customer>", "next_step": "ask_more", "chosen_option": null, "preference": null, "details": {"product": null, "quantity": null, \
+{"reply": "<your message to the customer>", "next_step": "ask_more", "preference": null, "details": {"product": null, "quantity": null, \
 "requested_date": null}, "reason": "<one short sentence>"}
 
 - reply: the message the customer will read.
 - next_step: "send_request" when the situation shows all three details are known, "pass_to_staff" for a question about \
-an order that was already placed, a cancellation or change of it, or a complaint, "select_option" when the customer chooses one of the options already shown, "confirm_order" only when the situation says we are waiting for the customer's confirmation and the customer clearly says yes, "decline" when the customer says they do not want to go ahead, and "ask_more" in every other case. The situation tells you which of these are possible now.
-- chosen_option: with "select_option", the letter of the option the customer chose (for example "A"). Otherwise null.
+an order that was already placed, a cancellation or change of it, or a complaint, and "ask_more" in every other case.
 - details: write here every order detail that the customer's latest message gives or changes, even if it looks like \
 an answer to your own question. Use null for a detail the latest message does not mention. Details from earlier \
 messages are already saved by us. Write the product as its name, the quantity as a number, and the date as \
@@ -61,6 +60,29 @@ the year from an earlier message.
 - preference: normally null. Only when the customer clearly asks in their latest message that we remember something, write {"type": "PREFERS_WHATSAPP_UPDATES" or "WANTS_EARLY_DATE_CHANGE_NOTICE", "applies_to": "always" or "this_order"}. Never write a preference the customer did not ask for, and no other types exist.
 - reason: one short sentence on why you chose this next_step.
 """
+
+
+DECISION_PROMPT = """\
+You read ONE message from a customer and classify it. Nothing else.
+
+We showed the customer these options:
+{options}
+{asked}
+Classify the customer's message as exactly one of:
+- "choose": picks one of the options. Set "option" to its letter, for example "B".
+- "yes": a plain agreement to what we last asked, with nothing else in it (for example "yes", "ok confirm", "go ahead").
+- "no": does not want to go ahead (for example "no", "cancel it", "forget it").
+- "change": wants a different quantity, date or product.
+- "question": asks something.
+- "unclear": anything else, or you are not sure.
+
+Answer with one JSON object and nothing else: {{"decision": "yes", "option": null}}
+"""
+
+
+def build_decision_prompt(options_text: str, last_message: str | None) -> str:
+    asked = f'Our last message to the customer was: "{last_message}"\n' if last_message else ""
+    return DECISION_PROMPT.format(options=options_text, asked=asked)
 
 
 def build_system_prompt(situation: str) -> str:

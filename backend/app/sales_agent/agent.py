@@ -38,11 +38,25 @@ class AgentTurn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     reply: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_REPLY_LENGTH)]
-    next_step: Literal["ask_more", "send_request", "select_option", "confirm_order", "decline", "pass_to_staff"]
-    chosen_option: str | None = None  # the letter of the option the customer picked, with select_option
+    next_step: Literal["ask_more", "send_request", "pass_to_staff"]
     details: Details = Details()
     preference: PreferenceSuggestion | None = None
     reason: str = ""
+
+
+class Decision(BaseModel):
+    """How the model classified the customer's reply to the options we showed or to our confirmation question."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    decision: Literal["choose", "yes", "no", "change", "question", "unclear"]
+    option: str | None = None  # the letter of the chosen option, with "choose"
+
+
+def ai_read_decision(llm_client: LLMClient, system_prompt: str, customer_text: str) -> Decision:
+    """A small, separate question to the model with one job: classify the customer's reply. Our code decides what to do."""
+    messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": customer_text}]
+    return propose(llm_client, messages, Decision, retries=1)
 
 
 def ai_understand_and_reply(llm_client: LLMClient, messages: list[dict[str, str]]) -> AgentTurn:

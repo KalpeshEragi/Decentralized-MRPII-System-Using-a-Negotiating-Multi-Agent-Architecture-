@@ -25,7 +25,7 @@ from app.sales_agent import agent, data_access, rules, tools
 from app.sales_agent import planning as planning_module
 from app.sales_agent.models import Conversation, Inquiry, Message, Option, Product
 from app.sales_agent.planning import PlanningConnector, PlanningResult
-from app.sales_agent.prompts import build_system_prompt
+from app.sales_agent.prompts import build_decision_prompt, build_system_prompt
 from app.sales_agent.rules import CollectedDetails
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,6 @@ PLANNING_WAIT_LIMIT = timedelta(minutes=10)  # after this, a request with no ans
 
 NEXT_STEP_SEND_REQUEST = "send_request"
 NEXT_STEP_PASS_TO_STAFF = "pass_to_staff"
-DECISION_STEPS = {"select_option", "confirm_order", "decline"}  # the steps that change what happens to the order
 STAGES_WITH_AN_OFFER = ("OPTIONS_PRESENTED", "AWAITING_CONFIRMATION")
 
 # Planning answers that the customer must be told about. A WORKING answer is only noted.
@@ -198,6 +197,14 @@ def _run_customer_turn(
     products = data_access.list_active_products(db)
     collected = _collected_details(db, inquiry)
     offered = _open_options(db, inquiry)
+    if stage in STAGES_WITH_AN_OFFER:
+        try:
+            action = _read_decision(db, conversation, inquiry, seen, offered, llm_client)
+        except LLMError as error:
+            _handle_model_failure(db, conversation, inquiry, error)
+            return False
+        if action is not None:
+            return _act_on_decision(db, conversation, inquiry, seen, collected, offered, action, planning)
     messages, situation = _build_model_messages(db, conversation, inquiry, collected, products, today, offered)
     try:
         outcome = _think(llm_client, messages, situation, stage, products, collected, today, offered)
@@ -210,18 +217,14 @@ def _run_customer_turn(
     changed_request = stage != "GATHERING" and _details_changed(collected, outcome.collected)
     if changed_request:
         inquiry = _replace_inquiry(db, conversation, inquiry)
-        if outcome.next_step in DECISION_STEPS:  # a change cancels any choice or "yes" in the same message
-            outcome = replace(outcome, reply=planning_module.request_changed_reply(), next_step="ask_more")
-    elif outcome.next_step in DECISION_STEPS and not outcome.used_fallback:
-        reply, notice = _decide(db, conversation, inquiry, seen, outcome, offered)
-        _save_turn(db, conversation, inquiry, seen, replace(outcome, reply=reply, next_step="ask_more"))
-        if notice:
-            _send_confirmation(db, conversation, inquiry, notice, planning)
-        return True
+    # Our rule, not the model's choice: once product, quantity and date are all valid, the request goes to Planning.
+    # (The small model often answers ask_more and just repeats the details.)
     should_send = (
         outcome.collected.is_complete and not outcome.used_fallback
-        and (changed_request or (stage == "GATHERING" and outcome.next_step == NEXT_STEP_SEND_REQUEST))
+        and (changed_request or (stage == "GATHERING" and outcome.next_step != NEXT_STEP_PASS_TO_STAFF))
     )
+    if should_send and outcome.next_step != NEXT_STEP_SEND_REQUEST and not changed_request:
+        outcome = replace(outcome, reply=f"{outcome.reply} I am checking this with the planning team.")
 
     _save_turn(db, conversation, inquiry, seen, outcome)
     if should_send:
@@ -302,11 +305,45 @@ def _send_to_planning(
 # -- choosing, confirming, declining --------------------------------------------------------------------------------
 
 
+def _read_decision(
+    db: Session, conversation: Conversation, inquiry: Inquiry, seen: list[Message], options: list[Option],
+    llm_client: LLMClient,
+) -> tuple[str, str | None] | None:
+    """Ask the model the one small question "what does this reply mean?". Returns ("select_option", letter),
+    ("confirm_order", None), ("decline", None), or None if the chatting model should just answer."""
+    text = "\n".join(message.text for message in seen)
+    last = data_access.find_last_outgoing_before(db, conversation.id, seen[0])
+    letters = planning_module.OPTION_LETTERS[:len(options)]
+    prompt = build_decision_prompt(_describe_options(options, _collected_details(db, inquiry).product_name), last.text if last else None)
+    try:
+        decision = agent.ai_read_decision(llm_client, prompt, text)
+    except StructuredOutputError:
+        return None  # an answer we cannot read is the same as "not sure": nothing happens, the chatting model replies
+    data_access.save_audit_note(
+        db, "SALES_AI", "DECISION_READ", {"decision": decision.decision, "option": decision.option},
+        conversation_id=conversation.id, inquiry_id=inquiry.id,
+    )
+    return rules.decision_to_step(decision, inquiry.stage, letters, text)
+
+
+def _act_on_decision(
+    db: Session, conversation: Conversation, inquiry: Inquiry, seen: list[Message], collected: CollectedDetails,
+    options: list[Option], action: tuple[str, str | None], planning: PlanningConnector,
+) -> bool:
+    step, letter = action
+    outcome = TurnOutcome(reply="", collected=collected, next_step=step, ai_answer={"decision_step": step, "chosen_option": letter})
+    reply, notice = _decide(db, conversation, inquiry, seen, outcome, options)
+    _save_turn(db, conversation, inquiry, seen, replace(outcome, reply=reply, next_step="ask_more"))
+    if notice:
+        _send_confirmation(db, conversation, inquiry, notice, planning)
+    return True
+
+
 def _decide(
     db: Session, conversation: Conversation, inquiry: Inquiry, seen: list[Message], outcome: TurnOutcome,
     options: list[Option],
 ) -> tuple[str, dict | None]:
-    """Act on a choice, a "yes" or a "no" that the model reported. Returns the reply (always our own words, so the model
+    """Act on a choice, a "yes" or a "no" that the classification found. Returns the reply (always our own words, so the model
     can never say an order exists) and, if an order was made, the notice to send to Planning after the commit."""
     note = {"conversation_id": conversation.id, "inquiry_id": inquiry.id}
     step = outcome.next_step
@@ -328,7 +365,7 @@ def _decide(
         data_access.save_audit_note(db, "SALES_AI", "OPTION_SELECTED", {"option_id": str(chosen.id)}, **note)
         return planning_module.confirmation_question(chosen.quantity, chosen.delivery_date, product_name), None
 
-    # confirm_order: the model heard a "yes". Our own rules decide whether that is enough to make an order.
+    # confirm_order: the classification heard a "yes". Our own rules decide whether that is enough to make an order.
     chosen = next((option for option in options if option.id == inquiry.selected_option_id), None)
     question = planning_module.confirmation_question(chosen.quantity, chosen.delivery_date, product_name) if chosen else ""
     last_reply = data_access.find_last_outgoing_before(db, conversation.id, seen[-1])
@@ -552,21 +589,15 @@ def _describe_planning(inquiry: Inquiry, options: list[Option], product_name: st
     if inquiry.stage == "OPTIONS_PRESENTED" and options:
         return (
             f"You already showed these options (the only ones you may mention):\n{_describe_options(options, product_name)}\n"
-            "Answer the customer's questions about them. If the customer chooses one (or says yes when there is only "
-            "one option), use the next step select_option and set chosen_option to its letter; our system then asks "
-            "the customer to confirm. If the customer does not want any option, use decline. Never say the order is "
-            "confirmed."
+            "Answer the customer's question briefly, then ask which option they would like (by its letter). Choosing "
+            "and confirming are handled by our system, not by you. Never say the order is confirmed."
         )
     if inquiry.stage == "AWAITING_CONFIRMATION" and options:
         chosen = next((o for o in options if o.status == "SELECTED"), options[0])
         return (
             f"The customer chose this option:\n{_describe_options([chosen], product_name)}\n"
-            "We asked them to confirm it with a question that repeats the product, quantity and date. If the "
-            "customer clearly says yes, use the next step confirm_order. If they say no or do not want it, use "
-            "decline. If they want a different option, use select_option with its letter. All the options:\n"
-            f"{_describe_options(options, product_name)}\n"
-            "If they ask a question or are not clear (for example maybe, or yes but later), answer briefly, use "
-            "ask_more and ask them to say yes or no. Never say the order is confirmed: our system does that."
+            "We asked them to confirm it. Answer their question briefly, then ask them to reply yes or no. Confirming "
+            "is handled by our system, not by you. Never say the order is confirmed."
         )
     if inquiry.stage == "NEEDS_STAFF":
         return (
@@ -652,7 +683,6 @@ def _think(
         problems = rules.check_ai_output(
             turn, stage, merged, allowed,
             must_present=[(o.quantity, o.delivery_date) for o in options] if must_present else (),
-            option_letters=planning_module.OPTION_LETTERS[:len(options)],
         )
         if merged.problems:
             break  # a wrong detail came from the customer: the model cannot fix it, so our own reply tells them

@@ -16,13 +16,13 @@ from app.sales_agent.models import Product
 
 MAX_QUESTIONS_PER_REPLY = 2
 
-# The next steps the model may choose, by inquiry stage. Only GATHERING may start a request to Planning, and only
-# AWAITING_CONFIRMATION may confirm an order (after more checks of our own, see manager.py).
+# The next steps the chatting model may choose, by inquiry stage. Only GATHERING may start a request to Planning.
+# Choosing, confirming and declining are never chosen here: a separate classification decides them (decision_to_step).
 ALLOWED_STEPS = {
     "GATHERING": {"ask_more", "send_request", "pass_to_staff"},
-    "WAITING_FOR_PLANNING": {"ask_more", "decline", "pass_to_staff"},
-    "OPTIONS_PRESENTED": {"ask_more", "select_option", "decline", "pass_to_staff"},
-    "AWAITING_CONFIRMATION": {"ask_more", "select_option", "confirm_order", "decline", "pass_to_staff"},
+    "WAITING_FOR_PLANNING": {"ask_more", "pass_to_staff"},
+    "OPTIONS_PRESENTED": {"ask_more", "pass_to_staff"},
+    "AWAITING_CONFIRMATION": {"ask_more", "pass_to_staff"},
     "NEEDS_STAFF": {"ask_more", "pass_to_staff"},
 }
 
@@ -241,6 +241,30 @@ def is_action_allowed(stage: str, step: str) -> bool:
     return step in ALLOWED_STEPS.get(stage, set())
 
 
+MAX_WORDS_IN_A_PLAIN_YES = 8
+
+
+def is_plain_agreement(text: str) -> bool:
+    """A "yes" that can become an order must be short and contain no number: "yes but make it 300" is a change."""
+    return not re.search(r"\d", text) and len(text.split()) <= MAX_WORDS_IN_A_PLAIN_YES
+
+
+def decision_to_step(decision, stage: str, option_letters: str, customer_text: str) -> tuple[str, str | None] | None:
+    """What a classified reply means: ("select_option", letter), ("confirm_order", None), ("decline", None), or None
+    when the chatting model should simply answer. Anything uncertain gives None, so nothing happens by accident."""
+    if decision.decision == "no":
+        return "decline", None
+    if decision.decision == "choose":
+        letter = (decision.option or "").strip().upper()
+        return ("select_option", letter) if letter and letter in option_letters else None
+    if decision.decision == "yes" and is_plain_agreement(customer_text):
+        if stage == "AWAITING_CONFIRMATION":
+            return "confirm_order", None
+        if stage == "OPTIONS_PRESENTED" and len(option_letters) == 1:  # only one option: a yes can only mean that one
+            return "select_option", option_letters
+    return None
+
+
 def confirmation_problem(
     stage: str, option_chosen: bool, offer_valid_until: datetime | None, now: datetime, messages_at_once: int,
     last_reply: str | None, confirmation_question: str,
@@ -264,7 +288,7 @@ def confirmation_problem(
 
 def check_ai_output(
     turn: AgentTurn, stage: str, merge: MergeResult, allowed: "AllowedValues | None" = None,
-    must_present: "Iterable[tuple[Decimal, date]]" = (), option_letters: str = "",
+    must_present: "Iterable[tuple[Decimal, date]]" = (),
 ) -> list[str]:
     """What is wrong with the model's answer, as plain sentences. An empty list means the answer can be used.
 
@@ -284,8 +308,6 @@ def check_ai_output(
             f"You chose send_request, but these details are still missing: {missing}. If the customer gave them in "
             "their latest message, write them in details. Otherwise choose ask_more and ask for them."
         )
-    if turn.next_step == "select_option" and (turn.chosen_option or "").strip().upper() not in tuple(option_letters):
-        problems.append(f"You chose select_option, so chosen_option must be one of these letters: {', '.join(option_letters)}.")
     if allowed is not None:
         problems += check_reply_values(turn.reply, allowed)
     problems += check_options_presented(turn.reply, must_present)
