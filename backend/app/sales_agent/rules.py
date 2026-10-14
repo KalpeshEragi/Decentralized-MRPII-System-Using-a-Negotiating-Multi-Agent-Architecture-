@@ -4,8 +4,9 @@ The language model only suggests details. This code decides whether they are val
 """
 
 import re
-from collections.abc import Sequence
-from datetime import date
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from pydantic import BaseModel
@@ -15,8 +16,15 @@ from app.sales_agent.models import Product
 
 MAX_QUESTIONS_PER_REPLY = 2
 
-# The next steps the model may choose, by inquiry stage. Only the first stage is in use so far.
-ALLOWED_STEPS = {"GATHERING": {"ask_more", "send_request", "pass_to_staff"}}
+# The next steps the model may choose, by inquiry stage. Only GATHERING may start a request to Planning, and only
+# AWAITING_CONFIRMATION may confirm an order (after more checks of our own, see manager.py).
+ALLOWED_STEPS = {
+    "GATHERING": {"ask_more", "send_request", "pass_to_staff"},
+    "WAITING_FOR_PLANNING": {"ask_more", "decline", "pass_to_staff"},
+    "OPTIONS_PRESENTED": {"ask_more", "select_option", "decline", "pass_to_staff"},
+    "AWAITING_CONFIRMATION": {"ask_more", "select_option", "confirm_order", "decline", "pass_to_staff"},
+    "NEEDS_STAFF": {"ask_more", "pass_to_staff"},
+}
 
 FIELD_LABELS = {"product": "product", "quantity": "quantity", "requested_date": "delivery date"}
 
@@ -201,7 +209,31 @@ def is_action_allowed(stage: str, step: str) -> bool:
     return step in ALLOWED_STEPS.get(stage, set())
 
 
-def check_ai_output(turn: AgentTurn, stage: str, merge: MergeResult) -> list[str]:
+def confirmation_problem(
+    stage: str, option_chosen: bool, offer_valid_until: datetime | None, now: datetime, messages_at_once: int,
+    last_reply: str | None, confirmation_question: str,
+) -> str | None:
+    """Why a "yes" cannot become an order yet, or None if it can. This is the guard at the riskiest moment: the model
+    only says the customer sounded like they said yes, and these rules decide whether that is enough.
+
+    The "yes" must be the one message answering our question, and our last words before it must be exactly the
+    question that repeats the quantity, the date and the payment note.
+    """
+    if stage != "AWAITING_CONFIRMATION" or not option_chosen:
+        return "no option is waiting for a confirmation"
+    if offer_valid_until is None or now > offer_valid_until:
+        return "the offer has expired"
+    if messages_at_once != 1:
+        return "more than one message arrived at once"
+    if last_reply != confirmation_question:
+        return "the customer was not answering our confirmation question"
+    return None
+
+
+def check_ai_output(
+    turn: AgentTurn, stage: str, merge: MergeResult, allowed: "AllowedValues | None" = None,
+    must_present: "Iterable[tuple[Decimal, date]]" = (), option_letters: str = "",
+) -> list[str]:
     """What is wrong with the model's answer, as plain sentences. An empty list means the answer can be used.
 
     The sentences are also what the model is told when it is asked to answer again.
@@ -220,6 +252,11 @@ def check_ai_output(turn: AgentTurn, stage: str, merge: MergeResult) -> list[str
             f"You chose send_request, but these details are still missing: {missing}. If the customer gave them in "
             "their latest message, write them in details. Otherwise choose ask_more and ask for them."
         )
+    if turn.next_step == "select_option" and (turn.chosen_option or "").strip().upper() not in tuple(option_letters):
+        problems.append(f"You chose select_option, so chosen_option must be one of these letters: {', '.join(option_letters)}.")
+    if allowed is not None:
+        problems += check_reply_values(turn.reply, allowed)
+    problems += check_options_presented(turn.reply, must_present)
     return problems
 
 
@@ -249,3 +286,111 @@ def fallback_reply(wrong_fields: list[str], missing_fields: list[str], product_n
         return f"{opening} Could you say that again, please?"
     questions = [_QUESTION_FOR_FIELD[field].format(products=", ".join(product_names)) for field in to_ask]
     return " ".join([opening, *questions])
+
+
+# -- every date and number in a reply must come from somewhere we trust ---------------------------------------------
+
+_MONTHS = {
+    "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3, "apr": 4, "april": 4, "may": 5, "jun": 6,
+    "june": 6, "jul": 7, "july": 7, "aug": 8, "august": 8, "sep": 9, "sept": 9, "september": 9, "oct": 10,
+    "october": 10, "nov": 11, "november": 11, "dec": 12, "december": 12,
+}
+_MONTH_NAME = "|".join(sorted(_MONTHS, key=len, reverse=True))
+_ISO_DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_MONTH_FIRST = re.compile(rf"\b({_MONTH_NAME})\.?\s+(\d{{1,2}})(?!\d)(?:st|nd|rd|th)?(?:,?\s+(\d{{4}}))?\b", re.I)
+_DAY_FIRST = re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+(?:of\s+)?({_MONTH_NAME})\b\.?(?:,?\s+(\d{{4}}))?", re.I)
+_OPTION_LABEL = re.compile(r"\boptions?\s+[a-z0-9]\b", re.I)  # "option A" or "option 2" is a label, not a quantity
+_NUMBER = re.compile(r"(?<![\w.])\d+(?:,\d{3})*(?:\.\d+)?(?!\w)")
+
+DateFact = tuple[int, int, int | None]  # month, day, year (the year may be missing)
+
+
+@dataclass
+class AllowedValues:
+    """The numbers and dates a reply may contain."""
+
+    numbers: set[Decimal] = field(default_factory=set)
+    dates: set[DateFact] = field(default_factory=set)
+
+
+def _dates_in(text: str) -> tuple[list[tuple[str, DateFact]], str]:
+    """The dates written in the text (as written, and as month/day/year), and the text with them removed."""
+    found: list[tuple[str, DateFact]] = []
+
+    def take(pattern, to_fact, text):
+        def replace(match):
+            fact = to_fact(match)
+            if fact is not None:
+                found.append((match.group(0).strip(), fact))
+                return " "
+            return match.group(0)
+        return pattern.sub(replace, text)
+
+    def valid(month, day, year):
+        return (month, day, year) if 1 <= month <= 12 and 1 <= day <= 31 else None
+
+    text = take(_ISO_DATE, lambda m: valid(int(m[2]), int(m[3]), int(m[1])), text)
+    text = take(_MONTH_FIRST, lambda m: valid(_MONTHS[m[1].lower()], int(m[2]), int(m[3]) if m[3] else None), text)
+    text = take(_DAY_FIRST, lambda m: valid(_MONTHS[m[2].lower()], int(m[1]), int(m[3]) if m[3] else None), text)
+    return found, text
+
+
+def _numbers_in(text: str) -> list[Decimal]:
+    text = _OPTION_LABEL.sub(" ", text)
+    return [Decimal(match.replace(",", "")) for match in _NUMBER.findall(text)]
+
+
+def facts_in(text: str) -> tuple[set[Decimal], set[DateFact]]:
+    dates, rest = _dates_in(text)
+    return set(_numbers_in(rest)), {fact for _, fact in dates}
+
+
+def allowed_values(
+    customer_texts: Iterable[str], collected: CollectedDetails | None, options: Iterable[tuple[Decimal, date]]
+) -> AllowedValues:
+    """What a reply may say: what the customer wrote, the collected details, and Planning's options."""
+    allowed = AllowedValues()
+    for text in customer_texts:
+        numbers, dates = facts_in(text)
+        allowed.numbers |= numbers
+        allowed.dates |= dates
+    if collected is not None:
+        if collected.quantity is not None:
+            allowed.numbers.add(collected.quantity)
+        if collected.requested_date is not None:
+            allowed.dates.add((collected.requested_date.month, collected.requested_date.day, collected.requested_date.year))
+    for quantity, day in options:
+        allowed.numbers.add(Decimal(quantity))
+        allowed.dates.add((day.month, day.day, day.year))
+    return allowed
+
+
+def _date_is_allowed(fact: DateFact, allowed: AllowedValues) -> bool:
+    month, day, year = fact
+    return any(
+        (m, d) == (month, day) and (year is None or y is None or year == y) for m, d, y in allowed.dates
+    )
+
+
+def check_reply_values(reply: str, allowed: AllowedValues) -> list[str]:
+    """Every date and number in the reply must be one we were given. This is what stops the agent inventing a date."""
+    dates, rest = _dates_in(reply)
+    problems = [
+        f"The date '{written}' in your reply is not one of the dates you were given. Use only given dates."
+        for written, fact in dates if not _date_is_allowed(fact, allowed)
+    ]
+    for number in _numbers_in(rest):
+        if number not in allowed.numbers:
+            problems.append(f"The number {number.normalize():f} in your reply is not one of the numbers you were given.")
+    return problems
+
+
+def check_options_presented(reply: str, options: Iterable[tuple[Decimal, date]]) -> list[str]:
+    """When options are explained, the reply must present every one of them (its quantity and its date)."""
+    numbers, dates = facts_in(reply)
+    days_in_reply = {(month, day) for month, day, _ in dates}
+    return [
+        f"Your reply must present the option of {Decimal(quantity).normalize():f} on {day.isoformat()}."
+        for quantity, day in options
+        if Decimal(quantity) not in numbers or (day.month, day.day) not in days_in_reply
+    ]

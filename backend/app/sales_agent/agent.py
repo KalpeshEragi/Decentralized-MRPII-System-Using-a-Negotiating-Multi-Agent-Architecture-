@@ -29,7 +29,8 @@ class AgentTurn(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     reply: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_REPLY_LENGTH)]
-    next_step: Literal["ask_more", "send_request", "pass_to_staff"]
+    next_step: Literal["ask_more", "send_request", "select_option", "confirm_order", "decline", "pass_to_staff"]
+    chosen_option: str | None = None  # the letter of the option the customer picked, with select_option
     details: Details = Details()
     reason: str = ""
 

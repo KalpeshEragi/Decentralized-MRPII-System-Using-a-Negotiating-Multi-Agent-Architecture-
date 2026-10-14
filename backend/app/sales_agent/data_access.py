@@ -4,7 +4,7 @@ The functions that save only add and flush the rows. The caller (the manager) de
 """
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import NamedTuple
 
@@ -146,6 +146,16 @@ def get_message(db: Session, message_id: uuid.UUID) -> Message | None:
     return db.get(Message, message_id)
 
 
+def find_last_outgoing_before(db: Session, conversation_id: uuid.UUID, message: Message) -> Message | None:
+    """The last thing we said before this customer message."""
+    return db.scalar(
+        select(Message)
+        .where(Message.conversation_id == conversation_id, Message.direction == "OUT", Message.created_at < message.created_at)
+        .order_by(Message.created_at.desc(), Message.id.desc())
+        .limit(1)
+    )
+
+
 # -- one worker at a time per conversation --------------------------------------------------------------------------
 
 
@@ -214,6 +224,27 @@ def create_inquiry(db: Session, conversation: Conversation) -> Inquiry:
     return inquiry
 
 
+def create_customer(db: Session, phone: str) -> Customer:
+    """A new customer, made when a first order is confirmed. The name is not known."""
+    customer = Customer(phone=phone)
+    db.add(customer)
+    db.flush()
+    return customer
+
+
+def create_order(
+    db: Session, order_number: str, inquiry: Inquiry, option: Option, customer_id: uuid.UUID, confirmed_at: datetime
+) -> Order:
+    """The confirmed order. Product, quantity and date are copied from the inquiry and the option Planning gave."""
+    order = Order(
+        order_number=order_number, customer_id=customer_id, inquiry_id=inquiry.id, option_id=option.id,
+        product_id=inquiry.product_id, quantity=option.quantity, delivery_date=option.delivery_date, confirmed_at=confirmed_at,
+    )
+    db.add(order)
+    db.flush()
+    return order
+
+
 def get_product(db: Session, product_id: uuid.UUID) -> Product | None:
     return db.get(Product, product_id)
 
@@ -262,3 +293,31 @@ def list_options(db: Session, inquiry_id: uuid.UUID) -> list[Option]:
 
 def list_open_conversations(db: Session, channel: str) -> list[Conversation]:
     return list(db.scalars(select(Conversation).where(Conversation.channel == channel, Conversation.status != "CLOSED")))
+
+
+# -- planning requests and options ----------------------------------------------------------------------------------
+
+
+def find_inquiry_by_request_ref(db: Session, request_ref: str) -> Inquiry | None:
+    return db.scalar(select(Inquiry).where(Inquiry.planning_request_ref == request_ref))
+
+
+def save_options(db: Session, inquiry_id: uuid.UUID, options: list[dict]) -> list[Option]:
+    """Save Planning's options in the order given. Each option's time is one microsecond after the one before, so the
+    order is kept when they are read back."""
+    start = datetime.now(timezone.utc)
+    rows = [
+        Option(
+            inquiry_id=inquiry_id, kind=o["kind"], quantity=o["quantity"], delivery_date=o["delivery_date"],
+            reason_code=o.get("reason_code"), created_at=start + timedelta(microseconds=position),
+        )
+        for position, o in enumerate(options)
+    ]
+    db.add_all(rows)
+    db.flush()
+    return rows
+
+
+def release_options(db: Session, inquiry_id: uuid.UUID) -> None:
+    """The customer will not take these options (the request changed or was dropped)."""
+    db.execute(update(Option).where(Option.inquiry_id == inquiry_id, Option.status == "OFFERED").values(status="RELEASED"))

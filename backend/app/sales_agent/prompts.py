@@ -33,6 +33,8 @@ quantity) is normal: update the details and carry on.
 with orders, then return to their order.
 7. What we know about the customer is only background. Never assume the customer wants the same as before. If the \
 customer is not clear about the product or the quantity, ask.
+8. Every date and number in your reply must come from the customer's messages or from the situation below. Never \
+work out, estimate or add a date or a quantity yourself.
 
 Style:
 - Short messages: one to three sentences.
@@ -42,12 +44,13 @@ Style:
 
 ANSWER_FORMAT_PROMPT = """\
 Answer with one JSON object and nothing else, in exactly this form:
-{"reply": "<your message to the customer>", "next_step": "ask_more", "details": {"product": null, "quantity": null, \
+{"reply": "<your message to the customer>", "next_step": "ask_more", "chosen_option": null, "details": {"product": null, "quantity": null, \
 "requested_date": null}, "reason": "<one short sentence>"}
 
 - reply: the message the customer will read.
 - next_step: "send_request" when the situation shows all three details are known, "pass_to_staff" for a question about \
-an order that was already placed, a cancellation or change of it, or a complaint, and "ask_more" in every other case.
+an order that was already placed, a cancellation or change of it, or a complaint, "select_option" when the customer chooses one of the options already shown, "confirm_order" only when the situation says we are waiting for the customer's confirmation and the customer clearly says yes, "decline" when the customer says they do not want to go ahead, and "ask_more" in every other case. The situation tells you which of these are possible now.
+- chosen_option: with "select_option", the letter of the option the customer chose (for example "A"). Otherwise null.
 - details: write here every order detail that the customer's latest message gives or changes, even if it looks like \
 an answer to your own question. Use null for a detail the latest message does not mention. Details from earlier \
 messages are already saved by us. Write the product as its name, the quantity as a number, and the date as \
