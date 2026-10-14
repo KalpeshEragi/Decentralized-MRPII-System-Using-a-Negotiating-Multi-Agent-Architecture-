@@ -4,14 +4,16 @@ The functions that save only add and flush the rows. The caller (the manager) de
 """
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import NamedTuple
 
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.sales_agent.models import AuditLog, Conversation, Customer, CustomerMemory, Inquiry, Message, Order, Product
+from app.sales_agent.models import (
+    AuditLog, Conversation, Customer, CustomerMemory, Inquiry, Message, Option, Order, Product,
+)
 from app.sales_agent.rules import normalize_phone
 
 
@@ -92,21 +94,95 @@ def create_conversation(db: Session, channel: str, sender_ref: str, customer_id:
 
 
 def save_message(
-    db: Session, conversation_id: uuid.UUID, direction: str, text: str, delivery_status: str | None = None
+    db: Session, conversation_id: uuid.UUID, direction: str, text: str, delivery_status: str | None = None,
+    provider_message_id: str | None = None,
 ) -> Message:
-    message = Message(conversation_id=conversation_id, direction=direction, text=text, delivery_status=delivery_status)
+    # The time is set here, not by the database: the database would use the start of the whole transaction, and a
+    # reply saved after a long model call could then appear before a message the customer sent while we were waiting.
+    message = Message(
+        conversation_id=conversation_id, direction=direction, text=text, delivery_status=delivery_status,
+        provider_message_id=provider_message_id, created_at=datetime.now(timezone.utc),
+    )
     db.add(message)
     db.flush()
     return message
 
 
-def mark_incoming_messages_processed(db: Session, conversation_id: uuid.UUID) -> None:
-    """The model has now seen every message the customer sent so far, including any it could not answer earlier."""
-    db.execute(
-        update(Message)
-        .where(Message.conversation_id == conversation_id, Message.direction == "IN", Message.processed.is_(False))
-        .values(processed=True)
+def find_message_by_provider_id(db: Session, conversation_id: uuid.UUID, provider_message_id: str) -> Message | None:
+    return db.scalar(
+        select(Message).where(
+            Message.conversation_id == conversation_id, Message.provider_message_id == provider_message_id
+        )
     )
+
+
+def list_unprocessed_incoming(db: Session, conversation_id: uuid.UUID) -> list[Message]:
+    """The customer's messages that have not been answered yet, oldest first."""
+    return list(
+        db.scalars(
+            select(Message)
+            .where(Message.conversation_id == conversation_id, Message.direction == "IN", Message.processed.is_(False))
+            .order_by(Message.created_at, Message.id)
+        )
+    )
+
+
+def mark_messages_processed(db: Session, message_ids: list[uuid.UUID]) -> None:
+    """Only the messages the model actually saw. A message that arrived during the turn stays for the next one."""
+    db.execute(update(Message).where(Message.id.in_(message_ids)).values(processed=True))
+
+
+def list_messages_after(db: Session, conversation_id: uuid.UUID, after: Message | None) -> list[Message]:
+    """The messages of the conversation, oldest first; only the ones after `after` if it is given."""
+    query = select(Message).where(Message.conversation_id == conversation_id)
+    if after is not None:
+        query = query.where(
+            (Message.created_at > after.created_at) | ((Message.created_at == after.created_at) & (Message.id > after.id))
+        )
+    return list(db.scalars(query.order_by(Message.created_at, Message.id)))
+
+
+def get_message(db: Session, message_id: uuid.UUID) -> Message | None:
+    return db.get(Message, message_id)
+
+
+# -- one worker at a time per conversation --------------------------------------------------------------------------
+
+
+def try_claim_conversation(db: Session, conversation_id: uuid.UUID) -> bool:
+    """Take the conversation for answering. False if another worker already has it. Committed at once."""
+    result = db.execute(
+        update(Conversation).where(Conversation.id == conversation_id, Conversation.busy.is_(False)).values(busy=True)
+    )
+    db.commit()
+    return result.rowcount == 1
+
+
+def release_conversation(db: Session, conversation_id: uuid.UUID) -> None:
+    db.rollback()  # leave nothing half-done from a failed turn
+    db.execute(update(Conversation).where(Conversation.id == conversation_id).values(busy=False))
+    db.commit()
+
+
+def release_all_conversations(db: Session) -> None:
+    """At startup: a conversation still marked busy belongs to a worker that died with the previous run."""
+    db.execute(update(Conversation).where(Conversation.busy.is_(True)).values(busy=False))
+    db.commit()
+
+
+def count_consecutive_ai_failures(db: Session, conversation_id: uuid.UUID) -> int:
+    """How many times in a row the model failed, counting back from now until the last successful turn."""
+    events = db.scalars(
+        select(AuditLog.event_type)
+        .where(AuditLog.conversation_id == conversation_id, AuditLog.event_type.in_(("AI_TURN", "AI_FAILED")))
+        .order_by(AuditLog.created_at.desc(), AuditLog.id)
+    )
+    count = 0
+    for event_type in events:
+        if event_type != "AI_FAILED":
+            break
+        count += 1
+    return count
 
 
 def list_recent_messages(db: Session, conversation_id: uuid.UUID, limit: int) -> list[Message]:
@@ -158,5 +234,31 @@ def save_audit_note(
     db: Session, actor: str, event_type: str, details: dict, conversation_id: uuid.UUID | None = None,
     inquiry_id: uuid.UUID | None = None,
 ) -> None:
-    db.add(AuditLog(actor=actor, event_type=event_type, details=details, conversation_id=conversation_id, inquiry_id=inquiry_id))
+    db.add(AuditLog(
+        actor=actor, event_type=event_type, details=details, conversation_id=conversation_id, inquiry_id=inquiry_id,
+        created_at=datetime.now(timezone.utc),  # the time of the event, not the start of the transaction
+    ))
     db.flush()
+
+
+# -- looking things up for the doors --------------------------------------------------------------------------------
+
+
+def get_conversation(db: Session, conversation_id: uuid.UUID) -> Conversation | None:
+    return db.get(Conversation, conversation_id)
+
+
+def get_inquiry(db: Session, inquiry_id: uuid.UUID) -> Inquiry | None:
+    return db.get(Inquiry, inquiry_id)
+
+
+def get_customer(db: Session, customer_id: uuid.UUID) -> Customer | None:
+    return db.get(Customer, customer_id)
+
+
+def list_options(db: Session, inquiry_id: uuid.UUID) -> list[Option]:
+    return list(db.scalars(select(Option).where(Option.inquiry_id == inquiry_id).order_by(Option.created_at, Option.id)))
+
+
+def list_open_conversations(db: Session, channel: str) -> list[Conversation]:
+    return list(db.scalars(select(Conversation).where(Conversation.channel == channel, Conversation.status != "CLOSED")))
