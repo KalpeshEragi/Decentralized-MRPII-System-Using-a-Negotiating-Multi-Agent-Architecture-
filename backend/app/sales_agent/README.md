@@ -1,12 +1,17 @@
 # sales_agent
 
-The Sales Agent. Design notes: `dev_docs/sales_agent/`. Only checkpoint 1 exists so far: a test chat window where the
-tester talks to the language model, which behaves like a salesperson. Nothing is saved to a database yet.
+The Sales Agent. Design notes: `dev_docs/sales_agent/`. Built in checkpoints:
+
+1. A test chat window where the tester talks to the language model, which behaves like a salesperson. The chat
+   history is still kept in memory only.
+2. The database: the nine Sales Agent tables exist (migration `003`), but nothing in the chat uses them yet.
 
 | File | What it does |
 | --- | --- |
 | `prompts.py` | The Sales Agent's role and rules, written as instructions for the language model. |
 | `chat.py` | Keeps one conversation per phone number in memory and asks the model for the reply. |
+| `models.py` | The nine tables as Python classes, in the `sales_agent` schema. They use their own base, so the demo reset (`/simulation/reset`) cannot delete Sales Agent data. |
+| `seed.py` | Three placeholder test products. Safe to run twice. |
 | `api.py` | Temporary test-channel door: the chat page, `POST /sales-test/chat`, and `GET` / `DELETE /sales-test/history/{phone}`. Replaced by the real API doors in a later checkpoint. |
 | `test_channel/chat.html` | The test chat page (plain HTML and JavaScript). Open `/sales-test` while the backend runs. |
 
@@ -20,4 +25,12 @@ backend/.venv/Scripts/python.exe -m uvicorn app.main:app --app-dir backend --por
 
 Then open `http://localhost:8010/sales-test`.
 
-Tests (no Ollama needed, they use a fake model): `python -m pytest tests/sales_agent` from `backend/`.
+## Database
+
+Create the tables in the database of `DATABASE_URL` (from `backend/`): `alembic upgrade head`. Add the test products:
+`python -m app.sales_agent.seed`.
+
+## Tests
+
+From `backend/`: `python -m pytest tests/sales_agent`. The chat tests use a fake model, so they do not need Ollama. The
+database tests in `tests/sales_agent/db/` need `TEST_DATABASE_URL` (a separate database) and are skipped without it.
