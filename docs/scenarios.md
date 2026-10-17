@@ -59,7 +59,7 @@ Agents can react to an external disruption and re-plan instead of relying on a f
 
 
 
-# Scenario 3 — Demand Increase
+# Scenario 3 — Demand Increase (Prioritize: Bull Whip Effect) 
 
 ## Scenario:
 The customer increases the order from 1,000 → 1,300 SmartPhone X1 units.
@@ -120,7 +120,7 @@ Agents can respond to resource shortages and negotiate alternatives.
 
 
 
-# Scenario 5 — Supplier Price Increase
+# Scenario 5 — Supplier Price Increase (Temporarily ignore as we are working of purchasing contracts with suppliers)
 
 ## Scenario:
 A supplier increases the price of a required component.

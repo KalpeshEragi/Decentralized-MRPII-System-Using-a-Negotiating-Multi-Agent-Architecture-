@@ -10,7 +10,8 @@
 | **Database** | PostgreSQL (Neon Serverless) |
 | **Multi-Agent Framework** | Eve, OpenAI Agents SDK (AI SDK), A2A |
 | **Communication Protocol** | Agent-to-Agent (A2A) Protocol |
-| **Language Model** | Ollama (Llama 3.3 / Qwen 3 / Gemma 3) |
+| **Messaging system** | Publish/Subscriber model |
+| **Language Model** | Ollama (Qwen 3.5B) |
 | **Data Visualization** | ECharts, NetworkX |
 | **Version Control** | Git & GitHub |
 | **Containerization** | Docker |
