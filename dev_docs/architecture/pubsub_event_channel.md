@@ -162,7 +162,7 @@ reaction to document. One fact = one event name.
 | `ShipmentDispatched` | Warehouse | Sales, Inventory, Planning | order, quantity, date | Sales informs customer; Inventory reduces finished goods |
 | `WorkforceCommitted` | HR | Planning | order or task, hours per day, dates, skill | Planning marks labor secured |
 | `WorkforceCapacityChanged` | HR | Planning | skill, date range, old and new hours | Re-check schedules that use those hours |
-| `SimulatedDayStarted` | Simulator clock (infrastructure, PB-3) | Planning, Inventory, Sales (others when they need time) | date | Planning releases due production orders; Inventory expires holds; Sales checks offer expiry |
+| `SimulatedDayStarted` | Simulator clock (infrastructure, PB-3) | Planning, Inventory, Sales, Warehouse, HR (daily routines WB-3, HB-3) | date | Planning releases due production orders; Inventory expires holds; Sales checks offer expiry |
 
 Not events (on purpose): `FeasibilityRequested` / `FeasibilityResult` (Sales doors), `MaterialRequirementsCalculated`
 (internal to Planning; Planning negotiates with owners directly), `StockChecked` / `ReceivingChecked` /

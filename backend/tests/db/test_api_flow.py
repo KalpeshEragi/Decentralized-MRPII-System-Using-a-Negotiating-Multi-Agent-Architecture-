@@ -47,8 +47,8 @@ def test_create_order_errors_use_c5(client):
     body = {"order_number": "SO-0001", "customer_id": "6f1c0e2a-0000-4000-8000-000000000200",
             "order_date": "2026-10-01", "due_date": "2026-10-31", "priority": 1,
             "lines": [{"item_id": x1.PRODUCT_ID, "quantity": 10}]}
-    assert client.post("/orders", json=body).json()["error"]["code"] == "NOT_FOUND"  # unknown customer
-    assert client.get("/plans/6f1c0e2a-0000-4000-8000-000000000999").json()["error"]["code"] == "NOT_FOUND"
+    assert client.post("/orders", json=body).json()["code"] == "NOT_FOUND"  # unknown customer
+    assert client.get("/plans/6f1c0e2a-0000-4000-8000-000000000999").json()["code"] == "NOT_FOUND"
 
 
 def test_new_order_can_be_created_and_planned(client, db):
@@ -58,7 +58,7 @@ def test_new_order_can_be_created_and_planned(client, db):
             "due_date": "2026-10-31", "priority": 2, "lines": [{"item_id": x1.PRODUCT_ID, "quantity": 100}]}
     created = client.post("/orders", json=body)
     assert created.status_code == 201
-    assert client.post("/orders", json=body).json()["error"]["code"] == "CONFLICT"
+    assert client.post("/orders", json=body).json()["code"] == "CONFLICT"
     plan = client.post("/plans", json={"order_id": created.json()["id"]}).json()
     assert plan["status"] == "VALIDATED"  # 100 units: every component covered
 
@@ -94,7 +94,7 @@ def test_supplier_response_flow_and_a2a_delivery(client, db, order_id):
     assert duplicate["accepted"] is False
 
     stale = client.post(f"/negotiations/{negotiation_id}/supplier-responses", json={"round_number": 2, "response_type": "ACCEPT"})
-    assert stale.status_code == 409 and stale.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert stale.status_code == 409 and stale.json()["code"] == "INVALID_STATE_TRANSITION"
     ok = client.post(f"/negotiations/{negotiation_id}/supplier-responses", json={"round_number": 1, "response_type": "ACCEPT"})
     assert ok.status_code == 200 and ok.json()["awaiting_supplier"] is False
     assert client.get(f"/negotiations/{negotiation_id}").json()["round_number"] == 1

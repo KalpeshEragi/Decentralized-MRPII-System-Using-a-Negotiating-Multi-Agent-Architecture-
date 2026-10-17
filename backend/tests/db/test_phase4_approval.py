@@ -38,7 +38,7 @@ def test_agreement_then_approval_commits(api, db, order_id):
     attempt = start(api, order_id)["attempt"]
     assert (attempt["attempt_number"], attempt["approval_status"]) == (1, "PENDING_NEGOTIATION")
     early = api.post(f"/plans/{order_id}/attempts/1/approve")
-    assert early.status_code == 409 and early.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert early.status_code == 409 and early.json()["code"] == "INVALID_STATE_TRANSITION"
 
     for component in ("Display", "Battery"):
         assert respond(api, negotiation_of(attempt, component), "ACCEPT")["status"] == "AGREEMENT_PROPOSED"
@@ -72,7 +72,7 @@ def test_plan_with_failed_shortage_cannot_be_approved_and_reject_replans(api, or
     respond(api, battery, "ACCEPT")
 
     refused = api.post(f"/plans/{order_id}/attempts/1/approve")
-    assert refused.status_code == 422 and refused.json()["error"]["code"] == "BUSINESS_RULE_VIOLATION"
+    assert refused.status_code == 422 and refused.json()["code"] == "BUSINESS_RULE_VIOLATION"
 
     rejected = api.post(f"/plans/{order_id}/attempts/1/reject", json={"reason": "Display not secured"})
     assert rejected.status_code == 200, rejected.text
@@ -130,5 +130,5 @@ def test_commit_and_abort_only_through_the_approval_routes(api, order_id):
             "message_type": kind, "timestamp": "2026-10-01T00:00:00Z",
         }
         refused = api.post(f"/negotiations/{negotiation_id}/messages", json=envelope)
-        assert refused.status_code == 422 and refused.json()["error"]["code"] == "BUSINESS_RULE_VIOLATION"
+        assert refused.status_code == 422 and refused.json()["code"] == "BUSINESS_RULE_VIOLATION"
     assert api.get(f"/negotiations/{negotiation_id}").json()["status"] == "AGREEMENT_PROPOSED"

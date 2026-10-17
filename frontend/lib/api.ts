@@ -33,8 +33,8 @@ async function request<T>(method: string, path: string, body?: unknown, timeoutM
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
-    const error = data?.error; // C5 error body
-    throw new ApiError(error?.code ?? `HTTP_${response.status}`, error?.message ?? "Request failed", error?.details ?? []);
+    // RFC 9457 Problem Details: { type, title, status, detail, instance, code, errors, correlation_id }
+    throw new ApiError(data?.code ?? `HTTP_${response.status}`, data?.detail ?? "Request failed", data?.errors ?? []);
   }
   return data as T;
 }

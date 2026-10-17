@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # Shared secret for the Sales Agent door where Planning sends its answers (header X-Planning-Key). Unset = the door
     # refuses everyone.
     sales_planning_key: str | None = None
+    # Background work runner (system_design.md §4, SD-1). Tests switch it off and run work items directly.
+    background_workers: bool = True
+    worker_poll_seconds: float = 0.5
+    event_dispatcher_workers: int = 4
+    # X-Door-Key of the simulator's write doors (settings). Unset = those doors refuse everyone.
+    simulation_door_key: str | None = None
 
 
 @lru_cache

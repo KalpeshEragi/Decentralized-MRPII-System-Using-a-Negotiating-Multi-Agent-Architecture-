@@ -82,7 +82,7 @@ def test_a_message_gets_a_quick_receipt_then_a_reply_and_a_repeated_delivery_cha
     ]
     for body in bad_requests:
         response = client.post("/sales/test-channel/messages", json=body)
-        assert response.status_code == 422 and response.json()["error"]["code"] == "VALIDATION_ERROR", body
+        assert response.status_code == 422 and response.json()["code"] == "VALIDATION_ERROR", body
     assert len(client.get("/sales/test-channel/history/+100").json()["messages"]) == 2
 
     # A model that is down: the customer still gets an answer (an apology), and the message is kept.
@@ -119,7 +119,7 @@ def test_the_viewing_doors_show_what_happened_and_unknown_things_are_not_found(d
                 f"/sales/inquiries/{unknown}", f"/sales/customers/{unknown}",
                 f"/sales/conversations/{conversation_id}/messages?after={unknown}"):
         response = client.get(url)
-        assert response.status_code == 404 and response.json()["error"]["code"] == "NOT_FOUND", url
+        assert response.status_code == 404 and response.json()["code"] == "NOT_FOUND", url
 
     # Door 8 closes every open test conversation (nothing is deleted); the page and clearing work too.
     send(client, phone="+300")
@@ -154,7 +154,7 @@ def test_door_3_needs_the_planning_key_and_an_answer_through_it_reaches_the_cust
     monkeypatch.setattr(api, "get_settings", lambda: SimpleNamespace(sales_planning_key="secret"))
     assert client.post(door, json=answer).status_code == 403
     wrong_key = client.post(door, json=answer, headers={"X-Planning-Key": "wrong"})
-    assert wrong_key.status_code == 403 and wrong_key.json()["error"]["code"] == "FORBIDDEN"
+    assert wrong_key.status_code == 403 and wrong_key.json()["code"] == "FORBIDDEN"
     assert client.get(f"/sales/inquiries/{inquiry['id']}").json()["stage"] == "WAITING_FOR_PLANNING"  # nothing changed
 
     # The right key: the answer is stored, and the customer is told the options (found by fetching new messages).
@@ -168,6 +168,6 @@ def test_door_3_needs_the_planning_key_and_an_answer_through_it_reaches_the_cust
     # A second delivery changes nothing; a badly shaped answer is 422; an unknown request is 404.
     assert client.post(door, json=answer, headers=key).json() == {"status": "duplicate"}
     no_options = client.post(door, json={"request_ref": "R", "status": "READY"}, headers=key)
-    assert no_options.status_code == 422 and no_options.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert no_options.status_code == 422 and no_options.json()["code"] == "VALIDATION_ERROR"
     unknown = client.post(door, json={"request_ref": "REQ-NOPE", "status": "NOTHING_FEASIBLE"}, headers=key)
-    assert unknown.status_code == 404 and unknown.json()["error"]["code"] == "NOT_FOUND"
+    assert unknown.status_code == 404 and unknown.json()["code"] == "NOT_FOUND"

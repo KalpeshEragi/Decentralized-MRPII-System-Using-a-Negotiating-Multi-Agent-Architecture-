@@ -25,16 +25,20 @@ def test_health():
     assert client.get("/health").json() == {"status": "ok"}
 
 
-def test_validation_error_uses_c5_format():
-    body = client.post("/orders", json={"order_number": "X"}).json()
-    assert set(body) == {"error"}
-    assert body["error"]["code"] == "VALIDATION_ERROR"
-    assert isinstance(body["error"]["details"], list) and body["error"]["details"]
+def test_validation_error_uses_problem_details():
+    response = client.post("/orders", json={"order_number": "X"}, headers={"X-Correlation-Id": "c-1"})
+    body = response.json()
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.headers["X-Correlation-Id"] == "c-1"
+    assert set(body) == {"type", "title", "status", "detail", "instance", "code", "errors", "correlation_id"}
+    assert body["type"] == "urn:mrpii:problem:validation-error" and body["status"] == 422
+    assert body["code"] == "VALIDATION_ERROR" and body["instance"] == "/orders" and body["correlation_id"] == "c-1"
+    assert isinstance(body["errors"], list) and body["errors"]
 
 
-def test_unknown_route_uses_c5_format():
+def test_unknown_route_uses_problem_details():
     body = client.get("/nope").json()
-    assert body["error"]["code"] == "NOT_FOUND"
+    assert body["code"] == "NOT_FOUND" and body["status"] == 404
 
 
 @pytest.mark.parametrize("path", ["/a2a/inventory", "/a2a/purchasing", "/a2a/supplier-interface"])

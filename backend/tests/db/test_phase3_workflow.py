@@ -160,9 +160,9 @@ def test_invalid_supplier_responses_change_nothing(api, order_id):
     negotiation_id = display["negotiation_id"]
     before = api.get(f"/negotiations/{negotiation_id}").json()["messages"]
     wrong_round = respond(api, negotiation_id, 2, "ACCEPT")
-    assert wrong_round.status_code == 409 and wrong_round.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert wrong_round.status_code == 409 and wrong_round.json()["code"] == "INVALID_STATE_TRANSITION"
     no_terms = respond(api, negotiation_id, 1, "COUNTER_OFFER")
-    assert no_terms.status_code == 422 and no_terms.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert no_terms.status_code == 422 and no_terms.json()["code"] == "VALIDATION_ERROR"
     assert api.get(f"/negotiations/{negotiation_id}").json()["messages"] == before
 
 
@@ -215,5 +215,5 @@ def test_only_purchasing_may_create_requisitions(db, order_id):
 
 
 def test_unknown_order_and_agent_use_c5_errors(api):
-    assert api.post(f"/agents/planning/orders/{uuid.uuid4()}").json()["error"]["code"] == "NOT_FOUND"
-    assert api.get("/agents/SUPPLIER_AGENT/state").json()["error"]["code"] == "VALIDATION_ERROR"
+    assert api.post(f"/agents/planning/orders/{uuid.uuid4()}").json()["code"] == "NOT_FOUND"
+    assert api.get("/agents/SUPPLIER_AGENT/state").json()["code"] == "VALIDATION_ERROR"

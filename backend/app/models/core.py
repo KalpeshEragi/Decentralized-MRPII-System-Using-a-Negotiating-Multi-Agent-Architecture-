@@ -1,10 +1,10 @@
-"""core schema: items, bom, bom_items."""
+"""core schema (shared reference data): items, routings, bom, bom_items."""
 
 import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,25 @@ class Item(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     created_at: Mapped[datetime | None] = created_at()
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # PD-2: whether the item is made in-house or bought, and the storage space one piece needs (Warehouse, WH-2).
+    sourcing: Mapped[str] = mapped_column(String, nullable=False, default="BUY", server_default="BUY")
+    space_per_unit: Mapped[Decimal] = mapped_column(Numeric, nullable=False, default=0, server_default="0")
+
+
+class Routing(Base):
+    """One production step of a made item (PD-2, RD-2): which work center, which skill and crew, setup and run time."""
+
+    __tablename__ = "routings"
+    __table_args__ = (UniqueConstraint("item_id", "step_no"), {"schema": "core"})
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    item_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("core.items.id"), nullable=False)
+    step_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    work_center_code: Mapped[str] = mapped_column(String, nullable=False)
+    skill: Mapped[str] = mapped_column(String, nullable=False)
+    crew_size: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    setup_hours: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    run_hours_per_unit: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
 
 
 class Bom(Base):
