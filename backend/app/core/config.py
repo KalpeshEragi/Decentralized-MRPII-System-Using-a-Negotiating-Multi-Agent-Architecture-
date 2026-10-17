@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # Shared secret for the Sales Agent door where Planning sends its answers (header X-Planning-Key). Unset = the door
     # refuses everyone.
     sales_planning_key: str | None = None
+    # Purchasing Agent working values (docs/agent_architectures/purchasing_agent_architecture.md). The selection date
+    # is today's date in this timezone.
+    purchasing_timezone: str = "Asia/Kolkata"
+    purchasing_response_deadline_hours: int = 24
+    purchasing_max_rounds: int = 3
 
 
 @lru_cache

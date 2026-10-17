@@ -32,6 +32,16 @@ Commit `b1f42da` removed the earlier prototype. Phase 1 must not start until the
 | Not verified | A live Ollama call (the Agents SDK / Ollama spike is only checked for configuration); the A2A spike client script against a running server. |
 | Working values | See `docs/DECISIONS.md` P2-01 ("Working values, not yet decided"). |
 
+## New Purchasing Agent (branch `purchasing-agent`, 2026-10-17)
+
+Built from scratch per `.scratch/purchasing-agent/spec.md`; legacy agent code and schemas untouched.
+
+| Area | State |
+| --- | --- |
+| Ticket 01 (tracer) | Done. Migration `004` creates only `supplier_service`, `purchasing_agent`, `negotiation_engine` (own declarative base each). Supplier Service read interface + fixture seed/reset. `POST/GET /purchasing/procurement-requests`: idempotent by `request_ref`, unknown item refused, best **priced single** supplier, one PENDING Leg with price snapshot, one OPEN Engine session (AGENT Purchasing + SUPPLIER, refs validated), template OFFER (quantity + required date, no price), selection audit. Injectable clock, configurable timezone. |
+| Interim (until later tickets) | No splits / unpriced fallback (request FAILED instead, no Constrained Quantity), no holds (uses `available_qty`), no contract API, chat, approval or LLM. |
+| Tests | `tests/purchasing_agent/`: 6 pure + 4 API tests pass (API run on a local PostgreSQL; the Neon test host did not resolve on 2026-10-17). |
+
 ## Not implemented
 
 | Area | State |

@@ -18,6 +18,7 @@ Subfolders mirror `backend/app/`. Tests are written in the same phase as the cod
 | `agents/` | Phase 3, no database: Purchasing policy and LLM-proposal validation on the X1 fixture (`test_purchasing_policy.py`), C6 state shapes and offer-history rebuilding (`test_agent_state.py`). |
 | `db/test_phase3_workflow.py` | Phase 3, **needs `TEST_DATABASE_URL`**: order → Planning → Inventory → A2A → Purchasing → supplier interface → AGREEMENT_PROPOSED / REJECTED / FAILED → Inventory → Planning, through the API with A2A routed in-process (TestClient) and a fake LLM. |
 | `db/test_phase4_approval.py` | Phase 4, **needs `TEST_DATABASE_URL`**: approve → COMMIT and reservation; FAILED shortage not approvable; reject → ABORT + attempt 2; rejecting attempt 2 → human intervention; COMMIT/ABORT refused on message routes. The shared `api` fixture is in `db/conftest.py`. |
+| `purchasing_agent/` | New Purchasing Agent. `test_selection.py`: pure supplier selection on fixture data (no database). `db/`, **needs `TEST_DATABASE_URL`**: the Purchasing API (request → Leg → Engine session → offer, idempotency, unknown item); each test resets only the `supplier_service`, `purchasing_agent` and `negotiation_engine` schemas to `docs/purchasing_agent_fixture.md`. |
 | `simulation/` | Empty (C9 Scenario Manager not implemented). |
 
 Tests of deterministic logic assert exact values. LLM behaviour is tested with a fake model, never a live one,
