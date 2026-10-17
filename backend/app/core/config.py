@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Local Ollama, OpenAI-compatible endpoint.
     ollama_base_url: str = "http://localhost:11434/v1"
     ollama_model: str = "qwen3.5:4b"
+    # Shared secret for the Sales Agent door where Planning sends its answers (header X-Planning-Key). Unset = the door
+    # refuses everyone.
+    sales_planning_key: str | None = None
 
 
 @lru_cache

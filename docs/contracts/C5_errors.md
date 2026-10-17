@@ -42,6 +42,7 @@ No stack traces, SQL, internal paths, raw LLM output or secrets in any field.
 | `CONFLICT` | 409 | Request conflicts with current state (e.g. duplicate `order_number`). |
 | `INVALID_STATE_TRANSITION` | 409 | Action not allowed in the current state (e.g. a supplier response after the session has ended, or for a round that is not the current one). |
 | `BUSINESS_RULE_VIOLATION` | 422 | Well-formed request that breaks a deterministic business rule and is refused. |
+| `FORBIDDEN` | 403 | The caller is not allowed to use this door (for example a wrong shared key on a Sales Agent door). |
 | `SERVICE_UNAVAILABLE` | 503 | A dependency is unreachable (database, Ollama). |
 | `INTERNAL_ERROR` | 500 | Anything unexpected. Logged server-side with context. |
 
