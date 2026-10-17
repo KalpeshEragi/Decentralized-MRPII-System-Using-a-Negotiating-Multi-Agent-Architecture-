@@ -192,10 +192,19 @@ Claude must not silently make or change a decision listed here. Record each new 
 | DM-5 | Every simulated day is a working day unless HR's calendar says otherwise for a worker. |
 | DM-6 | Randomness is optional, only for outside-world facts, and seeded per run. |
 
+### Implementation plan (2026-10-17, see `ROADMAP.md`)
+
+| ID | Decision |
+| --- | --- |
+| IMP-1 | Implementation in 8 steps (S1 end to end at step 5); the separate code-review phase is folded into the steps: each step reviews, reuses or retires the old code it replaces. |
+| IMP-2 | Deterministic first: owners use template wording and Planning the fixed ranking until S1 works; then the AI steps are switched on. |
+| IMP-3 | Purchasing is designed and built by another contributor; until then a FAKE Purchasing stub follows the negotiation contract for supply requests. |
+| IMP-4 | About 14 high-value tests in total. After each step: tests pass → small commits → `master` fast-forwarded locally; the developer pushes. |
+
 ## Open
 
 | ID | Question | Notes |
 | --- | --- | --- |
 | O-3 | Execution policy details per agent | Resolved 2026-10-17: starter policy in `negotiation.md` §8 (Planning); owners' commit re-checks in each agent's note 2. |
 | O-7 | Reuse of existing code | Old Planning/Inventory/Purchasing code and the old human-approval workflow are still in `backend/`. Review one agent at a time (roadmap Phase 2). |
-| O-8 | Purchasing design incl. price/cost | Waits for the developer's instruction. |
+| O-8 | Purchasing design incl. price/cost | By another contributor (IMP-3). |

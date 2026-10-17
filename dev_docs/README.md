@@ -21,7 +21,7 @@ Design documents for the six-agent MRPII research prototype. Rules for how Claud
 | `architecture/backend_api.md` | Backend API design across agents | DONE |
 | `architecture/demo.md` | Simulation controls and how the demo is run | DONE |
 | `sales_agent/` | Sales Agent design (4 notes) | DONE (written before this reorganization) |
-| `purchasing_agent/` | Purchasing Agent design | Later, on the developer's instruction |
+| `purchasing_agent/` | Purchasing Agent design | By another contributor (IMP-3) |
 | `*.png` | Diagrams drawn by the developer | Will be redrawn by the developer |
 
 Each agent folder follows the Sales Agent pattern: `1_high_level_architecture`, `2_functions`, `3_backend`, `4_database`.

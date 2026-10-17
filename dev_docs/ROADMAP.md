@@ -1,18 +1,19 @@
 # Roadmap
 
-Build plan for the six-agent prototype (from the project brief, 2026-10-16). This is a plan, not a record of what
-is built. Work only on the current phase. Tick a phase only after its gate is met.
+Build plan for the six-agent prototype (from the project brief, 2026-10-16; implementation plan approved 2026-10-17).
+This is a plan, not a record of what is built. Work only on the current step.
 
 ## Phases
 
-- [ ] **Phase 1 — Agree on design** ← current
-- [ ] **Phase 2 — Inspect current code** (Sales, Planning, Inventory, Purchasing, one at a time: what works, what can be reused, what conflicts, what must change)
-- [ ] **Phase 3 — One vertical slice** (one end-to-end scenario through events, negotiation and planning, tested)
-- [ ] **Phase 4 — Rest of the workflow** (cancellations, workforce/station limits, receiving, production, delivery; Warehouse and HR built on the agreed contracts)
-- [ ] **Phase 5 — Simulation controls** (control panel, triggers, snapshots, reset/replay, timeline)
-- [ ] **Phase 6 — Concurrency and measurements** (conflicting resources, event reliability, 10 → 20 → target 100 orders)
+- [x] **Phase 1 — Agree on design** (docs 1–11 approved; Purchasing docs by another contributor; diagrams by the developer)
+- [x] **Phase 2 — Inspect current code** — folded into the implementation steps (IMP-1): each step reviews, reuses or
+  retires the old code it replaces.
+- [ ] **Phase 3 — One vertical slice** = steps 1–5 (S1 end to end)
+- [ ] **Phase 4 — Rest of the workflow** = step 6
+- [ ] **Phase 5 — Simulation controls** = step 7
+- [ ] **Phase 6 — Concurrency and measurements** = step 8
 
-## Phase 1 — design docs (in this order, one at a time, developer approval after each)
+## Phase 1 — design docs
 
 1. [x] `architecture/high_level_architecture.md`
 2. [x] `architecture/pubsub_event_channel.md`
@@ -25,25 +26,34 @@ is built. Work only on the current phase. Tick a phase only after its gate is me
 9. [x] `architecture/system_design.md`
 10. [x] `architecture/backend_api.md`
 11. [x] `architecture/demo.md`
-12. [ ] `purchasing_agent/` (when the developer says)
+12. [ ] `purchasing_agent/` — by another contributor; must follow `negotiation.md` (§4, §5, §5.1), WH-1 and the event
+    catalogue. Until then a FAKE Purchasing stub answers supply requests (IMP-3).
 
-## Test progression (Phases 3–6)
+## Implementation steps (current: step 1)
 
-1. One complete order.
-2. One order with a supplier delay or material shortage.
-3. One order with a storage or workforce constraint.
-4. Cancellation or change, with release and replanning.
-5. Several orders sharing stock, capacity, space or workforce.
-6. 10, then 20, then target 100 in-progress orders. Measure throughput, end-to-end time, waiting time, failures,
-   event lag, negotiation duration and resource use. No speed is promised in advance.
+Each step: implement from the referenced docs → run tests → small commits → fast-forward `master` locally (IMP-4).
+AI steps are switched on only after S1 works; until then owners use template wording and Planning the fixed ranking
+(IMP-2). Tests: about 14 in total, one per important rule.
 
-## Phase gate
+| # | Step | Docs | Tests |
+| --- | --- | --- | --- |
+| [ ] 1 | Foundation: migration for new schemas and `core` changes; shared work runner; event channel; RFC 9457 errors + correlation id; simulated clock + factory settings | `system_design.md` §4–6, `pubsub_event_channel.md`, `backend_api.md` §3–4, `demo.md` §6, PD-2 | Work runner (claim, lease, retry, idempotency) · Event channel (duplicates, stale, per-entity order) |
+| [ ] 2 | Pure calculations: multi-level MRP, lot sizing, lead-time offset, hours per day (QA-5), ATP by date, capacity fit, PL-6 ranking | `quantity_accounting.md`, `planning_agent/2`, research §4.2 | Research phone example exact · ATP with supplier delay · Ranking filters and ties |
+| [ ] 3 | Negotiation v2: starter/owner sessions, A2A store-and-acknowledge, outbox/inbox, holds, commit, expiry, reason codes, `case_id` | `negotiation.md` | Request → offer → hold → commit; duplicate; stale |
+| [ ] 4 | Owners: Inventory, HR, Warehouse (templates only) | `inventory_agent/`, `hr_agent/`, `warehouse_agent/` | 5000 → 3000 ledger + no double booking · HR absence cover |
+| [ ] 5 | Planning + Sales integration → **S1 end to end**; retire old agents, routes, tables and their tests | `planning_agent/`, `sales_agent/`, PB-O1, API-4 | S1 request → shipment (fake AI, simulated days) |
+| [ ] 6 | Replanning: pegging, net change, dampener, time fence, AT_RISK repair; S5–S7; Purchasing stub for S2/S3 | RD-4, RD-5, RD-8, `planning_agent/2` §6 | Worker absence repair · Cancellation release |
+| [ ] 7 | Simulator + observer API + minimal control panel; then switch on the AI steps | `demo.md`, `backend_api.md` §7 | Snapshot restore + reconcile |
+| [ ] 8 | Real Purchasing (contributor); S2–S4, S8; load 10 → 20 → 100 orders with measurements | `demo.md` §8, `system_design.md` §10 | Competing orders across agents |
 
-1. The phase's deliverable exists and works (or, for Phase 1, every listed doc is approved).
-2. All tests pass, including the phase's new tests.
+Database tests need `TEST_DATABASE_URL` (a separate Neon branch) set by the developer.
+
+## Step gate
+
+1. The step's deliverable exists and works.
+2. All tests pass, including the step's new tests.
 3. Folder `README.md` files, docs and `DECISIONS.md` match the code.
-4. The developer has reviewed the changes and can explain them.
-5. Merged to `master` by PR; this file updated.
+4. Committed and `master` fast-forwarded locally; the developer reviews and pushes.
 
 ## Prototype is complete when
 
