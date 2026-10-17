@@ -1,7 +1,7 @@
 # backend/app/models
 
 SQLAlchemy ORM for the C2 subset: 24 tables in 9 PostgreSQL schemas. Importing `app.models` registers all of them on
-`Base.metadata`. Columns follow `dev_docs/implementation_25%/database_schema.md`, with the Phase 2 decisions below.
+`Base.metadata`. Columns follow the earlier 25% schema design (doc removed 2026-10-16), with the Phase 2 decisions below.
 
 | File | Tables |
 | --- | --- |

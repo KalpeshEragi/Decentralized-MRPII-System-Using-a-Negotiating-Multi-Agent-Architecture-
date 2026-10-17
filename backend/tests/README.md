@@ -10,7 +10,6 @@ Subfolders mirror `backend/app/`. Tests are written in the same phase as the cod
 | Folder | Contents |
 | --- | --- |
 | `core/` | `test_config.py`: settings defaults and environment overrides. |
-| `contracts/` | `test_contract_examples.py`: every JSON example in `docs/contracts/` parses and has no cost/price key (Phase 0 check). |
 | `mrpii/`, `negotiation/`, `llm/` | Phase 1: X1 baseline and scenario numbers, finished-goods netting, protocol state machine, structured-output validation. |
 | `llm/test_agents_spike.py` | Phase 2: Agents SDK configuration (`reasoning.effort = "none"`, base URL / model), offline. |
 | `api/` | Phase 2, no database: C5 error format, A2A agent cards, A2A refusals. |

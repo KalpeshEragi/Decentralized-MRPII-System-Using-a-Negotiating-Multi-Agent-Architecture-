@@ -1,29 +1,28 @@
 # Decentralized MRPII using Multi-Agent Systems & LLMs
 
-A manufacturing planning (MRPII) system in which three autonomous agents — Production Planning,
-Inventory and Purchasing — negotiate over A2A to turn a customer order into a feasible plan.
-Business calculations stay deterministic; an LLM (local Ollama) only assists agent reasoning.
+A research prototype of a simulated MRPII manufacturing environment run by six autonomous agents — Sales, Planning,
+Inventory, Purchasing, Warehouse and HR. Agents share facts through publish–subscribe events and negotiate privately
+when they need to agree. Business calculations stay deterministic; a local LLM (Ollama) only assists agent reasoning.
 
-**Status:** Phase 0 (architecture and contracts). No application logic yet — see `dev_docs/PROJECT_STATUS.md`.
+**Status:** Phase 1 (agree on the design) — see `dev_docs/ROADMAP.md`. The backend still holds code from the earlier
+three-agent design; it is reviewed in Phase 2. The Sales Agent (`backend/app/sales_agent/`) is the newest code.
 
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
-| `backend/` | FastAPI backend (Python). Scaffold and configuration only so far. |
-| `frontend/` | Next.js frontend. Not started (Phase 5). |
-| `docs/` | Contracts and the detailed decision record. |
-| `dev_docs/` | Finalized specifications, decisions, status, and the single-developer roadmap. |
+| `backend/` | FastAPI backend (Python). |
+| `frontend/` | Next.js frontend. |
+| `dev_docs/` | Design docs, decisions and roadmap. |
 | `CLAUDE.md` | Rules for Claude Code sessions working on this repository. |
 
 ## Start here
 
-1. `dev_docs/implementation_25%/single_developer_roadmap.md` — phases, working rules, decisions still open.
-2. `dev_docs/DECISIONS.md` — confirmed decisions.
-3. `dev_docs/implementation_25%/system_spec.md` and `scenarios.md` — what the 25% milestone must do.
-4. `docs/contracts/` — data and interface contracts.
+1. `dev_docs/ROADMAP.md` — phases and the current phase.
+2. `dev_docs/DECISIONS.md` — confirmed and open decisions.
+3. `dev_docs/README.md` — index of the design docs.
 
-## Setup (current baseline)
+## Setup
 
 ```bash
 cd backend
@@ -33,4 +32,4 @@ python -m venv .venv
 ```
 
 Copy `.env.example` to `.env` in the repository root and fill in the Neon `DATABASE_URL`
-(not needed yet: nothing connects to the database before Phase 2).
+(and `TEST_DATABASE_URL` for the database tests).

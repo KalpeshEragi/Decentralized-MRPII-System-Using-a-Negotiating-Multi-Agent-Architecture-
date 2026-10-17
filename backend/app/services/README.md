@@ -19,7 +19,7 @@ and store the results. They make no business calculations of their own and conta
 
 Working values still open in the contracts: requisition statuses (`OPEN`, `AGREEMENT_PROPOSED`, `REJECTED`, `FAILED`), `negotiation_type` (`SHORTAGE_PROCUREMENT`), participant roles (`INITIATOR`,
 `RESPONDER`), offer statuses (`PROPOSED`, `SUPERSEDED`, `ACCEPTED`, `REJECTED`), reservation statuses (`ACTIVE`, `RELEASED`),
-audit `decision_type` values and the audit agent chosen for each event (see `docs/contracts/C7_audit_record.md`).
+audit `decision_type` values and the audit agent chosen for each event.
 
 Agreement validation (`mrpii/agreement.py`) checks quantity ≥ shortage and delivery date ≤ required-by. `COMMIT` needs a
 validated agreement; only then does the agreement count as a scheduled receipt.

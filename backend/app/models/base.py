@@ -1,4 +1,4 @@
-"""ORM base and column helpers. Tables follow dev_docs/implementation_25%/database_schema.md (C2 subset)."""
+"""ORM base and column helpers. Tables follow the earlier 25% schema design (C2 subset)."""
 
 import uuid
 from datetime import datetime
