@@ -1,164 +1,58 @@
-Decentralized MRPII — Claude Code Guide
+# Decentralized MRPII system with Multi-Agent negotiation
 
-Project
+## 1. Project Goal
+Build a decentralized MRPII system with autonomous domain agents that coordinate and negotiate. Shared infrastructure is allowed; centralized business decision-making is not. LLMs support reasoning but are never the source of business truth.
 
-Decentralized MRPII system with autonomous negotiating multi-agents and LLM-assisted reasoning.
-Goal: distribute manufacturing-planning decisions across autonomous agents rather than one centralized planner.
+## 2. Current Development Direction
+- Develop each agent independently, with clear interfaces and tests, then integrate the agents.
+- Only the **Sales Agent** is considered properly implemented today. Other agent code is legacy/provisional and must not be assumed compatible with the new architecture. Inspect it for reusable ideas, but do not preserve or depend on it without approval.
+- Target logical agents discussed: Sales, Production Planning, Inventory, Purchasing, Warehouse, and HR. Older documents may mention a separate Production agent; flag this discrepancy instead of silently deciding the roster.
+- Supplier is currently a **data/procurement service plus a supplier-facing interface**, not an autonomous MRPII agent.
+- Keep the frontend/API, agent logic, deterministic domain services, persistence, and communication adapters separated.
 
-The project is a manufacturing planning system—not merely a chatbot, workflow automation system, or conventional centralized ERP/MRP application.
+## 3. Decentralized Communication (Future Integration)
+- **A2A (agent-to-agent):** targeted requests, responses, proposals, counteroffers, acceptances, rejections, and negotiations between relevant agents.
+- **Publish–Subscribe (Pub/Sub):** announce business events/outcomes to agents that subscribed to those event types.
+- Events say that something happened; agents decide what to do. Pub/Sub must not broadcast everything to every agent.
+- Agents may communicate in an N:N network, but connections/subscriptions must follow responsibilities and need. Do not require Planning to relay every interaction or make it the universal coordinator.
+- Keep private negotiation details between relevant participants; publish only the outcomes/details that subscribers need.
+- Define message/event schemas and correlation/causation identifiers. Design handlers for retries, duplicate delivery, timeouts and recoverable failure. Do not choose a broker or A2A framework unless an approved decision settles it.
+- Shared communication or negotiation infrastructure may manage delivery, sessions, protocol state and timeouts. It must not choose business outcomes or override an agent's constraints.
 
-System Overview
+## 4. Domain Ownership and Boundaries
+- Each agent owns its decisions, domain records, constraints and state. Shared database infrastructure is acceptable, but logical ownership and write permissions must remain clear.
+- An agent must not directly edit another agent's internal tables or state. Use agreed interfaces/messages and identifiers.
+- Planning owns production planning and material requirements; it does not choose suppliers for Purchasing or directly modify Inventory.
+- Inventory owns stock availability, allocation and reservation constraints; it does not make supplier-selection decisions.
+- Purchasing owns procurement decisions, supplier evaluation, quantity/delivery terms, its requisitions, supplier legs, contract references and audit records.
+- Sales owns customer conversations and order interactions. It should request feasibility through agreed interfaces rather than bypassing domain agents.
+- Planning owns its production planning records.
+- HR owns workforce records.
 
-Target system
+## 5. Additional Decisions Reference 
+`ADR-001.md` is the detailed reference for the architecture discussion, rationale, examples, Sales-specific notes, and pending decisions. Keep this file focused on operating rules; update the ADR when a decision is confirmed.
+- **Negotiation priority queues:** proposed per-agent queues should consider urgency, production impact, customer-commitment risk, and waiting time. Prevent starvation and conflicting resource commitments. The exact scoring rules are not finalized.
+- **Shared LLM runtime:** the current direction is one shared Ollama Qwen 3.5B runtime for the logical agents, rather than a separate model copy per agent. Measure load and latency before introducing a custom AI-inference queue.
+- **Open decisions stay open:** do not assume a specific message broker, final event catalogue, A2A contract, priority algorithm, or recovery/consistency strategy until approved.
 
-Frontend → Application/API → MRPII Domain → Autonomous Agents
-                         ↘ Negotiation / Communication
-Deterministic Services ←→ PostgreSQL ←→ Simulation / Audit
-LLM layer supports agent reasoning; it is not business truth.
+### For more details : `docs/adr/ADR-001.md`
 
-Target business functions: Sales, Production Planning, Inventory, Purchasing, Warehouse, Production.
-Frontend covers dashboards, orders, planning/monitoring, agent activity, negotiation views, and simulation/what-if views.
+## 6. Purchasing Agent — Current Build Scope
+Build Purchasing from scratch as an independently runnable and testable agent. Use test inputs/mocks for unfinished agents; do not claim real multi-agent integration until it exists.
 
-Current 25% vertical slice
+### For more details: `docs/agent_architectures/purchasing_agent_architecture`
 
-Customer Order → Planning → BOM/MPS/MRP → Inventory
-→ Procurement/Negotiation → Agreement → Initial Plan
-→ Disruption → Re-evaluation → Negotiation → Revised Plan
+## 7. Source of Truth and Project Docs
+Before non-trivial work, inspect relevant files, especially:
+- Follow `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and `docs/agents/domain.md` when present.
+- `docs/` system specification, scenarios, database/schema relations, and agent architecture docs if present.
+- `docs/adr/`, `docs/contracts/`, and root `GLOSSARY.md`.
+- `.scratch/<feature>/` specs and issue-tracker notes where applicable.
 
-Current agents: Production Planning, Inventory, Purchasing.
-Supporting scope: PostgreSQL, orders/BOM, MPS/MRP, inventory availability, supplier data/service, multi-factor negotiation, LLM reasoning, simulation/disruptions, audit/decision logging, basic dashboard.
-Supplier = data/service, not an autonomous agent for this milestone. Sales, Warehouse, Production, Supplier, and expanded functionality are future scope unless explicitly requested.
+Prefer the latest approved decision/spec and current repository evidence. A diagram or proposed spec is not proof of implementation. If code, docs, or specs conflict, report the conflict and ask or propose a resolution; do not silently invent one. Do not use web search for project-specific truth unless explicitly requested.
 
-Project Knowledge
-
-Before non-trivial MRPII, agent, database, negotiation, simulation, or architecture work, inspect the relevant repository docs, especially:
-
-dev_docs/implementation_25%/
-  single_developer_roadmap.md (execution roadmap: phases, current phase, working rules)
-  system_spec.md
-  scenarios.md               (source of truth for scenarios; do not modify)
-  agent_operations.md
-  database_schema.md
-  table_relations.md
-dev_docs/
-  DECISIONS.md               (confirmed and unresolved decisions)
-  tech_stack.md              (early plan; superseded by DECISIONS.md)
-  System Architecture.png
-  Relational Database Schema Diagram.png
-docs/contracts/              (shared contracts between the two developers)
-
-Use these detailed specifications instead of guessing or duplicating them in CLAUDE.md.
-
-Source of Truth
-
-Prefer: actual source code/current repository → current repository docs → architecture/schema plans → research notes.
-A planned or diagrammed component is not automatically implemented.
-When code and docs disagree: inspect both, preserve working behavior, and surface the discrepancy. Never silently invent a resolution.
-For project-specific architecture/schema/status, use repository evidence first. Do not use web search as a substitute; external research is only for explicitly requested or genuinely necessary separate research.
-
-Decentralization Invariants
-
-Shared infrastructure is acceptable; centralized decision-making is not.
-Agents retain their own goals, preferences, constraints, negotiation state, proposals/offers, and decisions.
-A shared negotiation layer may handle sessions, participants, routing, validation, protocol state, persistence, and timeouts—but must not centrally decide outcomes, override agent constraints/preferences, or replace autonomy.
-One agent must not silently take ownership of another agent's business responsibility.
-
-Agent Boundaries
-
-Production Planning Agent: owns MPS/MRP requirements, production priorities, material requirements, planning objectives. Can plan, identify shortages, request inventory/procurement, propose quantities/dates, negotiate, and replan. Cannot directly modify inventory, select suppliers for Purchasing, alter another agent's state, or bypass constraints.
-
-Inventory Agent: owns availability, allocation, safety-stock constraints, and inventory negotiation constraints. Can check stock, calculate availability, propose allocation, negotiate quantities, and reserve/release through the appropriate service. Cannot change production planning, select suppliers, or make purchasing decisions.
-
-Purchasing Agent: owns procurement, supplier evaluation/negotiation, procurement terms, and quantity/delivery/lead-time trade-offs. Can evaluate supplier data, compare offers, negotiate, and create procurement requirements/results through the appropriate service. Cannot directly modify inventory, directly change production plans, or override another agent's constraints.
-
-Deterministic vs LLM
-
-Keep business truth/calculations deterministic.
-Deterministic services/domain logic: BOM explosion; MPS/MRP; inventory/reservation calculations; capacity calculations; constraint/business-rule validation; database transactions/state persistence.
-Agents/LLMs: contextual and goal-oriented reasoning; negotiation; multi-factor proposals/counter-offers; negotiation-context interpretation; coordination; concise decision rationale.
-LLMs are not authoritative for inventory, BOM, suppliers, capacity, orders, database state, or hard constraints. Never let raw LLM output directly mutate business state; validate structured output first.
-
-Negotiation
-
-Negotiation is multi-factor, not price-only. Relevant factors may include quantity, delivery date, lead time, priority, inventory availability, safety-stock limits, supplier capacity, production requirements, deadlines, and agent preferences/constraints.
-Objective: a mutually feasible plan, not a centralized winner.
-Core protocol concepts:
-
-REQUEST / OFFER / COUNTER_OFFER / ACCEPT / REJECT
-AGREEMENT_PROPOSED / COMMIT
-
-Check current docs/implementation before changing protocol/message contracts.
-
-Agent State
-
-Agent state represents decision/negotiation context:
-
-current_goal, preferred_terms, reserved_limits, initial_proposal,
-own_offer_history, opponent_offer_history, dialogue_history,
-negotiation_rules, current_task
-
-Do not duplicate the whole business database inside agent state.
-
-Simulation
-
-Simulation is a What-If testing environment: Scenario → Disruption/Event → Agent Re-evaluation → Communication + Negotiation → Revised Plan.
-Possible disruptions discussed: supplier delay, demand/new-order increase, supplier quantity change (price change is future scope), inventory reservation change, customer due-date change.
-Use current repository/docs for exact milestone scenarios. The Scenario Manager injects events; agents decide the response.
-
-Development Workflow
-
-For non-trivial tasks: (1) inspect relevant code/docs and scope; (2) determine what already exists; (3) make a concise plan; (4) implement the smallest complete solution; (5) preserve unrelated behavior; (6) run relevant available tests/checks; (7) review for unnecessary complexity; (8) update docs when architecture/schema/protocol/scope materially changes.
-Do not create or modify unrelated files. Do not build future architecture merely because it appears in a diagram.
-
-Implementation Workflow
-
-Single developer working with Claude Code. At session start, read dev_docs/implementation_25%/single_developer_roadmap.md, find the current phase in its Section 1 checklist, and work only on that phase.
-Claude implements, tests, shows the changes and stops. The developer reviews and runs git add / commit / push. Claude never commits, pushes, merges or rewrites history unless explicitly asked for that exact operation.
-Branches: short-lived phase-N-topic branches from master, merged by PR. Contracts in docs/contracts/ change before the code that depends on them.
-Follow the roadmap's phase gate (Section 2). Do not start a phase before the previous gate is met.
-
-Code Quality
-
-Prefer simple, readable, modular, maintainable, efficient, extensible code.
-Avoid unnecessary abstractions/classes/files, duplicated business or negotiation logic, premature microservices, speculative features, unnecessary infrastructure, or clever code that hurts clarity.
-Do not optimize for line count alone. Prefer concise code when it remains clear and maintainable. Reuse existing utilities/patterns first.
-
-Technology Decisions
-
-Do not silently choose or replace unresolved technology. Verify repository/docs before deciding on agent framework, LLM/runtime/model, frontend, A2A/transport, event bus, ORM/migrations, or deployment/containerization.
-Previously discussed alternatives include MESA/SPADE/PADE vs OpenAI Agents SDK, earlier UI approaches vs Next.js, and Llama/Ollama/Qwen. These are not interchangeable assumptions.
-If a material choice remains unresolved, record it in dev_docs/DECISIONS.md when appropriate and ask before a consequential change.
-
-Code Intelligence
-
-If Graphify is installed/configured, use the repository's actual Graphify workflow for structural/code-dependency navigation. Treat it as code-structure information, not business truth. Do not invent Graphify commands/configuration.
-
-Documentation
-
-CLAUDE.md → stable rules/how Claude works
-dev_docs/implementation_25%/ → detailed project/domain specifications and the single-developer roadmap
-dev_docs/ → decisions (DECISIONS.md), project status (PROJECT_STATUS.md), high-level plan
-docs/ → shared contracts (docs/contracts/) and the detailed decision record (docs/DECISIONS.md)
-Every meaningful folder has a concise README.md describing the actual code in it.
-
-Keep detailed specifications out of CLAUDE.md. Update the relevant doc when architecture, agent boundaries, database/protocol contracts, scope, or unresolved decisions materially change.
-
-Non-Negotiables
-
-Preserve decentralized decision-making and autonomous agent boundaries.
-
-Keep negotiation multi-factor and cooperative.
-
-Keep MRPII/business calculations deterministic.
-
-Keep LLMs out of direct business-state control.
-
-Simulation triggers changes; agents decide responses.
-
-Treat the 25% milestone as a vertical slice.
-
-No Supplier Agent for the 25% milestone.
-
-Avoid unnecessary complexity and infrastructure.
-
-When in doubt: inspect first, preserve boundaries, keep deterministic logic deterministic, and avoid assumptions.
+## 8. Implementation Workflow
+- Continue from the current state and make small, reviewable changes. Explain significant decisions simply; avoid sweeping rewrites and unrelated files.
+- Implement the approved spec, run relevant tests, report changed files/results and any unresolved issues, then stop for developer review.
+- Do not commit, push, merge, or rewrite Git history unless explicitly asked for that exact operation.
+- Update relevant docs after implementation. Do not build future architecture just because it appears in a diagram.
