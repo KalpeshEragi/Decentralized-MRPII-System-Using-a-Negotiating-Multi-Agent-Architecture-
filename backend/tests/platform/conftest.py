@@ -10,11 +10,10 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import func, literal, select, text, union_all
+from sqlalchemy import create_engine, func, literal, select, text, union_all
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
-from app.core.database import make_engine
 from app.core import workers
 from app.core.platform_base import PlatformBase
 from app.events import channel
@@ -22,6 +21,7 @@ from app.models import Base
 from app.negotiation import layer
 
 BACKEND = Path(__file__).resolve().parents[2]
+NOT_PUMPED = ("planning-sales-outbox",)  # it would POST to Sales door 3: tests read Planning's results from the outbox
 
 
 @pytest.fixture(scope="session")
@@ -33,12 +33,21 @@ def engine():
     config.set_main_option("script_location", str(BACKEND / "alembic"))
     config.attributes["url"] = url
     command.upgrade(config, "head")
-    return make_engine(url)
+    # Fail fast instead of hanging for hours on a dead connection (remote database) or a stuck lock.
+    return create_engine(url, pool_pre_ping=True, connect_args={
+        "keepalives": 1, "keepalives_idle": 30, "keepalives_interval": 10, "keepalives_count": 3,
+        "options": "-c statement_timeout=120000 -c lock_timeout=60000"})
 
 
 @pytest.fixture
 def session_factory(engine):
-    tables = [*PlatformBase.metadata.sorted_tables, *Base.metadata.sorted_tables]
+    from app.negotiation_engine.models import NegotiationEngineBase
+    from app.purchasing_agent.models import PurchasingAgentBase
+    from app.supplier_service.models import SupplierServiceBase
+
+    tables = [*PlatformBase.metadata.sorted_tables, *Base.metadata.sorted_tables,
+              *SupplierServiceBase.metadata.sorted_tables, *PurchasingAgentBase.metadata.sorted_tables,
+              *NegotiationEngineBase.metadata.sorted_tables]
     with engine.begin() as connection:
         connection.execute(text("TRUNCATE " + ", ".join(f'"{t.schema}"."{t.name}"' for t in tables)
                                 + " RESTART IDENTITY CASCADE"))
@@ -51,6 +60,16 @@ def _clear_registrations() -> None:
     channel.unsubscribe_all()
     layer.unregister_all()
     workers.runner.registrations.clear()
+
+
+@pytest.fixture(autouse=True)
+def no_language_model(monkeypatch):
+    """Platform tests never call Ollama: Purchasing's model calls fail at once, so its templates and strict parser
+    are used (exactly what happens when the model is down)."""
+    from app.llm.client import FakeLLMClient
+    from app.purchasing_agent import a2a
+
+    monkeypatch.setattr(a2a, "llm_client", lambda: FakeLLMClient([]))
 
 
 @pytest.fixture
@@ -81,10 +100,15 @@ def pump(session_factory, agents):
     queues = [(Outbox, lambda: wr.run_one_long(session_factory, Outbox, layer.send_outbox_item, "test-sender")),
               (Message, lambda: wr.run_one_short(session_factory, Message, layer.handle_inbox)),
               (EventDelivery, lambda: wr.run_one_short(session_factory, EventDelivery, channel.deliver))]
-    for registration in workers.runner.registrations:  # agents' own short queues (e.g. Planning's work items)
-        if registration.mode == "short" and registration.model not in (Message, EventDelivery):
+    for registration in workers.runner.registrations:  # agents' own queues (Planning's work, Purchasing's adapter)
+        if registration.model in (Message, EventDelivery, Outbox) or registration.name in NOT_PUMPED:
+            continue
+        if registration.mode == "short":
             queues.append((registration.model,
-                           lambda r=registration: wr.run_one_short(session_factory, r.model, r.handler)))
+                           lambda r=registration: wr.run_one_short(session_factory, r.model, r.handler, where=r.where)))
+        else:
+            queues.append((registration.model, lambda r=registration: wr.run_one_long(
+                session_factory, r.model, r.handler, "test-worker", where=r.where)))
     trace = os.environ.get("PUMP_TRACE")  # set to see each pump round
 
     def unfinished(db) -> dict[type, int]:
