@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Purchasing supplier chat</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f2f2f2; margin: 0; padding: 20px; }
+    .page { max-width: 960px; margin: 0 auto; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    .hint { color: #666; font-size: 13px; margin: 0 0 12px; }
+    .layout { display: flex; gap: 12px; }
+    #conversation-list { width: 300px; flex-shrink: 0; background: white; border: 1px solid #ccc; border-radius: 6px; height: 540px; overflow-y: auto; }
+    .conversation { padding: 10px 12px; border-bottom: 1px solid #eee; cursor: pointer; font-size: 13px; }
+    .conversation:hover { background: #f7f7f7; }
+    .conversation.selected { background: #e8f4ea; }
+    .conversation .name { font-weight: bold; font-size: 14px; }
+    .conversation .meta { color: #666; }
+    .chat { flex: 1; min-width: 0; }
+    #chat-header { background: white; border: 1px solid #ccc; border-radius: 6px; padding: 8px 12px; margin-bottom: 8px; font-size: 13px; min-height: 36px; }
+    #chat-window { background: white; border: 1px solid #ccc; border-radius: 6px; height: 400px; overflow-y: auto; padding: 12px; }
+    .message { max-width: 80%; padding: 8px 12px; margin: 6px 0; border-radius: 12px; white-space: pre-wrap; }
+    .message.supplier { background: #dcf8c6; margin-left: auto; }
+    .message.agent { background: #eeeeee; margin-right: auto; }
+    .message .type { display: block; color: #888; font-size: 11px; margin-bottom: 2px; }
+    .error { color: #b00020; font-size: 13px; margin: 6px 0; }
+    .send-row { display: flex; gap: 8px; margin-top: 8px; }
+    .send-row textarea { flex: 1; padding: 8px; font-size: 14px; resize: none; }
+    button { padding: 8px 16px; font-size: 14px; cursor: pointer; }
+    @media (max-width: 700px) { .layout { flex-direction: column; } #conversation-list { width: auto; height: 200px; } }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Purchasing supplier chat</h1>
+    <p class="hint">You are the supplier. Pick a conversation (one per Leg) and reply. Write as you normally would (e.g. "ok, 500 by 12 Nov"). If the AI model is unavailable, use the strict format: <b>ACCEPT</b>, <b>COUNTER &lt;quantity&gt; &lt;yyyy-mm-dd&gt;</b> or <b>REJECT</b>.</p>
+
+    <div class="layout">
+      <div id="conversation-list"></div>
+      <div class="chat">
+        <div id="chat-header">Pick a conversation.</div>
+        <div id="chat-window"></div>
+        <div class="send-row">
+          <textarea id="message-input" rows="2" placeholder="Type a reply. Enter sends, Shift+Enter adds a new line." disabled></textarea>
+          <button id="send-button" disabled>Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const BASE = "/purchasing/test-channel";
+    const POLL_EVERY_MS = 2000;
+    const listBox = document.getElementById("conversation-list");
+    const header = document.getElementById("chat-header");
+    const chatWindow = document.getElementById("chat-window");
+    const messageInput = document.getElementById("message-input");
+    const sendButton = document.getElementById("send-button");
+
+    let selectedLeg = null;
+    let shownCount = 0;  // messages already drawn for the selected conversation
+    let sending = false;
+
+    function element(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = text;  // textContent: supplier text is never parsed as HTML
+      return node;
+    }
+
+    function showError(text) {
+      chatWindow.appendChild(element("div", "error", text));
+      chatWindow.scrollTop = chatWindow.scrollHeight;
+    }
+
+    async function errorText(response) {
+      try { return (await response.json()).error.message; } catch { return "HTTP " + response.status; }
+    }
+
+    async function loadConversations() {
+      const response = await fetch(BASE + "/conversations");
+      if (!response.ok) return;
+      const conversations = await response.json();
+      listBox.replaceChildren();
+      if (conversations.length === 0) listBox.appendChild(element("div", "conversation meta", "No conversations yet. Submit a Procurement Request first."));
+      for (const c of conversations) {
+        const row = element("div", "conversation" + (c.leg_id === selectedLeg ? " selected" : ""));
+        row.appendChild(element("div", "name", c.supplier.name));
+        row.appendChild(element("div", "meta", `${c.item.sku} · ${c.quantity} units by ${c.required_date}`));
+        row.appendChild(element("div", "meta", `${c.request_ref} · round ${c.round_count}/${c.max_rounds} · ${c.leg_status}`));
+        row.onclick = () => selectConversation(c.leg_id);
+        listBox.appendChild(row);
+      }
+    }
+
+    function drawConversation(c) {
+      header.textContent = `${c.supplier.name} — ${c.item.name} (${c.item.sku}): ${c.quantity} units, required by ${c.required_date}. ` +
+        `Round ${c.round_count}/${c.max_rounds}. Leg ${c.leg_status}, negotiation ${c.negotiation_status}.`;
+      for (const m of c.messages.slice(shownCount)) {
+        const bubble = element("div", "message " + (m.sender_type === "SUPPLIER" ? "supplier" : "agent"));
+        bubble.appendChild(element("span", "type", `${m.message_type} · round ${m.round_number}`));
+        bubble.appendChild(document.createTextNode(m.text));
+        chatWindow.appendChild(bubble);
+      }
+      if (c.messages.length > shownCount) chatWindow.scrollTop = chatWindow.scrollHeight;
+      shownCount = c.messages.length;
+      const open = c.negotiation_status === "OPEN";
+      messageInput.disabled = sendButton.disabled = !open || sending;
+    }
+
+    async function refreshConversation() {
+      if (!selectedLeg) return;
+      const leg = selectedLeg;
+      const response = await fetch(`${BASE}/conversations/${leg}/messages`);
+      if (response.ok && leg === selectedLeg) drawConversation(await response.json());
+    }
+
+    async function selectConversation(legId) {
+      selectedLeg = legId;
+      shownCount = 0;
+      chatWindow.replaceChildren();
+      await Promise.all([refreshConversation(), loadConversations()]);
+    }
+
+    async function send() {
+      const text = messageInput.value.trim();
+      if (!text || !selectedLeg || sending) return;
+      sending = true;
+      messageInput.disabled = sendButton.disabled = true;
+      try {
+        const response = await fetch(`${BASE}/conversations/${selectedLeg}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message_id: crypto.randomUUID(), text }),
+        });
+        if (!response.ok) { showError("Not sent: " + await errorText(response)); return; }
+        messageInput.value = "";
+        drawConversation((await response.json()).conversation);
+        loadConversations();
+      } catch (error) {
+        showError("Not sent: " + error.message);
+      } finally {
+        sending = false;
+        refreshConversation();
+      }
+    }
+
+    sendButton.onclick = send;
+    messageInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); send(); }
+    });
+
+    loadConversations();
+    setInterval(() => { loadConversations(); refreshConversation(); }, POLL_EVERY_MS);
+  </script>
+</body>
+</html>
