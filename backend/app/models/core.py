@@ -8,8 +8,15 @@ from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, Numeric, St
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from enum import StrEnum
+
 from app.models.base import Base, created_at, uuid_pk
-from app.schemas.domain import ItemType
+
+
+class ItemType(StrEnum):
+    FINISHED_PRODUCT = "FINISHED_PRODUCT"
+    COMPONENT = "COMPONENT"
+    RAW_MATERIAL = "RAW_MATERIAL"
 
 
 class Item(Base):
