@@ -1,4 +1,4 @@
-"""The Negotiation Engine tables (schema `negotiation_engine`, docs/database_schema.md §8). They match migration 004.
+"""The Negotiation Engine tables (schema `negotiation_engine`, dev_docs/OVERALL_DATABASE_SCHEMA.md §8). They match migration 004.
 
 Own declarative base, like the Sales Agent. Protocol state only: no business decisions are stored here. Other modules
 use `service.py`, never these classes.
@@ -65,7 +65,8 @@ class NegotiationMessage(NegotiationEngineBase):
     round_number: Mapped[int] = mapped_column(Integer)
     sender_type: Mapped[str] = mapped_column(String)  # AGENT, SUPPLIER
     sender_ref: Mapped[str] = mapped_column(String)
-    # Purchasing: OFFER, COUNTER_OFFER, CLARIFICATION_REQUEST, CANCEL. Supplier: ACCEPT, COUNTER_OFFER, REJECT, UNCLEAR.
+    # Purchasing: OFFER, COUNTER_OFFER, CLARIFICATION_REQUEST, CANCEL, CONFIRMATION (migration 005).
+    # Supplier: ACCEPT, COUNTER_OFFER, REJECT, UNCLEAR.
     message_type: Mapped[str] = mapped_column(String)
     text: Mapped[str] = mapped_column(Text)
     terms: Mapped[dict | None] = mapped_column(JSONB)  # quantity, delivery_date; never price
