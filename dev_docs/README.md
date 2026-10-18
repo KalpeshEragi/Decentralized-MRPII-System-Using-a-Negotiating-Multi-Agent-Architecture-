@@ -45,6 +45,8 @@ Details and test results: `PROJECT_STATUS.md`.
 | `planning_agent/`, `inventory_agent/`, `warehouse_agent/`, `hr_agent/` | Design notes for the other agents (4 notes each) |
 | `research/real_manufacturing_mrpii_research.md` | How real MRPII/ERP systems work; sources; gap analysis |
 | `architecture/` | Six-agent design: high-level architecture, event channel, negotiation, quantity accounting, system design, backend API, demo |
+| `SCENARIOS.md` | Business scenarios (SmartPhone X1) |
+| `TECH_STACK.md` | Original early stack plan (history; superseded by `DECISIONS.md`) |
 | `*.png` | System and relational schema diagrams (to be redrawn by the developer) |
 | `agents/` | How the engineering skills use this repo: issue tracker (`.scratch/`), triage labels, domain docs |
 | `/.scratch/purchasing-agent/` | Purchasing spec and tickets 01–11 |
