@@ -35,7 +35,7 @@ from app.core.database import get_db, new_session
 from app.core.errors import AppError, ErrorCode
 from app.llm.client import LLMClient, OllamaClient
 from app.sales_agent import manager, views
-from app.sales_agent.planning import FakePlanning, PlanningConnector, PlanningResult
+from app.sales_agent.planning import FakePlanning, PlanningConnector, PlanningResult, RealPlanning
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +73,10 @@ def get_session_factory() -> Callable[[], Session]:
 def get_planning(
     session_factory: Callable[[], Session] = Depends(get_session_factory), llm_client: LLMClient = Depends(get_llm_client)
 ) -> PlanningConnector:
-    """The connection to Planning. For now a FAKE Planning that answers after a short delay, by the same path the real
-    Planning will use. Replace this with the real connector when Planning exists."""
+    """The connection to Planning: the real Planning Agent when the setting `planning_connector` is "real", else a FAKE
+    Planning that answers after a short delay by the same path (door 3) the real Planning uses."""
+    if get_settings().planning_connector == "real":
+        return RealPlanning(session_factory)
     planning = FakePlanning(delay_seconds=FAKE_PLANNING_DELAY_SECONDS)
     planning.deliver = functools.partial(deliver_planning_result, session_factory, llm_client, planning)
     return planning

@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     event_dispatcher_workers: int = 4
     # X-Door-Key of the simulator's write doors (settings). Unset = those doors refuse everyone.
     simulation_door_key: str | None = None
+    # X-Door-Key of Planning's door 1 (requests from Sales). Unset = refuses everyone.
+    planning_door_key: str | None = None
+    # How Sales reaches Planning: "fake" (the built-in FakePlanning) or "real" (Planning door 1 over HTTP).
+    planning_connector: str = "fake"
 
 
 @lru_cache

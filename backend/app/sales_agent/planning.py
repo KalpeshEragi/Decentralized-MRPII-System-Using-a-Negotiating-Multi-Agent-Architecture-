@@ -14,6 +14,10 @@ from typing import Annotated, Literal, Protocol
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.core import http_doors
+from app.core.config import get_settings
+from app.events import channel
+
 MAX_RECENT_ORDERS_IN_CONTEXT = 5
 MAX_INSIGHTS_IN_CONTEXT = 3
 MAX_PREFERENCES_IN_CONTEXT = 10
@@ -115,6 +119,30 @@ class PlanningConnector(Protocol):
     def send_request(self, request: dict) -> None: ...
 
     def send_confirmation(self, notice: dict) -> None: ...
+
+
+class RealPlanning:
+    """The connection to the real Planning Agent (PB-2): requests go to Planning door 1 over HTTP; a confirmation is
+    published as the `OrderConfirmed` event. Planning's answer comes back on Sales door 3 (`/sales/planning/results`).
+
+    Known gap: the event is saved in its own transaction just after the order is saved (the existing confirmation
+    path), not in the same one. If it fails, the failure is noted on the inquiry, as before."""
+
+    def __init__(self, session_factory: Callable[[], object]):
+        self.session_factory = session_factory
+
+    def send_request(self, request: dict) -> None:
+        response = http_doors.post("/planning/requests", request,
+                                   {"X-Door-Key": get_settings().planning_door_key or ""})
+        if response.status_code >= 400:
+            raise RuntimeError(f"Planning refused the request: {response.status_code} {response.text[:200]}")
+
+    def send_confirmation(self, notice: dict) -> None:
+        with self.session_factory() as db:
+            channel.publish(db, event_type="OrderConfirmed", publisher="SALES", entity_type="sales_order",
+                            entity_id=notice["order_number"], entity_version=1, correlation_id=notice["order_number"],
+                            payload=notice)
+            db.commit()
 
 
 def new_request_ref() -> str:
