@@ -113,7 +113,9 @@ dev_docs/
   DECISIONS.md         confirmed and open decisions
   architecture/        high-level architecture, system design, backend API, pub-sub, negotiation,
                        quantity accounting, demo
-  sales_agent/  planning_agent/  inventory_agent/  warehouse_agent/  hr_agent/  (purchasing_agent/ later)
+  sales_agent/  planning_agent/  inventory_agent/  warehouse_agent/  hr_agent/  purchasing_agent/
+  supplier/            Supplier Service and supplier chat (not an agent)
+  PROJECT_STATUS.md    what is actually built and tested
   *.png                diagrams drawn by the developer
 ```
 
@@ -121,6 +123,13 @@ Source of truth order: current code → current `dev_docs/` → diagrams → res
 A documented or drawn component is not automatically implemented. When code and docs disagree, inspect both,
 keep working behavior, and report the difference. Never silently pick a resolution.
 Do not use web search for project facts; use it only for explicitly requested research.
+
+## Purchasing Agent (built standalone)
+
+- Built from scratch as an independently runnable, tested agent (`backend/app/purchasing_agent/`, with
+  `supplier_service/` and the shared `negotiation_engine/`). Spec and tickets: `.scratch/purchasing-agent/`.
+- Unfinished agents are replaced by test inputs/mocks. Do not claim real multi-agent integration until it exists.
+- Rules: `dev_docs/purchasing_agent/`; price use in selection: `dev_docs/adr/ADR-002-price-in-supplier-selection.md`.
 
 ## Technology (confirmed)
 

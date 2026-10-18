@@ -1,6 +1,7 @@
 # Backend API Design
 
-**Status:** APPROVED by the developer (2026-10-17). Nothing new here is implemented.
+**Status:** APPROVED by the developer (2026-10-17). Not built yet, except the standalone `/purchasing` routes (§ Purchasing).
+Today the shared error handlers (`app/core/errors.py`) return the C5 error body `{"error": {code, message, details}}`.
 **Related:** each agent's note 3 (doors), `system_design.md` (runner, security), `pubsub_event_channel.md`,
 `negotiation.md` §10 (A2A), `../sales_agent/3_sales_agent_backend.md`.
 
@@ -14,10 +15,10 @@ mean; this doc makes them consistent.
 
 | ID | Decision |
 | --- | --- |
-| API-1 | **New error format:** RFC 9457 Problem Details (`application/problem+json`) with our fixed error codes as an extension (§4). Replaces the current `{"error": {...}}` body everywhere, including the Sales Agent, during integration. |
+| API-1 | **New error format (future target, not built):** RFC 9457 Problem Details (`application/problem+json`) with our fixed error codes as an extension (§4). Replaces the current `{"error": {...}}` body everywhere, including the Sales Agent, during integration. |
 | API-2 | The frontend sees changes by **polling** with a cursor (§6). |
 | API-3 | Views spanning several agents come from a **read-only observer API** that decides nothing (§7). |
-| API-4 | Old routes (`/orders`, `/plans`, `/negotiations`, `/agents`, `/supplier-interface`, `/simulation/reset`, old `/a2a/*` handlers) keep running until the Phase 2 review, then are removed with the old agents (§9). |
+| API-4 | Old routes (`/orders`, `/plans`, `/negotiations`, `/agents`, `/simulation/reset`, old `/a2a/*` handlers) keep running until the Phase 2 review, then are removed with the old agents (§9). |
 
 ## 3. Conventions
 
@@ -112,7 +113,8 @@ Meaning of each door: the agent's note 3. Key column: **K** = `X-Door-Key` requi
 
 ### Purchasing
 
-Later (Purchasing doc).
+Later (Purchasing doc). The standalone Purchasing Agent (branch `purchasing-agent`) already serves `/purchasing/...`
+routes, listed in `backend/app/purchasing_agent/README.md`; they use the current C5 error body, not RFC 9457 (API-1).
 
 ### A2A (negotiation, NG-1)
 
@@ -163,9 +165,9 @@ Next.js dev server. No real personal data.
 | --- | --- |
 | `/orders`, `/orders/overview`, `/orders/items/catalog` | Sales inquiries/orders + `/observer/orders` |
 | `/plans/...` incl. approve/reject attempts | Planning doors + NG-4 execution policy (no human approval per plan) |
-| `/negotiations`, `.../messages`, `.../supplier-responses` | A2A doors; Purchasing doc for supplier responses |
+| `/negotiations`, `.../messages` | A2A doors (`.../supplier-responses` removed 2026-10-18) |
 | `/agents/...` | Agents' own doors and `/observer` |
-| `/supplier-interface/...` | Purchasing doc |
+| `/supplier-interface/...` | Removed 2026-10-18; the supplier chat is the Purchasing test channel |
 | `/simulation/reset` | `demo.md` |
 
 They stay until the Phase 2 review, then are removed with the old agents, services and tables.

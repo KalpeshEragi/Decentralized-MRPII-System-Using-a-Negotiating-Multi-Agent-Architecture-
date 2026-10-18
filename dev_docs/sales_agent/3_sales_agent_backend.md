@@ -1,6 +1,6 @@
 # Sales Agent: Backend Design
 
-**Status:** design notes, decisions confirmed by the developer (2026-10-14). Nothing here is implemented.
+**Status:** design notes, decisions confirmed by the developer (2026-10-14). Implemented in `backend/app/sales_agent/` (see its `README.md`; Planning is still a fake connector).
 **Assumed stack:** FastAPI backend, PostgreSQL on Neon (as in the existing project).
 **Related notes:** `1_sales_agent_high_level_architecture.md`, `2_sales_agent_functions.md`, `4_sales_agent_database.md`.
 

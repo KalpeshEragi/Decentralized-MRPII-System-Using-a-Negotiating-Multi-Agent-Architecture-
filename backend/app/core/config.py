@@ -1,8 +1,10 @@
 """Application settings, read from environment variables or the repository-root `.env` file."""
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -33,6 +35,14 @@ class Settings(BaseSettings):
     planning_door_key: str | None = None
     # How Sales reaches Planning: "fake" (the built-in FakePlanning) or "real" (Planning door 1 over HTTP).
     planning_connector: str = "fake"
+    # Purchasing Agent working values (dev_docs/purchasing_agent/purchasing_agent_architecture.md). The selection date
+    # is today's date in this timezone.
+    purchasing_timezone: str = "Asia/Kolkata"
+    purchasing_response_deadline_hours: int = Field(default=24, ge=1)
+    purchasing_max_rounds: int = Field(default=3, ge=1)
+    purchasing_max_clarifications: int = Field(default=2, ge=0)  # per pending offer; clarifications are not rounds
+    # A Cost-Saving Split must save at least this fraction against the best priced single supplier (0.10 = 10%).
+    purchasing_cost_saving_split_threshold: Decimal = Field(default=Decimal("0.10"), ge=0, lt=1)
 
 
 @lru_cache

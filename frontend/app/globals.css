@@ -104,7 +104,6 @@ tr.highlight td { background: var(--warn-soft); }
 .who { font-weight: 600; font-size: 12px; }
 .terms { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .terms span b { font-weight: 600; }
-.supplier-form { margin-top: 12px; padding: 12px; border: 1px dashed var(--warn); border-radius: 8px; background: #fffaf3; display: grid; gap: 8px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
 .banner { border-radius: var(--radius); padding: 16px 18px; display: flex; gap: 14px; align-items: center; }

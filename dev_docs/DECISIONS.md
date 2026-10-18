@@ -16,8 +16,8 @@ Claude must not silently make or change a decision listed here. Record each new 
 | Deterministic truth | BOM, MPS, MRP, quantities, reservations, capacity and constraint checks are deterministic code. |
 | LLM role | Reasoning, negotiation proposals, coordination, short rationale. Output is validated before it changes anything. LLM failure → the agent's own deterministic policy decides. |
 | Negotiation | Multi-factor, cooperative; goal is a mutually feasible result, not a central winner. |
-| Price/cost | Out of scope until the developer decides otherwise (to be revisited with the Purchasing design). |
-| Suppliers | Simulated data/adapters, not an agent. |
+| Price/cost | Price is used **only in Purchasing supplier selection** (Purchasing Contract unit price, Total Purchasing Cost); never negotiated, never in offer terms or the supplier chat; Not Registered is never zero. Elsewhere still out of scope. See `adr/ADR-002-price-in-supplier-selection.md` (accepted 2026-10-17). |
+| Suppliers | Simulated, not an agent. Built: Supplier Service (read-only data) + supplier-facing test chat. |
 | Priority scale | Integer 1–5, 1 = highest. |
 | Dates | Planning works in whole days. |
 | Git | `master` is the integration branch; short-lived branches merged by PR; Claude never commits/pushes unless asked. |
@@ -27,7 +27,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 
 | Topic | Decision |
 | --- | --- |
-| Agents | Six logical agents: Sales, Planning, Inventory, Purchasing, Warehouse, HR. No others. |
+| Agents | Final roster: the six agents of `adr/ADR-001.md` §2: Sales, Planning (Production Planning), Inventory, Purchasing, Warehouse, HR. **No separate Production agent** (decided 2026-10-18, closes O-9); production orders and scheduling belong to Planning (RD-3). |
 | Communication | Publish–subscribe for shared events + private negotiation among relevant agents. Only agreed outcomes are published. |
 | Routing | Planning owns the MPS/plan but is not the mandatory messenger for all communication. |
 | Data ownership | Each agent owns its data; others read authorized data only. |
@@ -45,7 +45,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 | --- | --- |
 | HA-1 | One backend program, six agent modules; agents talk only through shared infrastructure. |
 | HA-2 | One database, one schema per agent, shared reference schema; cross-agent reads via read functions. |
-| HA-3 | Planning starts procurement (replaces the old "Inventory starts" design). |
+| HA-3 | Planning starts procurement (replaces the old "Inventory starts" design). Today the standalone Purchasing Agent receives Procurement Requests through its own API from a test requester (`requested_by`); Planning becomes the requester at integration. |
 | HA-4 | Negotiation partners are dynamic and rule-governed: an agent negotiates only when a fact change breaks its own commitment, it cannot fix it alone, and the fix needs a resource owned by another agent (ownership map). |
 | HA-5 | The problem-holder starts, the owner responds; one two-party session per owner, linked by a case id. |
 | HA-6 | Follow-up negotiation depth limit 3 (starting value), then human escalation. |
@@ -65,10 +65,10 @@ Claude must not silently make or change a decision listed here. Record each new 
 
 | ID | Decision |
 | --- | --- |
-| NG-1 | Keep A2A over HTTP as the agent interface; add a DB outbox (sending) and inbox status (receiving) with retries. Separate from events. |
-| NG-2 | Offers are non-binding; the owner places an expiring hold on agreement. |
+| NG-1 | Agent-to-agent (future integration): A2A over HTTP with a DB outbox/inbox and retries, separate from events. **Built today (Purchasing ↔ supplier only):** a DB-backed Negotiation Engine (`negotiation_engine` schema) holding sessions, participants, messages, rounds and response deadlines; no business decisions. |
+| NG-2 | Offers are non-binding. Future integration: the owner places an expiring hold on agreement. **Built (Purchasing):** each Leg holds supplier quantity while PENDING/AGREED/COMMITTED (counted in effective availability); FAILED/ABORTED releases it; holds don't expire by time, but an overdue Leg times out (FAILED) when next checked. |
 | NG-3 | Owner queue: dependencies ready → smallest deadline slack → aging → FIFO. Urgency computed by the owner from trusted data. |
-| NG-4 | The starter sends COMMIT after a deterministic execution policy passes; the owner re-checks and commits atomically; defined exceptions go to a human. |
+| NG-4 | Future integration: the starter sends COMMIT after a deterministic execution policy passes; the owner re-checks and commits atomically; defined exceptions go to a human. **Built (Purchasing):** a human approves (all Legs COMMITTED in one transaction) or rejects a proposed Procurement Agreement through the Purchasing API. |
 | NG-5 | One open negotiation per need and resource; no parallel alternative holds. |
 | NG-6 | Fixed reason-code list for REJECT and COUNTER_OFFER (`architecture/negotiation.md` §5.1); Purchasing may add its own. |
 
@@ -133,7 +133,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 
 | ID | Decision |
 | --- | --- |
-| WH-1 | Purchasing negotiates a receiving slot + material space with Warehouse before committing a supplier date. |
+| WH-1 | Future integration: Purchasing negotiates a receiving slot + material space with Warehouse before committing a supplier date. **Not built:** Purchasing has no Warehouse step yet. |
 | WH-2 | Two storage zones by item type: MATERIALS and FINISHED_GOODS; space per piece from `core.items.space_per_unit`. |
 | WH-3 | Receiving and shipping capacity per day are configured numbers; Warehouse does not use HR workers. |
 | WH-4 | Warehouse ships on the committed delivery date when the order's finished goods are stored and reserved. |
@@ -175,7 +175,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 
 | ID | Decision |
 | --- | --- |
-| API-1 | New error format: RFC 9457 Problem Details with our fixed codes as `code`, field problems as `errors`, plus `correlation_id`; replaces the old body everywhere (incl. Sales) during integration. |
+| API-1 | Future target: RFC 9457 Problem Details with our fixed codes as `code`, field problems as `errors`, plus `correlation_id`; replaces the old body everywhere (incl. Sales) during integration. **Today:** Sales and Purchasing return the C5 body `{"error": {code, message, details}}`. |
 | API-2 | The frontend sees changes by cursor polling. |
 | API-3 | Cross-agent views come from a read-only observer API that decides and writes nothing. |
 | API-4 | Old routes keep running until the Phase 2 review, then are removed with the old agents. |
@@ -198,7 +198,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 | --- | --- |
 | IMP-1 | Implementation in 8 steps (S1 end to end at step 5); the separate code-review phase is folded into the steps: each step reviews, reuses or retires the old code it replaces. |
 | IMP-2 | Deterministic first: owners use template wording and Planning the fixed ranking until S1 works; then the AI steps are switched on. |
-| IMP-3 | Purchasing is designed and built by another contributor; until then a FAKE Purchasing stub follows the negotiation contract for supply requests. |
+| IMP-3 | Purchasing is designed and built by another contributor. Status 2026-10-18: built standalone on branch `purchasing-agent` (`purchasing_agent/`); integration with the negotiation contract is future work. |
 | IMP-4 | About 14 high-value tests in total. After each step: tests pass → small commits → `master` fast-forwarded locally; the developer pushes. |
 
 ## Open
@@ -207,4 +207,5 @@ Claude must not silently make or change a decision listed here. Record each new 
 | --- | --- | --- |
 | O-3 | Execution policy details per agent | Resolved 2026-10-17: starter policy in `negotiation.md` §8 (Planning); owners' commit re-checks in each agent's note 2. |
 | O-7 | Reuse of existing code | Old Planning/Inventory/Purchasing code and the old human-approval workflow are still in `backend/`. Review one agent at a time (roadmap Phase 2). |
-| O-8 | Purchasing design incl. price/cost | By another contributor (IMP-3). |
+| O-8 | Purchasing design incl. price/cost | Resolved 2026-10-17: `adr/ADR-002-price-in-supplier-selection.md`; design in `purchasing_agent/`. |
+| O-9 | Agent roster: separate Production agent? | Resolved 2026-10-18 (developer): no separate Production agent; the roster is the six agents of `adr/ADR-001.md` §2. Legacy `production` items (schema section in `OVERALL_DATABASE_SCHEMA.md` §6, empty `app/models/production.py`) are legacy only. |

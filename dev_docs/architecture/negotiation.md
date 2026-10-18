@@ -1,6 +1,10 @@
 # Private Negotiation
 
-**Status:** APPROVED by the developer (2026-10-17). Nothing new here is implemented.
+**Status:** APPROVED by the developer (2026-10-17). The agent-to-agent design below is **future integration**, not built.
+**Built today (Purchasing ↔ supplier only, branch `purchasing-agent`):** a DB-backed Negotiation Engine
+(`backend/app/negotiation_engine/`) with sessions, rounds (max 3) and lazily checked response deadlines; Leg holds
+counted in Purchasing's effective availability and released by Leg status; a human approval commits. No A2A, no
+expiring owner holds, no starter COMMIT, no Warehouse step. Details: `../purchasing_agent/purchasing_agent_architecture.md` §7.
 **Related:** `high_level_architecture.md` §6 (who negotiates with whom), `pubsub_event_channel.md` (events stay
 separate), `quantity_accounting.md` (how holds and commitments change numbers), `../DECISIONS.md`.
 
@@ -158,10 +162,10 @@ starter replans and releases what it no longer needs through `PlanRevised` (comp
 | Part | State |
 | --- | --- |
 | A2A SDK | Official `a2a-sdk==1.2.0`, JSON-RPC binding, method `SendMessage`, protocol version 1.0 |
-| Endpoints | `/a2a/inventory`, `/a2a/purchasing`, `/a2a/supplier-interface`, in the same FastAPI app (`app/api/a2a.py`) |
+| Endpoints | `/a2a/inventory`, `/a2a/purchasing`, in the same FastAPI app (`app/api/a2a.py`); `/a2a/supplier-interface` removed 2026-10-18 |
 | Agent cards | One per endpoint at `<path>/.well-known/agent-card.json` |
 | Payload | The negotiation envelope as one A2A data part; the acknowledgement comes back as one data part |
-| Client | `app/core/a2a_client.py` `send()`; used by `agents/base.py` and `supplier_interface_service.py` |
+| Client | `app/core/a2a_client.py` `send()`; used by `agents/base.py` |
 | Validation and storage | `negotiation/messages.py` + `session.py`; `negotiation_service.submit_message` saves messages (`message_id` unique) |
 
 **Does it follow A2A?** Yes, for a simple message exchange: official SDK, agent cards, JSON-RPC `SendMessage`, data

@@ -28,6 +28,8 @@ This is a plan, not a record of what is built. Work only on the current step.
 11. [x] `architecture/demo.md`
 12. [ ] `purchasing_agent/` — by another contributor; must follow `negotiation.md` (§4, §5, §5.1), WH-1 and the event
     catalogue. Until then a FAKE Purchasing stub answers supply requests (IMP-3).
+    Status 2026-10-18: design docs written and the agent built standalone (branch `purchasing-agent`); alignment
+    with `negotiation.md`, WH-1 and the event catalogue is future integration.
 
 ## Implementation steps (current: step 5)
 

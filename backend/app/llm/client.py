@@ -32,8 +32,9 @@ class OllamaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
-        # Normal negotiation calls use fast/no-reasoning mode (DECISIONS.md). How Ollama honours this for
-        # qwen3.5:4b on the OpenAI-compatible endpoint is verified in the Phase 2 spike (D13); set None to omit.
+        # Normal negotiation calls use fast/no-reasoning mode (DECISIONS.md). On Ollama's OpenAI-compatible endpoint
+        # "none" turns qwen3.5:4b's thinking off, like `think: false` on its native API (verified 2026-10-18,
+        # Ollama 0.40.6: no reasoning text, ~2.7 s instead of ~23 s on a short prompt); set None to omit.
         self.reasoning_effort = reasoning_effort
         self.temperature = temperature
         self.timeout = timeout

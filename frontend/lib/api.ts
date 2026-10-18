@@ -109,8 +109,6 @@ export const api = {
 
   reset: () => act<{ order_id: string | null }>("/simulation/reset?include_order=false"),
   runPlanning: () => act<{ new_orders: string[]; plans: { order_id: string; order_number: string; plan_status: string }[] }>("/agents/planning/run"),
-  supplierResponse: (negotiationId: string, body: { round_number: number; response_type: string; quantity?: number; delivery_date?: string; message?: string }) =>
-    act<Negotiation>(`/supplier-interface/negotiations/${negotiationId}/responses`, body),
   approve: (orderId: string, attempt: number) => act<unknown>(`/plans/${orderId}/attempts/${attempt}/approve`),
   reject: (orderId: string, attempt: number, reason: string) => act<unknown>(`/plans/${orderId}/attempts/${attempt}/reject`, { reason }),
 };

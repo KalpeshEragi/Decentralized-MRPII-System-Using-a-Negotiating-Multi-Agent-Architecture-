@@ -6,3 +6,17 @@ env/
 venv/
 .pytest_cache/
 .env
+
+# Instructions and Skills
+.agents/
+.claude/
+dev_docs/agents
+
+# Operational setup for skills
+docs/agents/
+
+# Rough Documents
+answers*.md
+
+# Specs
+.scratch/

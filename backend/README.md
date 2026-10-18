@@ -12,7 +12,10 @@ channel, negotiation layer, work runner, simulator) and the pure MRPII calculati
 | `app/simulation/` | Simulated clock and factory settings (more in step 7). |
 | `app/observability/` | AI-call log table. |
 | `app/models/` | Shared reference data (`core`: items, BOM, routings). |
-| `app/sales_agent/`, `app/planning_agent/`, `app/inventory_agent/`, `app/hr_agent/`, `app/warehouse_agent/` | The agents built so far (Purchasing: another contributor). |
+| `app/sales_agent/`, `app/planning_agent/`, `app/inventory_agent/`, `app/hr_agent/`, `app/warehouse_agent/` | The agents on the shared platform (events, negotiation v2, work runner). |
+| `app/purchasing_agent/` | Purchasing Agent (another contributor), standalone for now: schema `purchasing_agent`, migrations `009`, `010` (its `README.md`, `dev_docs/purchasing_agent/`). |
+| `app/supplier_service/` | Simulated supplier data, not an agent (schema `supplier_service`, `dev_docs/supplier/`). |
+| `app/negotiation_engine/` | Purchasing's supplier-negotiation state (schema `negotiation_engine`); separate from `app/negotiation/` (agent-to-agent negotiation). |
 | `app/llm/` | Ollama client and structured-output parsing. |
 | `alembic/` | Migrations (see its README). |
 | `tests/` | See its README. |

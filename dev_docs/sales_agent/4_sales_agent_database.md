@@ -1,6 +1,6 @@
 # Sales Agent: Database Design (lean version)
 
-**Status:** design notes, decisions confirmed by the developer (2026-10-14). Nothing here is created or migrated.
+**Status:** design notes, decisions confirmed by the developer (2026-10-14). Implemented: schema `sales_agent`, migration `003` (see `backend/app/sales_agent/README.md`).
 **Database:** PostgreSQL on Neon, as in the existing project (`DATABASE_URL`; a separate test database via `TEST_DATABASE_URL`).
 **Schema:** a separate schema `sales_agent` (decision D4.8). The existing `sales` schema already has `customers` and `customer_orders`; at integration, map this design's `customers` and `orders` to those.
 **Related notes:** `1_sales_agent_high_level_architecture.md`, `2_sales_agent_functions.md`, `3_sales_agent_backend.md`.

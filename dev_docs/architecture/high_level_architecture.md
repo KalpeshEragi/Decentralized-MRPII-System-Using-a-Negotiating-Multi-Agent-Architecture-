@@ -1,6 +1,7 @@
 # High-Level Architecture
 
-**Status:** APPROVED by the developer (2026-10-17). Nothing new here is implemented.
+**Status:** APPROVED by the developer (2026-10-17). Implemented so far: Sales Agent; Purchasing Agent standalone with the
+Supplier Service and Negotiation Engine (branch `purchasing-agent`, see `../PROJECT_STATUS.md`). The rest is not built.
 **Related:** `pubsub_event_channel.md` (event details), `negotiation.md` (protocol details), `quantity_accounting.md`,
 the agent folders, `../DECISIONS.md`.
 
@@ -21,7 +22,8 @@ The database and the simulator represent the factory; there is no real factory, 
 | Warehouse | Receiving capacity per day, storage space, physical movement, issue to production, finished goods, shipment hand-off | Delivery dates (Purchasing), finished-goods dates (Planning); no HR workers (WH-3) |
 | HR | Workers, skills, shifts, absences, workforce commitments (hours per day) | — |
 
-Suppliers are **simulated adapters** used only by Purchasing. There is no Supplier Agent.
+Suppliers are **simulated** and used only by Purchasing. There is no Supplier Agent. Built: the Supplier Service
+(read-only supplier data) and a supplier-facing test chat.
 
 ### Resource ownership map (used to find negotiation partners, §6)
 
@@ -57,9 +59,10 @@ doors for the demo and the team.
 
 ## 4. Data (decided)
 
-One Neon PostgreSQL database. Each agent has its own schema: `sales_agent`, `planning`, `inventory`, `purchasing`,
+One Neon PostgreSQL database. Each agent has its own schema: `sales_agent`, `planning`, `inventory`, `purchasing_agent`,
 `warehouse`, `hr`. Shared reference data (products, BOM) sits in one shared schema, read by all.
-Infrastructure has its own schemas (events, negotiation, simulation, audit).
+Infrastructure has its own schemas (events, `negotiation_engine` (built), simulation, audit); supplier data is in
+`supplier_service` (built).
 
 - An agent writes only its own schema.
 - Others read through that agent's read functions, never its tables.
@@ -133,7 +136,7 @@ unless a later need appears.
 
 1. Customer ↔ Sales: details collected and validated. Sales → Planning: feasibility request.
 2. Planning runs MPS/BOM/MRP/capacity/schedule and checks resources owned by others, negotiating where needed
-   (stock with Inventory; **procurement with Purchasing — Planning starts procurement**; space with Warehouse;
+   (stock with Inventory; **procurement with Purchasing — Planning starts procurement (a Procurement Request, HA-3)**; space with Warehouse;
    workers with HR). Tentative holds may be used and may expire.
 3. Planning → Sales: feasible options, or "nothing feasible". Sales presents only these.
 4. Customer accepts → `OrderConfirmed`. Planning re-validates and owners commit their resources →
@@ -147,7 +150,7 @@ unless a later need appears.
 | --- | --- | --- |
 | HA-1 | One backend program, six agent modules, communication only via shared infrastructure | Decided 2026-10-16 |
 | HA-2 | One database, one schema per agent, shared reference schema, cross-agent reads via read functions | Decided 2026-10-16 |
-| HA-3 | Planning starts procurement (replaces the old "Inventory starts" design; existing code must change in Phase 2) | Decided 2026-10-16 |
+| HA-3 | Planning starts procurement (replaces the old "Inventory starts" design). Today the standalone Purchasing Agent receives Procurement Requests through its own API from a test requester (`requested_by`); Planning becomes the requester at integration. | Decided 2026-10-16; Purchasing note 2026-10-18 |
 | HA-4 | Dynamic, rule-governed negotiation partners (§6) instead of fixed pairs | Decided 2026-10-17 |
 | HA-5 | Problem-holder starts, owner responds; one two-party session per owner, linked by case id | Decided 2026-10-17 |
 | HA-6 | Follow-up depth limit 3, then human escalation | Decided 2026-10-17 (starting value) |

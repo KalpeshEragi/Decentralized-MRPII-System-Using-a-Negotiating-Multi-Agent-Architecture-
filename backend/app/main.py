@@ -11,6 +11,7 @@ from app.core.workers import start_workers, stop_workers
 from app.hr_agent import api as hr
 from app.inventory_agent import api as inventory
 from app.planning_agent import api as planning
+from app.purchasing_agent import api as purchasing_agent
 from app.negotiation import a2a_endpoints as negotiation_endpoints
 from app.sales_agent import api as sales_agent
 from app.simulation import api as simulation
@@ -43,6 +44,7 @@ app.include_router(simulation.router)
 app.include_router(sales_agent.router)
 app.include_router(planning.router)
 app.include_router(inventory.router)
+app.include_router(purchasing_agent.router)
 app.include_router(hr.router)
 app.include_router(warehouse.router)
 negotiation_endpoints.install(app)  # A2A endpoints, store and acknowledge (NG-1)
