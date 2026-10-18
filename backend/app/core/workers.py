@@ -12,9 +12,12 @@ from app.hr_agent import manager as hr
 from app.inventory_agent import manager as inventory
 from app.negotiation import layer as negotiation
 from app.planning_agent import manager as planning
+from app.purchasing_agent import a2a as purchasing
+from app.simulation import suppliers as simulated_suppliers
 from app.warehouse_agent import manager as warehouse
 
-AGENTS = (planning, inventory, hr, warehouse)  # each registers its inbox and event subscriptions
+# each registers its inbox, queues and event subscriptions; simulated suppliers are not an agent (PI-1)
+AGENTS = (planning, inventory, hr, warehouse, purchasing, simulated_suppliers)
 
 runner = WorkRunner(session_factory=new_session)
 

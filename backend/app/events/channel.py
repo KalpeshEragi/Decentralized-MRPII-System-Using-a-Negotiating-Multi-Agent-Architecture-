@@ -49,7 +49,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "ShipmentDispatched": (WAREHOUSE, (SALES, INVENTORY, PLANNING)),
     "WorkforceCommitted": (HR, (PLANNING,)),
     "WorkforceCapacityChanged": (HR, (PLANNING,)),
-    "SimulatedDayStarted": (SIMULATOR_CLOCK, (PLANNING, INVENTORY, SALES, WAREHOUSE, HR)),
+    "SimulatedDayStarted": (SIMULATOR_CLOCK, (PLANNING, INVENTORY, SALES, WAREHOUSE, HR, PURCHASING)),
 }
 
 Handler = Callable[[Session, Event], str | None]  # returns DONE (or None) or IGNORED_STALE

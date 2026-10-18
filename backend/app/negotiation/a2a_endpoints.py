@@ -26,7 +26,7 @@ from app.core.database import new_session
 from app.negotiation import layer
 from app.negotiation.transport import path_for
 
-LIVE_AGENTS = ("PLANNING", "INVENTORY", "WAREHOUSE", "HR")  # Purchasing: with the contributor's agent
+LIVE_AGENTS = ("PLANNING", "INVENTORY", "WAREHOUSE", "HR", "PURCHASING")  # Purchasing through its adapter (PI-3)
 
 _session_factory: Callable[[], Session] = new_session
 
