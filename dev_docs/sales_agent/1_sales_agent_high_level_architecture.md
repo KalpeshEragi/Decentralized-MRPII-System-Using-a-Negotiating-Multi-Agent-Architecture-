@@ -1,6 +1,6 @@
 # Sales Agent: High-Level Architecture (System Boundary)
 
-**Status:** design notes, decisions confirmed by the developer (2026-10-14). Nothing here is implemented.
+**Status:** design notes, decisions confirmed by the developer (2026-10-14). Implemented in `backend/app/sales_agent/` (see its `README.md`; Planning is still a fake connector).
 **Scope:** the Sales Agent only. Planning, Inventory and Purchasing are treated as an outside system; only a contact point to Planning is defined.
 **Related notes:** `2_sales_agent_functions.md`, `3_sales_agent_backend.md`, `4_sales_agent_database.md`.
 

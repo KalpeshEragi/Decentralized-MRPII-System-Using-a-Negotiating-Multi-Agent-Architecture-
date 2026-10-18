@@ -6,7 +6,7 @@ Build a decentralized MRPII system with autonomous domain agents that coordinate
 ## 2. Current Development Direction
 - Develop each agent independently, with clear interfaces and tests, then integrate the agents.
 - Only the **Sales Agent** is considered properly implemented today. Other agent code is legacy/provisional and must not be assumed compatible with the new architecture. Inspect it for reusable ideas, but do not preserve or depend on it without approval.
-- Target logical agents discussed: Sales, Production Planning, Inventory, Purchasing, Warehouse, and HR. Older documents may mention a separate Production agent; flag this discrepancy instead of silently deciding the roster.
+- Target logical agents discussed: Sales, Production Planning, Inventory, Purchasing, Warehouse, and HR. There is no separate Production agent (decided 2026-10-18); the roster is the six agents in `dev_docs/adr/ADR-001.md` §2.
 - Supplier is currently a **data/procurement service plus a supplier-facing interface**, not an autonomous MRPII agent.
 - Keep the frontend/API, agent logic, deterministic domain services, persistence, and communication adapters separated.
 
@@ -35,18 +35,18 @@ Build a decentralized MRPII system with autonomous domain agents that coordinate
 - **Shared LLM runtime:** the current direction is one shared Ollama Qwen 3.5B runtime for the logical agents, rather than a separate model copy per agent. Measure load and latency before introducing a custom AI-inference queue.
 - **Open decisions stay open:** do not assume a specific message broker, final event catalogue, A2A contract, priority algorithm, or recovery/consistency strategy until approved.
 
-### For more details : `docs/adr/ADR-001.md`
+### For more details : `dev_docs/adr/ADR-001.md`
 
 ## 6. Purchasing Agent — Current Build Scope
 Build Purchasing from scratch as an independently runnable and testable agent. Use test inputs/mocks for unfinished agents; do not claim real multi-agent integration until it exists.
 
-### For more details: `docs/agent_architectures/purchasing_agent_architecture`
+### For more details: `dev_docs/agent_architectures/purchasing_agent_architecture`
 
 ## 7. Source of Truth and Project Docs
 Before non-trivial work, inspect relevant files, especially:
-- Follow `docs/agents/issue-tracker.md`, `docs/agents/triage-labels.md`, and `docs/agents/domain.md` when present.
-- `docs/` system specification, scenarios, database/schema relations, and agent architecture docs if present.
-- `docs/adr/`, `docs/contracts/`, and root `GLOSSARY.md`.
+- Follow `dev_docs/agents/issue-tracker.md`, `dev_docs/agents/triage-labels.md`, and `dev_docs/agents/domain.md` when present.
+- `dev_docs/` system specification, scenarios, database/schema relations, and agent architecture docs if present.
+- `dev_docs/adr/`, and root `GLOSSARY.md`.
 - `.scratch/<feature>/` specs and issue-tracker notes where applicable.
 
 Prefer the latest approved decision/spec and current repository evidence. A diagram or proposed spec is not proof of implementation. If code, docs, or specs conflict, report the conflict and ask or propose a resolution; do not silently invent one. Do not use web search for project-specific truth unless explicitly requested.

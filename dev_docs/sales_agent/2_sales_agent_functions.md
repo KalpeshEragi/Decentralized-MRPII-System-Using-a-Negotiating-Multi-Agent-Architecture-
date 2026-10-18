@@ -1,6 +1,6 @@
 # Sales Agent: AI Agent Design (Role, Rules, Methods, Tools)
 
-**Status:** design notes, decisions confirmed by the developer (2026-10-14). Nothing here is implemented.
+**Status:** design notes, decisions confirmed by the developer (2026-10-14). Implemented in `backend/app/sales_agent/` (see its `README.md`; Planning is still a fake connector).
 **Related notes:** `1_sales_agent_high_level_architecture.md`, `3_sales_agent_backend.md`, `4_sales_agent_database.md`.
 
 ## 1. Role

@@ -1,6 +1,6 @@
 ## Overview
 
-The system uses a single PostgreSQL (Neon Serverless) database organized into logical schemas (confirmed by P0-03, `DECISIONS.md`).
+The system uses a single PostgreSQL (Neon Serverless) database organized into logical schemas.
 The database acts as the shared system of record, while autonomous agents make
 decisions using domain services/tools.
 
@@ -10,12 +10,14 @@ decisions using domain services/tools.
 - `sales` — Customers, customer orders, and customer ordered items
 - `inventory` — Warehouses, stock, and reservations
 - `planning` — MPS and MRP requirements
-- `purchasing` — Suppliers, supplier items, purchasing contracts and procurement
-- `production` — Machines, production orders, and schedules
+- `supplier_service` — Procurable items, suppliers and supplier items (Supplier Service master data)
+- `purchasing_agent` — Purchasing Contracts, Procurement Requests, requisitions (Legs) and Purchasing decision audit
+- `production` — Machines, production orders, and schedules (legacy design, not built; see §6)
 - `agent` — Agent definitions and internal agent state
-- `negotiation` — Multi-agent negotiation sessions, participants (agents), offers, agreements and messages
+- `negotiation_engine` — Negotiation sessions, participants (agents or suppliers) and messages
 - `simulation` — What-if scenarios and simulated disruptions (events)
 - `audit` — Agent decision history
+- Legacy, untouched and not used by the new Purchasing Agent / Negotiation Engine: `purchasing`, `negotiation`
 
 ---
 
@@ -211,76 +213,156 @@ Stores material requirements calculated from MRP.
 
 ---
 
-# 5. Purchasing Schema
+# 5. Supplier Service and Purchasing Agent Schemas
 
-## `purchasing.suppliers`
+> **Legacy:** the `purchasing` schema (`suppliers`, `supplier_items`, `purchase_requisitions`) was created by legacy migrations. It is left untouched and is **not** used by the new Purchasing Agent.
 
-Stores supplier information.
+Cross-schema references below are **logical references** (UUIDs without a database FK). The owning module validates on write that each reference points to an existing record, through the owning service's interface.
 
-| Column         | Type    | Constraint   | Description                  |
-| -------------- | ------- | ------------ | ---------------------------- |
-| `id`           | UUID    | PK           | Supplier ID                  |
-| `name`         | VARCHAR | NOT NULL     | Supplier name                |
-| `contact_info` | JSONB   |              | Supplier contact information |
-| `rating_data`  | JSONB   |              | Supplier evaluation data     |
-| `is_active`    | BOOLEAN | DEFAULT TRUE | Whether supplier is active   |
+## 5.1 `supplier_service` schema
 
----
+Owned by the **Supplier Service** (deterministic supplier master data). Purchasing reads it only through the Supplier Service interface and never writes to it.
 
-## `purchasing.supplier_items`
+### `supplier_service.items`
 
-Stores supplier-specific item information.
-
-| Column           | Type    | Constraint                     | Description            |
-| ---------------- | ------- | ------------------------------ | ---------------------- |
-| `id`             | UUID    | PK                             | Supplier item ID       |
-| `supplier_id`    | UUID    | FK → `purchasing.suppliers.id` | Supplier               |
-| `item_id`        | UUID    | FK → `core.items.id`           | Supplied item          |
-| `lead_time_days` | INTEGER | NOT NULL                       | Expected lead time     |
-| `min_order_qty`  | DECIMAL | NOT NULL                       | Minimum order quantity |
-| `available_qty`  | DECIMAL | NOT NULL                       | Available quantity     |
-
----
-
-## `purchasing.purchasing_contracts`
-
-Stores standing unit-price contracts for supplier-item pairs.
+The Supplier Service's catalogue of procurable items. In standalone mode an item is valid for Purchasing only if it exists here. It maps to `core.items` during integration; the legacy `core` schema is not written by this module.
 
 | Column | Type | Constraint | Description |
 |---|---|---|---|
-| `id` | UUID | PK | Purchasing contract ID |
-| `supplier_id` | UUID | FK → `purchasing.suppliers.id`, NOT NULL | Supplier covered by the contract |
-| `item_id` | UUID | FK → `core.items.id`, NOT NULL | Item covered by the contract |
-| `unit_price` | NUMERIC(12,2) | NOT NULL, CHECK (`unit_price` > 0) | Contract price per unit in INR |
-| `valid_from` | DATE | NOT NULL | Date from which the contract is valid |
-| `valid_until` | DATE | NULL allowed | Contract expiry date, if applicable |
+| `id` | UUID | PK | Item ID |
+| `sku` | VARCHAR | NOT NULL, UNIQUE | Stock keeping unit |
+| `name` | VARCHAR | NOT NULL | Item name |
+| `unit` | VARCHAR | NOT NULL | Unit of measurement |
+
+### `supplier_service.suppliers`
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | UUID | PK | Supplier ID |
+| `name` | VARCHAR | NOT NULL, UNIQUE | Supplier name (also the final ranking tie-breaker) |
+| `contact_info` | JSONB | | Supplier contact information |
+| `rating_data` | JSONB | | Supplier evaluation data (not used in ranking) |
+| `is_active` | BOOLEAN | NOT NULL, DEFAULT TRUE | Inactive suppliers are never selected |
+
+### `supplier_service.supplier_items`
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | UUID | PK | Supplier item ID |
+| `supplier_id` | UUID | FK → `supplier_service.suppliers.id`, NOT NULL | Supplier |
+| `item_id` | UUID | FK → `supplier_service.items.id`, NOT NULL | Supplied item |
+| `lead_time_days` | INTEGER | NOT NULL, CHECK ≥ 0 | Expected lead time |
+| `min_order_qty` | DECIMAL | NOT NULL, CHECK > 0 | Minimum order quantity (MOQ) |
+| `available_qty` | DECIMAL | NOT NULL, CHECK ≥ 0 | Available quantity |
+
+UNIQUE (`supplier_id`, `item_id`).
+
+## 5.2 `purchasing_agent` schema
+
+Owned by the **Purchasing Agent** (`backend/app/purchasing_agent/`, own declarative base, like Sales' `sales_agent`).
+
+### `purchasing_agent.purchasing_contracts`
+
+Standing unit-price contracts for supplier-item pairs.
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | UUID | PK | Purchasing Contract ID |
+| `supplier_id` | UUID | NOT NULL, logical ref → `supplier_service.suppliers.id` | Supplier covered |
+| `item_id` | UUID | NOT NULL, logical ref → `supplier_service.items.id` | Item covered |
+| `unit_price` | NUMERIC(12,2) | NOT NULL, CHECK (`unit_price` > 0) | Price per unit in INR |
+| `valid_from` | DATE | NOT NULL | First valid date |
+| `valid_until` | DATE | NULL = open-ended, CHECK ≥ `valid_from` | Last valid date |
 | `is_active` | BOOLEAN | NOT NULL, DEFAULT TRUE | Whether the contract is active |
+| `created_at` | TIMESTAMPTZ | NOT NULL | Creation time |
 
-A supplier-item pair can have at most one contract. A price is usable only when the contract is active and within its validity dates. If no matching valid contract exists, the price is **Not Registered**; it must not be treated as zero or invented.
+Rules:
+- A pair may have several contracts over time (historical and future).
+- Creating or modifying an active contract whose validity overlaps another active contract for the same pair is **rejected** by the contract write service (per-pair lock), not by a database constraint, so bad seeded data stays testable.
+- A price is usable only when exactly one active contract covers the **selection date**. None → **Not Registered** (never zero, never estimated). More than one (data error) → the pair is **excluded from selection** with reason `contract_overlap`, shown in the options and audit; other suppliers are still evaluated.
 
----
+### `purchasing_agent.procurement_requests`
 
-## `purchasing.purchase_requisitions`
+One row per **Procurement Request**. It also holds the combined **Procurement Agreement** outcome.
 
-Stores procurement requirements generated by the planning process.
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | UUID | PK | Procurement Request ID (correlation ID for its Legs) |
+| `item_id` | UUID | NOT NULL, logical ref → `supplier_service.items.id` | Item to procure |
+| `shortage_quantity` | DECIMAL | NOT NULL, CHECK > 0 | Quantity to cover (whole units; 500.0 is accepted as 500, fractions are refused) |
+| `required_date` | DATE | NOT NULL | Requester's deadline (never changed by Purchasing) |
+| `priority` | INTEGER | NOT NULL | Request priority (ordering/urgency only, not supplier ranking) |
+| `requested_by` | VARCHAR | NOT NULL | Requester reference (test API now; the requesting agent is decided at integration) |
+| `request_ref` | VARCHAR | NOT NULL, UNIQUE | Requester's idempotency key; a repeat with the same item, quantity, date and priority returns the existing request; different data is refused (409 Conflict) |
+| `status` | VARCHAR | NOT NULL | See statuses below |
+| `split_type` | VARCHAR | NULL until selection | `SINGLE`, `NECESSARY_SPLIT`, `COST_SAVING_SPLIT` |
+| `cost_ranking_available` | BOOLEAN | NULL until selection | FALSE when the selection relied on a Not Registered supplier |
+| `constrained_quantity` | DECIMAL | NULL unless FAILED | Quantity that could have been covered |
+| `status_reason` | TEXT | | Reason for `FAILED` / `APPROVAL_REJECTED` |
+| `decided_at` | TIMESTAMPTZ | | Approval / rejection time |
+| `created_at` | TIMESTAMPTZ | NOT NULL | Creation time |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | Last update |
 
-| Column              | Type      | Constraint             | Description                |
-| ------------------- | --------- | ---------------------- | -------------------------- |
-| `id`                | UUID      | PK                     | Requisition ID             |
-| `item_id`           | UUID      | FK → `core.items.id`   | Required item              |
-| `quantity_required` | DECIMAL   | NOT NULL               | Required quantity          |
-| `required_by`       | TIMESTAMP | NOT NULL               | Required date              |
-| `priority`          | INTEGER   | NOT NULL               | Procurement priority       |
-| `status`            | VARCHAR   |                        | Requisition status         |
-| `created_by_agent`  | UUID      | FK → `agent.agents.id` | Agent creating requisition |
-| `created_at`        | TIMESTAMP |                    | Creation time              |
-| `supplier_id` | UUID | FK → `purchasing.suppliers.id`, NULL until selection | Selected supplier for this requisition |
-| `purchasing_contract_id` | UUID | FK → `purchasing.purchasing_contracts.id`, NULL allowed | Contract used for the selected supplier; NULL means no registered contract price |
-| `negotiation_id` | UUID | UNIQUE, FK → `negotiation.negotiation_sessions.id` | Negotiation session associated with this requisition |
+Statuses: `RECEIVED` → `NEGOTIATING` → `AGREEMENT_PROPOSED` → `COMMITTED` or `APPROVAL_REJECTED`. `FAILED` from `RECEIVED` (no feasible option) or `NEGOTIATING` (a Leg failed, or no valid allocation remains).
+
+### `purchasing_agent.purchase_requisitions`
+
+**Each row represents one Leg**: one supplier's part of a Procurement Request. A single-supplier procurement has exactly one row.
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | UUID | PK | Requisition (Leg) ID |
+| `procurement_request_id` | UUID | FK → `purchasing_agent.procurement_requests.id`, NOT NULL | Parent request |
+| `supplier_id` | UUID | NOT NULL, logical ref → `supplier_service.suppliers.id` | Selected supplier |
+| `purchasing_contract_id` | UUID | FK → `purchasing_agent.purchasing_contracts.id`, NULL = Not Registered | Contract used at selection |
+| `unit_price_at_selection` | NUMERIC(12,2) | NULL = Not Registered | Price snapshot used for the decision |
+| `allocated_quantity` | DECIMAL | NOT NULL | Current quantity Purchasing asks of this supplier (changes on reallocation) |
+| `quantity_cap` | DECIMAL | NULL | Supplier's counter-offered maximum for this procurement |
+| `agreed_quantity` | DECIMAL | NULL until AGREED | Leg Agreement quantity |
+| `agreed_delivery_date` | DATE | NULL until AGREED | Leg Agreement delivery date |
+| `negotiation_session_id` | UUID | UNIQUE, NOT NULL, logical ref → `negotiation_engine.negotiation_sessions.id` | Supplier negotiation for this Leg |
+| `status` | VARCHAR | NOT NULL | `PENDING`, `AGREED`, `FAILED`, `ABORTED`, `COMMITTED` |
+| `status_reason` | TEXT | | e.g. `round_limit_exceeded`, `supplier_rejected`, `timeout`, `unclear_response`, `no_longer_needed`, `split_failed`, `approval_rejected`, `manually_aborted` |
+| `created_at` | TIMESTAMPTZ | NOT NULL | Creation time |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | Last update |
+
+CHECKs (migration `004`): `allocated_quantity` > 0; `purchasing_contract_id` and `unit_price_at_selection` are both NULL (Not Registered) or both set.
+
+A Leg's status is Purchasing's business status, separate from the Engine session status.
+
+**Effective availability** of a supplier-item for a request = `supplier_service.supplier_items.available_qty` − quantity held by **other** requests' `PENDING`, `AGREED` and `COMMITTED` Legs for that supplier-item (`allocated_quantity` while PENDING, `agreed_quantity` once AGREED/COMMITTED), never below 0. `FAILED` and `ABORTED` Legs release their hold; overdue PENDING Legs are timed out first. Allocations for the same supplier-item are processed one at a time under a PostgreSQL transaction-scoped advisory lock (no lock is held during LLM calls), so two procurements never double-book a supplier.
+
+Committed Legs of a `COMMITTED` request are the scheduled receipts (one per Leg). An `AGREED` Leg that is not committed never counts as a scheduled receipt.
+
+### `purchasing_agent.decision_audit`
+
+Purchasing's own decision audit (same shape as `audit.decision_audit`, no cross-schema FK).
+
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | UUID | PK | Audit ID |
+| `procurement_request_id` | UUID | FK → `purchasing_agent.procurement_requests.id`, NULL allowed | Related request |
+| `decision_type` | VARCHAR | NOT NULL | e.g. `SUPPLIER_SELECTION`, `REALLOCATION`, `RESPONSE_VALIDATION`, `RESPONSE_DEADLINE`, `APPROVAL`, `MANUAL_ABORT` |
+| `context` | JSONB | NOT NULL | Options/combinations considered, prices or `Not Registered`, exclusions |
+| `decision` | JSONB | NOT NULL | Deterministic decision |
+| `reasoning_summary` | TEXT | NOT NULL | Deterministic rationale |
+| `llm_explanation` | TEXT | NULL | LLM explanation, stored as explanation, never as evidence |
+| `created_at` | TIMESTAMPTZ | NOT NULL | Decision time |
+
+```text
+supplier_service.suppliers ──< supplier_service.supplier_items
+        : (logical refs)
+purchasing_agent.purchasing_contracts
+        :
+purchasing_agent.procurement_requests ──< purchasing_agent.purchase_requisitions (Legs) .. negotiation_engine.negotiation_sessions
+        └──< purchasing_agent.decision_audit
+```
 
 ---
 
 # 6. Production Schema
+
+> **Legacy / not built:** no migration creates this schema (`app/models/production.py` is empty). There is no separate Production agent (decided 2026-10-18, `DECISIONS.md` O-9); production orders and scheduling belong to Planning (RD-3, `planning_agent/4_planning_agent_database.md` on `origin/master`).
 
 ## `production.machines`
 
@@ -377,128 +459,77 @@ The agent state stores **decision-making and negotiation state**. It should NOT 
 
 ---
 
-# 8. Negotiation Schema
+# 8. Negotiation Engine Schema
 
-## `negotiation.negotiation_sessions`
+> **Legacy:** the `negotiation` schema was created by legacy migrations. It is left untouched and is **not** used by the new Negotiation Engine.
 
-Stores negotiation sessions between agents.
+## `negotiation_engine` schema
 
-| Column               | Type      | Constraint             | Description           |
-| -------------------- | --------- | ---------------------- | --------------------- |
-| `id`                 | UUID      | PK                     | Negotiation ID        |
-| `negotiation_type`   | VARCHAR   |  NOT NULL              | Type of negotiation   |
-| `initiator_agent_id` | UUID      | FK → `agent.agents.id` | Initiating agent      |
-| `status`             | VARCHAR   | NOT NULL               | Negotiation status    |
-| `objective`          | JSONB     | NOT NULL               | Negotiation objective |
-| `started_at`         | TIMESTAMP | NOT NULL               | Start time            |
-| `deadline`           | TIMESTAMP | NOT NULL               | Negotiation deadline  |
-| `completed_at`       | TIMESTAMP | NULL until an end status | Completion time (P0-04) |
-| `parent_negotiation_id` | UUID | NULL allowed, FK → `negotiation.negotiation_sessions.id` | Parent negotiation when this session is a supplier leg in a multi-supplier procurement; NULL for a top-level session |
+Owned by the **Negotiation Engine** (`backend/app/negotiation_engine/`). It holds conversation and protocol state only (sessions, participants, messages, rounds, deadlines) and makes no business decisions. It currently hosts only Purchasing ↔ supplier sessions; agent-to-agent sessions come later via `session_type`.
 
-Session end statuses: `COMMITTED`, `REJECTED`, `ABORTED`, `EXPIRED`, `FAILED`. `FAILED` means no feasible agreement was reached within the round limit (3 supplier rounds); it is distinct from the others.
+### `negotiation_engine.negotiation_sessions`
 
----
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | UUID | PK | Session ID |
+| `session_type` | VARCHAR | NOT NULL | `PURCHASING_SUPPLIER` (only type now) |
+| `status` | VARCHAR | NOT NULL | Engine status (below) |
+| `status_reason` | TEXT | | e.g. `round_limit_exceeded`, `supplier_rejected`, `timeout`, `split_failed`, `approval_rejected` |
+| `correlation_id` | UUID | NOT NULL | Business correlation (Procurement Request ID) |
+| `objective` | JSONB | NOT NULL | What is negotiated (item, quantity, required date); never price |
+| `round_count` | INTEGER | NOT NULL, DEFAULT 0 | Rounds used; raised when Purchasing sends an offer or counter-offer (first offer = round 1) |
+| `max_rounds` | INTEGER | NOT NULL, DEFAULT 3 | Round limit; CHECK 0 ≤ `round_count` ≤ `max_rounds` |
+| `response_deadline` | TIMESTAMPTZ | NULL | Deadline for the pending response; moved by each agent message awaiting a reply; checked lazily on read/act (working default 24h) |
+| `started_at` | TIMESTAMPTZ | NOT NULL | Start time |
+| `completed_at` | TIMESTAMPTZ | NULL until an end status | Completion time |
 
-## `negotiation.negotiation_participants`
+Engine statuses (separate from Purchasing's Leg status):
+- `OPEN` — negotiation is ongoing.
+- `AGREED` — the supplier accepted the terms. `AGREED → OPEN` only when Purchasing explicitly reopens the Leg.
+- `REJECTED` — ended without agreement (supplier reject, or `round_limit_exceeded`).
+- `TIMED_OUT` — the response deadline passed.
+- `CANCELLED` — Purchasing cancelled the session (from `OPEN` or `AGREED`, e.g. a Leg ABORTED `split_failed`). Purchasing's `CANCEL` message is the only message accepted on an `AGREED` session.
 
-Stores agents participating in a negotiation.
+One round = one Purchasing offer/counter-offer + the supplier's response. Clarifications do not count as rounds.
 
-| Column           | Type      | Constraint                                 | Description         |
-| ---------------- | --------- | ------------------------------------------ | ------------------- |
-| `id`             | UUID      | PK                                         | Participant record  |
-| `negotiation_id` | UUID      | FK → `negotiation.negotiation_sessions.id` | Negotiation         |
-| `agent_id`       | UUID      | FK → `agent.agents.id`                     | Participating agent |
-| `role`           | VARCHAR   | NOT NULL                                   | Negotiation role    |
-| `joined_at`      | TIMESTAMP |   | Join time           |
+### `negotiation_engine.negotiation_participants`
 
----
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | UUID | PK | Participant record |
+| `session_id` | UUID | FK → `negotiation_engine.negotiation_sessions.id` | Session |
+| `participant_type` | VARCHAR | NOT NULL | `AGENT` or `SUPPLIER` |
+| `participant_ref` | VARCHAR | NOT NULL | Agent code or supplier ID; validated to exist on write (no FK) |
+| `role` | VARCHAR | NOT NULL | `INITIATOR` or `RESPONDENT` |
+| `joined_at` | TIMESTAMPTZ | NOT NULL | Join time |
 
-## `negotiation.negotiation_messages`
+UNIQUE (`session_id`, `participant_type`, `participant_ref`).
 
-Stores communication between agents.
+### `negotiation_engine.negotiation_messages`
 
-| Column              | Type      | Constraint                                 | Description        |
-| ------------------- | --------- | ------------------------------------------ | ------------------ |
-| `id`                | UUID      | PK                                         | Message ID         |
-| `negotiation_id`    | UUID      | FK → `negotiation.negotiation_sessions.id` | Negotiation        |
-| `message_id`        | UUID      | UNIQUE                                     | Message identifier |
-| `sender_agent_id`   | UUID      | FK → `agent.agents.id`                     | Sender             |
-| `receiver_agent_id` | UUID      | FK → `agent.agents.id`                     | Receiver           |
-| `message_type`      | VARCHAR   |                                            | Message type       |
-| `sequence_number`   | INTEGER   |                                            | Message sequence   |
-| `correlation_id`    | UUID      |                                            | Related message    |
-| `payload`           | JSONB     |                                            | Message content    |
-| `created_at`        | TIMESTAMP |                                            | Creation time      |
+Free-text chat messages plus the structured terms behind them. There is no separate offers table: offer terms are stored on the message.
 
-### Initial Message Types
+| Column | Type | Constraint | Description |
+|---|---|---|---|
+| `id` | UUID | PK | Row ID |
+| `session_id` | UUID | FK → `negotiation_engine.negotiation_sessions.id` | Session |
+| `message_id` | UUID | UNIQUE (across all sessions), NOT NULL | Sender-supplied ID; a duplicate in the same session is ignored, one already used in another session is refused (409) |
+| `sequence_number` | INTEGER | NOT NULL | Order within session; UNIQUE (`session_id`, `sequence_number`) |
+| `round_number` | INTEGER | NOT NULL | Round the message belongs to |
+| `sender_type` | VARCHAR | NOT NULL | `AGENT` or `SUPPLIER` |
+| `sender_ref` | VARCHAR | NOT NULL | Sender reference |
+| `message_type` | VARCHAR | NOT NULL | See below |
+| `text` | TEXT | NOT NULL | Chat text shown in the WhatsApp-like UI. An agent message awaiting a reply is stored with template text; the LLM wording may replace it later, only while it is still the session's latest message (terms never change) |
+| `terms` | JSONB | NULL | Structured terms: `quantity`, `delivery_date` (never price). A supplier COUNTER_OFFER read by the LLM may have one of them `null` (not stated; never invented) |
+| `interpretation_source` | VARCHAR | NULL | Supplier messages only: `LLM` or `FALLBACK_PARSER` |
+| `causation_id` | UUID | NULL | `message_id` this message responds to: a supplier reply → the offer or clarification it answers; Purchasing's messages caused by a reply (also on other Legs, e.g. a revised offer or a `split_failed` CANCEL) → that reply; a timeout `CONFIRMATION` → the unanswered offer; a `CANCEL` from abort or approval-reject → the Leg's latest message |
+| `created_at` | TIMESTAMPTZ | NOT NULL | Creation time |
 
-Message types and session statuses are separate (P0-05).
+Message types:
+- Purchasing: `OFFER`, `COUNTER_OFFER`, `CLARIFICATION_REQUEST`, `CANCEL`, `CONFIRMATION` (closes the negotiation from Purchasing's side after agreement or Leg failure and echoes its reading of the last reply; no round; added by migration `005`).
+- Supplier (interpreted from free text, then validated by Purchasing): `ACCEPT`, `COUNTER_OFFER`, `REJECT`, `UNCLEAR`.
 
-```text
-REQUEST
-OFFER
-COUNTER_OFFER
-ACCEPT
-REJECT
-AGREEMENT_PROPOSED
-COMMIT
-```
-
-Session statuses (`negotiation_sessions.status`):
-
-```text
-INITIATED
-NEGOTIATING
-AGREEMENT_PROPOSED
-COMMITTED
-REJECTED
-ABORTED
-EXPIRED
-FAILED
-```
-
----
-
-## `negotiation.negotiation_offers`
-
-Stores offers and counter-offers.
-
-| Column           | Type      | Constraint                                 | Description              |
-| ---------------- | --------- | ------------------------------------------ | ------------------------ |
-| `id`             | UUID      | PK                                         | Offer ID                 |
-| `negotiation_id` | UUID      | FK → `negotiation.negotiation_sessions.id` | Negotiation              |
-| `message_id`     | UUID      | FK → `negotiation.negotiation_messages.id` | Related message          |
-| `offer_number`   | INTEGER   | NOT NULL                                   | Offer sequence           |
-| `offer_type`     | VARCHAR   | NOT NULL                                   | Offer/counter-offer      |
-| `terms`          | JSONB     | NOT NULL                                      | Multi-factor offer terms |
-| `valid_until`    | TIMESTAMP | NULL allowed                                       | Offer validity; set from the round/session deadline if timeouts are adopted (P0-06, D9) |
-| `status`         | VARCHAR   |  NOT NULL                                           | Offer status             |
-| `created_at`     | TIMESTAMP |                                            | Creation time            |
-
-### Example Multi-Factor Offer
-
-```json
-{
-  "quantity": 80,
-  "delivery_date": "2026-10-05",
-  "priority": 1
-}
-```
-
----
-
-## `negotiation.negotiation_agreements`
-
-Stores finalized negotiation agreements.
-
-| Column           | Type      | Constraint                                 | Description                    |
-| ---------------- | --------- | ------------------------------------------ | ------------------------------ |
-| `id`             | UUID      | PK                                         | Agreement ID                   |
-| `negotiation_id` | UUID      | FK → `negotiation.negotiation_sessions.id` | Negotiation                    |
-| `agreed_terms`   | JSONB     | NOT NULL                                   | Final agreed terms             |
-| `validated`      | BOOLEAN   | DEFAULT FALSE                              | Agreement validation status    |
-| `committed`      | BOOLEAN   | DEFAULT FALSE                              | Whether agreement is committed |
-| `created_at`     | TIMESTAMP |                                            | Creation time                  |
+Purchasing's outbound terms are computed deterministically; the LLM writes only the `text` (predefined template on failure). For supplier messages, the LLM (or the fallback parser) extracts action and terms; Purchasing validates them and echoes its interpretation in its next message.
 
 ---
 
@@ -585,6 +616,8 @@ Stores structured records of agent decisions for traceability.
 | `created_at`        | TIMESTAMP |                        | Decision time              |
 
 > Store a concise structured rationale rather than hidden chain-of-thought.
+
+The Purchasing Agent writes to its own `purchasing_agent.decision_audit` instead (section 5.2), as Sales uses its own audit log.
 
 ---
 
