@@ -198,8 +198,21 @@ Claude must not silently make or change a decision listed here. Record each new 
 | --- | --- |
 | IMP-1 | Implementation in 8 steps (S1 end to end at step 5); the separate code-review phase is folded into the steps: each step reviews, reuses or retires the old code it replaces. |
 | IMP-2 | Deterministic first: owners use template wording and Planning the fixed ranking until S1 works; then the AI steps are switched on. |
-| IMP-3 | Purchasing is designed and built by another contributor. Status 2026-10-18: built standalone on branch `purchasing-agent` (`purchasing_agent/`); integration with the negotiation contract is future work. |
+| IMP-3 | Purchasing is designed and built by another contributor. Status 2026-10-18: built standalone, merged; connected to the negotiation contract in step 6 (PI-1 to PI-6) instead of a FAKE stub. |
 | IMP-4 | About 14 high-value tests in total. After each step: tests pass → small commits → `master` fast-forwarded locally; the developer pushes. |
+
+### Purchasing integration (2026-10-18, approved by the developer)
+
+The real Purchasing Agent (another contributor) is connected in step 6 instead of a FAKE stub; S2/S3 run on it.
+
+| ID | Decision |
+| --- | --- |
+| PI-1 | Suppliers answer automatically: a **simulated supplier** replies in Purchasing's strict chat format by seeded rules (accept on time; a later date for a delay scenario). The human supplier chat keeps working for manual tests. Continuous simulation is the default; manual input is supported, not required. |
+| PI-2 | Planning's COMMIT is the approval of a procurement (NG-4 execution policy), recorded as `decided_by = PLANNING`; the human approve/reject stays for manual tests. |
+| PI-3 | A thin adapter (`purchasing_agent/a2a.py`) gives Purchasing an inbox on the negotiation layer and calls Purchasing's own functions; it notices Purchasing's state changes by a hook after a supplier reply and a check at every simulated day start (no polling loop). Purchasing's own logic is not changed. |
+| PI-4 | Deliveries: Warehouse's daily routine receives committed deliveries that are due (from Purchasing's read data) and publishes `MaterialReceived`; Inventory raises stock. |
+| PI-5 | WH-1 (Purchasing negotiates a receiving slot with Warehouse before committing a supplier date) is deferred to step 8. |
+| PI-6 | Planning plans bought items: if a bought item is short, the earliest supplier date (Purchasing read data) decides feasibility, and the case gets a SUPPLY negotiation with Purchasing. Purchasing runs on the simulated clock; items map by SKU between `core.items` and `supplier_service.items`. |
 
 ## Open
 
