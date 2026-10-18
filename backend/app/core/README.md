@@ -13,7 +13,6 @@ Cross-cutting infrastructure used by the rest of the backend. No business logic.
 | `work_runner.py` | The shared work runner (system_design.md §4, SD-1): `QueueMixin` (standard queue shape), `enqueue`, `claim` (one item per `scope_key` at a time, in `seq` order, `FOR UPDATE SKIP LOCKED`), `run_one_short` (claim + handle + done in one transaction), `run_one_long` (lease; handler runs outside a transaction; takeover after expiry), retries with backoff 1/5/30/120 s then FAILED, `retry_failed`, and `WorkRunner` (background threads). Knows nothing about business. |
 | `workers.py` | Which queues the runner serves (`register_all`), `start_workers` / `stop_workers` (called by the FastAPI lifespan). |
 | `platform_base.py` | `PlatformBase`: ORM base of the new infrastructure tables (events, simulation clock/settings, observability), separate from the old `app.models.Base` so the old demo reset cannot truncate them. |
-| `a2a_client.py` | A2A client used by the agents and the supplier interface: sends one C4 envelope as a JSON-RPC `SendMessage` (one data part) to `/a2a/{inventory,purchasing,supplier-interface}` at `A2A_BASE_URL` and returns the acknowledgement. `set_http_client` lets tests route it through a TestClient. |
 | `logging.py` | Empty placeholder. |
 
 ## Settings

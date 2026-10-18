@@ -10,6 +10,8 @@ The database URL is `DATABASE_URL` (repository-root `.env`), or `-x url=...`.
 | `003` | `sales_agent.*` (9 tables of the Sales Agent). |
 | `004` | Platform foundation (step 1): `core.items.sourcing` / `space_per_unit`, `core.routings`; `events.events`, `events.event_deliveries`; `simulation.clock`, `simulation.settings`; `observability.llm_calls`. |
 | `005` | Negotiation v2 (step 3): `negotiation.sessions` (with `case_id`, NG-5 partial unique index), `negotiation.messages` (inbox queue), `negotiation.outbox`. |
+| `006` | Retires the old 25% tables (sales, old inventory/planning/purchasing, agent, audit, old negotiation and simulation tables); `core` stays. Not reversible. |
+| `007` | Owner agents' tables (Inventory, HR, Warehouse), created from their ORM models. |
 
 Run from `backend/`:
 

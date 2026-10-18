@@ -29,7 +29,7 @@ This is a plan, not a record of what is built. Work only on the current step.
 12. [ ] `purchasing_agent/` — by another contributor; must follow `negotiation.md` (§4, §5, §5.1), WH-1 and the event
     catalogue. Until then a FAKE Purchasing stub answers supply requests (IMP-3).
 
-## Implementation steps (current: step 4)
+## Implementation steps (current: step 5)
 
 Each step: implement from the referenced docs → run tests → small commits → fast-forward `master` locally (IMP-4).
 AI steps are switched on only after S1 works; until then owners use template wording and Planning the fixed ranking
@@ -40,7 +40,7 @@ AI steps are switched on only after S1 works; until then owners use template wor
 | [x] 1 | Foundation: migration for new schemas and `core` changes; shared work runner; event channel; RFC 9457 errors + correlation id; simulated clock + factory settings | `system_design.md` §4–6, `pubsub_event_channel.md`, `backend_api.md` §3–4, `demo.md` §6, PD-2 | Work runner (claim, lease, retry, idempotency) · Event channel (duplicates, stale, per-entity order) |
 | [x] 2 | Pure calculations: multi-level MRP, lot sizing, lead-time offset, hours per day (QA-5), ATP by date, capacity fit, PL-6 ranking | `quantity_accounting.md`, `planning_agent/2`, research §4.2 | Research phone example exact · ATP with supplier delay · Ranking filters and ties |
 | [x] 3 | Negotiation v2: starter/owner sessions, A2A store-and-acknowledge, outbox/inbox, holds, commit, expiry, reason codes, `case_id` | `negotiation.md` | Request → offer → hold → commit; duplicate; stale |
-| [ ] 4 | Owners: Inventory, HR, Warehouse (templates only) | `inventory_agent/`, `hr_agent/`, `warehouse_agent/` | 5000 → 3000 ledger + no double booking · HR absence cover |
+| [x] 4 | Owners: Inventory, HR, Warehouse (templates only) | `inventory_agent/`, `hr_agent/`, `warehouse_agent/` | 5000 → 3000 ledger + no double booking · HR absence cover |
 | [ ] 5 | Planning + Sales integration → **S1 end to end**; retire old agents, routes, tables and their tests | `planning_agent/`, `sales_agent/`, PB-O1, API-4 | S1 request → shipment (fake AI, simulated days) |
 | [ ] 6 | Replanning: pegging, net change, dampener, time fence, AT_RISK repair; S5–S7; Purchasing stub for S2/S3 | RD-4, RD-5, RD-8, `planning_agent/2` §6 | Worker absence repair · Cancellation release |
 | [ ] 7 | Simulator + observer API + minimal control panel; then switch on the AI steps | `demo.md`, `backend_api.md` §7 | Snapshot restore + reconcile |

@@ -31,7 +31,7 @@ The Sales Agent. Design notes: `dev_docs/sales_agent/`. Built in checkpoints:
 | `views.py` | What the read-only doors show: new messages, a conversation, an inquiry, a customer. Changes nothing. |
 | `data_access.py` | The only code that reads and writes the Sales Agent tables. |
 | `tools.py` | The five read-only tools: `get_customer_info`, `get_order_history`, `get_product_list`, `check_order_details`, `get_order_status`. They return plain data for the language model. |
-| `models.py` | The nine tables as Python classes, in the `sales_agent` schema. They use their own base, so the demo reset (`/simulation/reset`) cannot delete Sales Agent data. |
+| `models.py` | The nine tables as Python classes, in the `sales_agent` schema. They use their own base (`SalesAgentBase`), separate from the shared reference tables. |
 | `seed.py` | Three placeholder test products. Safe to run twice. |
 | `api.py` | The API doors (routes only). See the table below. |
 | `test_channel/chat.html` | The test chat page (plain HTML and JavaScript). Open `/sales/test-channel` while the backend runs. |
