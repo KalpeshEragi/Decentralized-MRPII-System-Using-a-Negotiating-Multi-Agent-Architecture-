@@ -21,7 +21,7 @@ from app.core.owner_tables import LedgerWriter
 from app.events import channel
 from app.events.models import Event
 from app.inventory_agent import reads as inventory
-from app.models.core import Bom, BomItem, Item
+from app.models.core import Bom, BomItem, Item, ItemType
 from app.mrpii.hours import round_space_up
 from app.negotiation import layer
 from app.negotiation.envelope import Envelope, Hold as HoldTerms, MessageType as M, ReasonCode, Terms
@@ -231,6 +231,31 @@ def _release(db: DbSession, negotiation_id: str, source_id: str, reason: str, st
     hold.status = status
 
 
+def on_plan_revised(db: DbSession, event: Event) -> None:
+    """Planning no longer needs some space commitments: release exactly the listed ones. Only space not yet in use is
+    released (goods already stored stay until they leave)."""
+    ledger = LedgerWriter(db, SpaceLedger, str(event.event_id), today(db))
+    if ledger.already_applied():
+        return
+    for release in event.payload.get("releases", []):
+        if release.get("owner") != AGENT:
+            continue
+        commitment = db.get(SpaceCommitment, uuid.UUID(release["commitment_id"]), with_for_update=True)
+        if commitment is None or commitment.status != "ACTIVE":
+            continue
+        for movement in db.scalars(select(SpaceMovement).where(SpaceMovement.commitment_id == commitment.id,
+                                                               SpaceMovement.status == "PLANNED")):
+            movement.status = "CANCELLED"
+        ledger.write(commitment.zone, "PLANNED_ARRIVAL", -commitment.space_units, "RELEASE",
+                     day=commitment.arrival_day, commitment=commitment.id)
+        hold = db.scalar(select(Hold).where(Hold.negotiation_id == commitment.negotiation_id))
+        if hold is not None and hold.receiving_units > 0:
+            _receiving_day(db, commitment.arrival_day).committed_units -= hold.receiving_units
+            ledger.write("RECEIVING", "RECEIVING_COMMITTED", -hold.receiving_units, "RELEASE",
+                         day=commitment.arrival_day, commitment=commitment.id)
+        commitment.status, commitment.version = "RELEASED", commitment.version + 1
+
+
 # -- physical moves -------------------------------------------------------------------------------------------------------
 
 
@@ -241,11 +266,17 @@ def store_finished_goods(db: DbSession, event: Event) -> None:
         return
     payload = event.payload
     quantity = Decimal(payload["quantity"])
-    for_customer = payload.get("for_kind", "CUSTOMER_DEMAND") == "CUSTOMER_DEMAND"
-    zone_name = FINISHED_GOODS if for_customer else MATERIALS
-    commitment = db.scalar(select(SpaceCommitment).where(
+    for_kind = payload.get("for_kind", "CUSTOMER_DEMAND")
+    for_customer = for_kind == "CUSTOMER_DEMAND"
+    if for_kind == "STOCK":  # made for no order (its order was cancelled): stored by what the item is
+        item = db.get(Item, uuid.UUID(payload["item_id"]))
+        zone_name = FINISHED_GOODS if item is not None and item.item_type == ItemType.FINISHED_PRODUCT else MATERIALS
+    else:
+        zone_name = FINISHED_GOODS if for_customer else MATERIALS
+    commitment = db.scalars(select(SpaceCommitment).where(
         SpaceCommitment.for_ref == payload["order_ref"], SpaceCommitment.kind == "FINISHED_GOODS",
-        SpaceCommitment.status == "ACTIVE").with_for_update()) if for_customer else None
+        SpaceCommitment.status == "ACTIVE").order_by(SpaceCommitment.arrival_day, SpaceCommitment.id)
+        .with_for_update()).first() if for_customer else None
     zone = db.get(Zone, zone_name, with_for_update=True)
     ledger = LedgerWriter(db, SpaceLedger, str(event.event_id), today(db))
     if commitment is not None:
@@ -312,10 +343,13 @@ def ship(db: DbSession, order_ref: str, item_id: str, quantity: Decimal, correla
     ledger = LedgerWriter(db, SpaceLedger, source_id, day)
     ledger.write("SHIPPING", "SHIPPING_USED", shipped, "SHIPMENT", day=day, order=order_ref)
     _zone_change(ledger, zone, -space_for(db, item_id, shipped), "SHIPMENT", order=order_ref)
-    commitment = db.scalar(select(SpaceCommitment).where(SpaceCommitment.for_ref == order_ref,
-                                                         SpaceCommitment.kind == "FINISHED_GOODS",
-                                                         SpaceCommitment.status == "IN_USE"))
-    if commitment is not None and shipped >= commitment.quantity:
+    left = shipped  # free the order's space commitments in use, oldest first, as far as the shipment covers them
+    for commitment in db.scalars(select(SpaceCommitment).where(
+            SpaceCommitment.for_ref == order_ref, SpaceCommitment.kind == "FINISHED_GOODS",
+            SpaceCommitment.status == "IN_USE").order_by(SpaceCommitment.arrival_day, SpaceCommitment.id)).all():
+        if left < commitment.quantity:
+            break
+        left -= commitment.quantity
         for movement in db.scalars(select(SpaceMovement).where(SpaceMovement.commitment_id == commitment.id,
                                                                SpaceMovement.kind == "DEPARTURE")):
             movement.status = "DONE"
@@ -363,6 +397,7 @@ def run_day(db: DbSession, event: Event) -> None:
         reserved = inventory.reservations_for(db, due["order_ref"])
         ready = sum((Decimal(r["quantity"]) - Decimal(r["issued"]) for r in reserved if r["kind"] == "RESERVATION"
                      and r["item_id"] == due["item_id"] and r["status"] in ("ACTIVE", "AT_RISK")), ZERO)
+        ready = min(ready, Decimal(due["quantity"]))  # never more than the order still needs
         if ready > 0:
             ship(db, due["order_ref"], due["item_id"], ready, event.correlation_id, f"{source}:ship:{due['order_ref']}")
 
@@ -389,3 +424,4 @@ def register(runner_register) -> None:
     runner_register(layer.register_inbox(AGENT, handle_message))
     channel.subscribe(AGENT, "ProductionCompleted", store_finished_goods)
     channel.subscribe(AGENT, "SimulatedDayStarted", run_day)
+    channel.subscribe(AGENT, "PlanRevised", on_plan_revised)

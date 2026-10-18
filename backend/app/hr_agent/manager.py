@@ -341,6 +341,54 @@ def on_production_completed(db: DbSession, event: Event) -> None:
         commitment.status = "DONE"
 
 
+def on_plan_revised(db: DbSession, event: Event) -> None:
+    """Planning no longer needs some workforce commitments (cancellation or change): release exactly the listed ones.
+    Hours of days already passed stay as they were; moves, overtime and named assignments from today on are released."""
+    ledger = LedgerWriter(db, HoursLedger, str(event.event_id), today(db))
+    if ledger.already_applied():
+        return
+    start = today(db)
+    for release in event.payload.get("releases", []):
+        if release.get("owner") != AGENT:
+            continue
+        commitment = db.get(Commitment, uuid.UUID(release["commitment_id"]), with_for_update=True)
+        if commitment is None or commitment.status not in ("ACTIVE", "AT_RISK"):
+            continue
+        if release.get("day"):
+            _release_day(db, ledger, commitment, release["day"], Decimal(release["hours"]))
+            continue
+        for day_text, hours_text in commitment.lines.items():
+            day = date.fromisoformat(day_text)
+            if day >= start:
+                _change(ledger, pool_day(db, commitment.skill, day), "committed_hours", -Decimal(hours_text),
+                        "RELEASE", commitment=commitment.id)
+        for model in (WorkerMove, OvertimeEntry):
+            for entry in db.scalars(select(model).where(model.hold_id == commitment.hold_id, model.day >= start)):
+                entry.status = "RELEASED"
+        for assignment in db.scalars(select(Assignment).where(
+                Assignment.commitment_id == commitment.id, Assignment.day >= start,
+                Assignment.status == "PLANNED")):
+            assignment.status = "CANCELLED"
+        commitment.status, commitment.version = "RELEASED", commitment.version + 1
+
+
+def _release_day(db: DbSession, ledger: LedgerWriter, commitment: Commitment, day_text: str, hours: Decimal) -> None:
+    """Partial release: Planning moved `hours` of this commitment away from one day (a repair). What was missing that
+    day is the first to go; when nothing is missing any more the commitment is ACTIVE again."""
+    hours = min(hours, Decimal(commitment.lines.get(day_text, "0")))
+    if hours <= 0:
+        return
+    _change(ledger, pool_day(db, commitment.skill, date.fromisoformat(day_text)), "committed_hours", -hours,
+            "RELEASE", commitment=commitment.id)
+    lines = {**commitment.lines, day_text: str(Decimal(commitment.lines[day_text]) - hours)}
+    commitment.lines = {d: h for d, h in lines.items() if Decimal(h) > 0}
+    missing = {**commitment.missing, day_text: str(max(ZERO, Decimal(commitment.missing.get(day_text, "0")) - hours))}
+    commitment.missing = {d: h for d, h in missing.items() if Decimal(h) > 0}
+    commitment.version += 1
+    if commitment.status == "AT_RISK" and not commitment.missing:
+        commitment.status = "ACTIVE"
+
+
 # -- absences (HR-5) -------------------------------------------------------------------------------------------------------
 
 
@@ -488,3 +536,4 @@ def register(runner_register) -> None:
     channel.subscribe(AGENT, "SimulatedDayStarted", on_day_started)
     channel.subscribe(AGENT, "ProductionOrderReleased", on_production_order_released)
     channel.subscribe(AGENT, "ProductionCompleted", on_production_completed)
+    channel.subscribe(AGENT, "PlanRevised", on_plan_revised)
