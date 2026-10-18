@@ -30,7 +30,7 @@ from app.hr_agent import reads as hr
 from app.inventory_agent import reads as inventory
 from app.models.core import Bom, BomItem, Item, Routing
 from app.negotiation import layer
-from app.negotiation.envelope import Envelope, MessageType as M, ResourceType, Terms
+from app.negotiation.envelope import Envelope, MessageType as M, ReasonCode, ResourceType, Terms
 from app.negotiation.models import Session
 from app.planning_agent import plan as planner
 from app.planning_agent.models import (AuditLog, Case, CustomerDemand, EventVersion, MachineHoursLedger, Option,
@@ -170,6 +170,12 @@ def _secure(db: DbSession, demand: CustomerDemand, option: Option, auto_commit: 
                                               quantity=Decimal(need["quantity"]),
                                               needed_by=date.fromisoformat(need["needed_by"]), order_id=for_ref,
                                               extra={"for_kind": for_kind}), f"stock {need['item_id']}")
+    for need in spec.get("supply", []):  # bought for a production order: Purchasing (PI-6)
+        _request(db, case, "PURCHASING", Terms(resource_type=ResourceType.SUPPLY, resource_ref=need["item_id"],
+                                               quantity=Decimal(need["quantity"]),
+                                               needed_by=date.fromisoformat(need["needed_by"]),
+                                               order_id=str(orders[need["for_key"]].id),
+                                               extra={"for_kind": "PRODUCTION_ORDER"}), f"supply {need['item_id']}")
     for production in spec["production"]:
         order = orders[production["key"]]
         for step in production["steps"]:
@@ -199,6 +205,11 @@ def handle_message(db: DbSession, message: Envelope, session: Session) -> None:
         return
     kind = message.message_type
     if kind == M.OFFER and case.status == "OPEN":
+        terms = message.terms
+        if terms and terms.available_from and terms.needed_by and terms.available_from > terms.needed_by:
+            layer.send(db, layer.reply_to(message, M.REJECT, reason_code=ReasonCode.TOO_LATE, text="too late"))
+            _fail_case(db, case, "SUPPLY_TOO_LATE")  # the plan was built on an earlier arrival
+            return
         layer.send(db, layer.reply_to(message, M.ACCEPT, text="accept"))
     elif kind == M.COUNTER_OFFER and case.status == "OPEN":
         # Any change to the planned terms means the option (or the repair) cannot be done as planned.
@@ -577,6 +588,35 @@ def _shrink(db: DbSession, order: ProductionOrder, cut: Decimal, fence: date, le
                 need -= take
 
 
+# -- supplier delay (S2) ------------------------------------------------------------------------------------------------------
+
+
+def on_supplier_delayed(db: DbSession, event: Event) -> None:
+    """A bought delivery comes later. Still the day before its production order starts: nothing changes. Otherwise the
+    order is at risk: Planning does not move FIRM work on its own here (it was scheduled as late as possible, and a later
+    delivery date needs the customer's acceptance first); it publishes `PlanAtRisk` with an estimated new delivery day
+    for Sales. The estimate is the committed day shifted by the delay; it is not a promise."""
+    if not channel.is_newer(db, EventVersion, event):
+        return
+    payload = event.payload
+    try:
+        order = db.get(ProductionOrder, uuid.UUID(payload.get("for_ref") or ""), with_for_update=True)
+    except ValueError:
+        return
+    if order is None or order.status in ("CANCELLED", "COMPLETED", "STARTED"):
+        return
+    new_arrival, latest = date.fromisoformat(payload["new_date"]), order.start_day - timedelta(days=1)
+    if new_arrival <= latest:
+        return
+    demand = db.get(CustomerDemand, order.demand_id, with_for_update=True)
+    late = (new_arrival - latest).days
+    _publish_plan_event(db, demand, "PlanAtRisk", {
+        "reason": "SUPPLIER_DELAY", "production_order_id": str(order.id), "item_id": payload.get("item_id"),
+        "arrival_day": new_arrival.isoformat(), "needed_by": latest.isoformat(), "days_late": late,
+        "delivery_day": demand.committed_day.isoformat(),
+        "estimated_delivery_day": (demand.committed_day + timedelta(days=late)).isoformat()})
+
+
 # -- worker absence repair (S5) -------------------------------------------------------------------------------------------
 
 
@@ -788,3 +828,4 @@ def register(runner_register) -> None:
     channel.subscribe(AGENT, "OrderCancelled", on_order_cancelled)
     channel.subscribe(AGENT, "WorkforceCapacityChanged", on_workforce_changed)
     channel.subscribe(AGENT, "OrderChangeRequested", on_order_change)
+    channel.subscribe(AGENT, "SupplierDeliveryDelayed", on_supplier_delayed)

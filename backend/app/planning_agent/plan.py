@@ -4,8 +4,9 @@ held state (capable-to-promise, PL-2) and compute the options for Sales.
 Reads only: `core` (items, BOM, routings), Inventory's and HR's read modules, Planning's own machine-hours. The pure
 calculations are `app/mrpii` (multi-level MRP, backward scheduling on machine-hours and worker-hours).
 
-Step 5 scope: a plan is feasible when every bought item is covered from stock and every production step fits; supply
-from purchasing (procurement) comes with the Purchasing stub in step 6.
+A bought item that is short is bought through Purchasing (PI-6): the plan is feasible when Purchasing's estimate says
+it can arrive the day before the production that uses it starts (deliveries are received in the morning routine,
+before kits are issued).
 """
 
 import uuid
@@ -24,6 +25,7 @@ from app.mrpii.atp import Dated
 from app.mrpii.hours import RoutingStep, round_hours_up as round_hours, schedule_backward
 from app.mrpii.multilevel import BUY, MAKE, BomLine, Demand, ItemData, run_mrp
 from app.planning_agent.models import WorkCenter, WorkCenterDay
+from app.purchasing_agent import reads as purchasing
 from app.simulation.clock import today
 from app.simulation.settings import setting
 
@@ -51,6 +53,14 @@ class StockNeed:
 
 
 @dataclass
+class SupplyNeed:
+    item_id: str
+    quantity: Decimal
+    needed_by: date  # arrival: the day before the production that uses it starts
+    for_key: str  # the production key it is bought for
+
+
+@dataclass
 class PlanSpec:
     feasible: bool
     item_id: str
@@ -58,6 +68,7 @@ class PlanSpec:
     delivery_day: date
     production: list[ProductionSpec] = field(default_factory=list)
     stock: list[StockNeed] = field(default_factory=list)
+    supply: list[SupplyNeed] = field(default_factory=list)
     reason: str | None = None
 
     def to_json(self) -> dict:
@@ -66,7 +77,9 @@ class PlanSpec:
                                 "start_day": p.start_day.isoformat(), "end_day": p.end_day.isoformat(),
                                 "for_key": p.for_key, "steps": p.steps} for p in self.production],
                 "stock": [{"item_id": s.item_id, "quantity": str(s.quantity), "needed_by": s.needed_by.isoformat(),
-                           "for_key": s.for_key} for s in self.stock]}
+                           "for_key": s.for_key} for s in self.stock],
+                "supply": [{"item_id": s.item_id, "quantity": str(s.quantity), "needed_by": s.needed_by.isoformat(),
+                            "for_key": s.for_key} for s in self.supply]}
 
 
 def machine_free(db: DbSession, work_center: str, day: date) -> Decimal:
@@ -129,8 +142,14 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
     data = {i: _item_data(db, items[i]) for i in items}
     result = run_mrp([Demand(item_id, quantity, due_day, DEMAND)], data, bom, production_start)
     spec = PlanSpec(True, item_id, quantity, due_day)
-    if any(o.sourcing == BUY for o in result.planned_orders):
-        spec.feasible, spec.reason = False, "MATERIAL_SHORTAGE"  # procurement comes with step 6
+    for order in (o for o in result.planned_orders if o.sourcing == BUY):
+        lead = purchasing.supply_lead_time_days(db, order.item_id, order.quantity)
+        arrival = order.need_day - timedelta(days=1)
+        if not order.source.startswith("planned:") or lead is None or today(db) + timedelta(days=lead) > arrival:
+            spec.feasible, spec.reason = False, "MATERIAL_SHORTAGE"
+            break
+        spec.supply.append(SupplyNeed(order.item_id, order.quantity, arrival,
+                                      order.source.removeprefix("planned:").replace(":", "@")))
     if result.unschedulable:
         spec.feasible, spec.reason = False, "NO_CAPACITY"
     if not spec.feasible:
@@ -151,7 +170,7 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
     for production in spec.production:
         for line in children[production.item_id]:
             gross = production.quantity * line.quantity_per
-            produced = sum((o.quantity for o in made if o.item_id == line.child_id and
+            produced = sum((o.quantity for o in result.planned_orders if o.item_id == line.child_id and  # made or bought
                             o.source == f"planned:{production.item_id}:{production.end_day + timedelta(days=1)}"), ZERO)
             if gross - produced > 0:
                 spec.stock.append(StockNeed(line.child_id, gross - produced, production.start_day, production.key))
