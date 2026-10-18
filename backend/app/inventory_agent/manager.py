@@ -63,7 +63,8 @@ def profile(db: DbSession, item_id: str) -> tuple[list[Dated], list[Dated]]:
     """(incoming receipts, promises) of an item, for ATP (QA-4)."""
     incoming = [Dated(r.expected_day, r.quantity - r.quantity_received, str(r.id))
                 for r in db.scalars(select(IncomingReceipt).where(IncomingReceipt.item_id == item_id,
-                                                                  IncomingReceipt.status.in_(("EXPECTED", "PARTLY_RECEIVED"))))]
+                                                                  IncomingReceipt.status.in_(("EXPECTED", "PARTLY_RECEIVED")),
+                                                                  IncomingReceipt.for_ref.is_(None)))]  # pegged: not free
     promises = [Dated(h.due_day, h.quantity, str(h.id))
                 for h in db.scalars(select(Hold).where(Hold.item_id == item_id, Hold.status == "ACTIVE"))]
     promises += [Dated(r.due_day, r.quantity - r.quantity_issued, str(r.id))
@@ -240,17 +241,25 @@ def on_material_issued(db: DbSession, event: Event) -> None:
         issued = Decimal(component["issued"])
         if issued <= 0:
             continue
-        reservation = db.scalar(select(Reservation).where(
+        # an order may hold several reservations of one item (from stock, bought for it, made for it): oldest first
+        reservations = db.scalars(select(Reservation).where(
             Reservation.for_ref == event.payload["production_order_id"], Reservation.item_id == component["item_id"],
-            Reservation.status.in_(("ACTIVE", "AT_RISK"))).with_for_update())
-        if reservation is None or issued > reservation.quantity - reservation.quantity_issued:
-            raise ValueError(f"issue of {issued} {component['item_id']} exceeds the reservation")  # invariant 6
+            Reservation.status.in_(("ACTIVE", "AT_RISK"))).order_by(Reservation.created_at, Reservation.id)
+            .with_for_update()).all()
+        if issued > sum((r.quantity - r.quantity_issued for r in reservations), ZERO):
+            raise ValueError(f"issue of {issued} {component['item_id']} exceeds the reservations")  # invariant 6
         row = balance(db, component["item_id"])
-        change(ledger, row, "ON_HAND", -issued, "ISSUE", reservation=reservation.id)
-        change(ledger, row, "RESERVED", -issued, "ISSUE", reservation=reservation.id)
-        reservation.quantity_issued += issued
-        if reservation.quantity_issued == reservation.quantity:
-            reservation.status = "ISSUED"
+        left = issued
+        for reservation in reservations:
+            take = min(left, reservation.quantity - reservation.quantity_issued)
+            if take <= 0:
+                continue
+            change(ledger, row, "ON_HAND", -take, "ISSUE", reservation=reservation.id)
+            change(ledger, row, "RESERVED", -take, "ISSUE", reservation=reservation.id)
+            reservation.quantity_issued += take
+            if reservation.quantity_issued == reservation.quantity:
+                reservation.status = "ISSUED"
+            left -= take
 
 
 def on_finished_goods_stored(db: DbSession, event: Event) -> None:
@@ -325,6 +334,54 @@ def on_plan_revised(db: DbSession, event: Event) -> None:
                                  "quantity": str(quantity), "for_ref": reservation.for_ref})
 
 
+def on_procurement_committed(db: DbSession, event: Event) -> None:
+    """Purchasing committed supply: one expected receipt per supplier Leg. Bought for one order, it is pegged to it."""
+    payload = event.payload
+    for leg in payload["legs"]:
+        if db.scalar(select(IncomingReceipt.id).where(IncomingReceipt.purchasing_commitment_ref == leg["leg_id"])):
+            continue  # already known (repeated delivery)
+        db.add(IncomingReceipt(purchasing_commitment_ref=leg["leg_id"], item_id=payload["item_id"],
+                               quantity=Decimal(leg["quantity"]), quantity_received=ZERO,
+                               expected_day=date.fromisoformat(leg["delivery_date"]), status="EXPECTED",
+                               for_kind=payload.get("for_kind"), for_ref=payload.get("for_ref")))
+
+
+def on_supplier_delayed(db: DbSession, event: Event) -> None:
+    """The expected receipt moves to the new date (ATP of the item follows; a pegged receipt stays pegged)."""
+    if not channel.is_newer(db, EventVersion, event):
+        return
+    receipt = db.scalar(select(IncomingReceipt).where(
+        IncomingReceipt.purchasing_commitment_ref == event.payload["leg_id"]).with_for_update())
+    if receipt is not None and receipt.status in ("EXPECTED", "PARTLY_RECEIVED"):
+        receipt.expected_day = date.fromisoformat(event.payload["new_date"])
+        receipt.source_version += 1
+
+
+def on_material_received(db: DbSession, event: Event) -> None:
+    """Warehouse received a delivery: on hand goes up; a delivery bought for an order is reserved for it."""
+    payload = event.payload
+    ledger = LedgerWriter(db, StockLedger, str(event.event_id), today(db))
+    if ledger.already_applied():
+        return
+    quantity = Decimal(payload["quantity"])
+    row = balance(db, payload["item_id"])
+    change(ledger, row, "ON_HAND", quantity, "RECEIPT", receipt=payload["leg_id"])
+    receipt = db.scalar(select(IncomingReceipt).where(IncomingReceipt.purchasing_commitment_ref == payload["leg_id"])
+                        .with_for_update())
+    if receipt is None:
+        return
+    receipt.quantity_received += quantity
+    receipt.status = "RECEIVED" if receipt.quantity_received >= receipt.quantity else "PARTLY_RECEIVED"
+    if receipt.for_ref:
+        reservation = Reservation(item_id=row.item_id, quantity=quantity, due_day=today(db),
+                                  for_kind=receipt.for_kind or "PRODUCTION_ORDER", for_ref=receipt.for_ref,
+                                  case_id=payload.get("procurement_request_id") or str(event.event_id),
+                                  status="ACTIVE", quantity_issued=ZERO, missing_quantity=ZERO, version=1)
+        db.add(reservation)
+        db.flush()
+        change(ledger, row, "RESERVED", quantity, "BOUGHT_FOR_ORDER", reservation=reservation.id)
+
+
 # -- setup (simulator configuration) ------------------------------------------------------------------------------------
 
 
@@ -348,3 +405,6 @@ def register(runner_register) -> None:
     channel.subscribe(AGENT, "FinishedGoodsStored", on_finished_goods_stored)
     channel.subscribe(AGENT, "ShipmentDispatched", on_shipment)
     channel.subscribe(AGENT, "PlanRevised", on_plan_revised)
+    channel.subscribe(AGENT, "ProcurementCommitted", on_procurement_committed)
+    channel.subscribe(AGENT, "MaterialReceived", on_material_received)
+    channel.subscribe(AGENT, "SupplierDeliveryDelayed", on_supplier_delayed)

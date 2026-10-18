@@ -383,11 +383,78 @@ def components_of(db: DbSession, item_id: str) -> list[dict]:
             for line in db.scalars(select(BomItem).where(BomItem.bom_id == bom.id))]
 
 
+def on_procurement_committed(db: DbSession, event: Event) -> None:
+    """Purchasing committed supply: expect each Leg's delivery in the materials zone on its day (planned arrival).
+    The receiving slot itself is not negotiated yet (PI-5: WH-1 in step 8)."""
+    payload = event.payload
+    ledger = LedgerWriter(db, SpaceLedger, str(event.event_id), today(db))
+    if ledger.already_applied():
+        return
+    for leg in payload["legs"]:
+        quantity, arrival = Decimal(leg["quantity"]), date.fromisoformat(leg["delivery_date"])
+        space = space_for(db, payload["item_id"], quantity)
+        commitment = SpaceCommitment(kind="DELIVERY", zone=MATERIALS, item_id=payload["item_id"], quantity=quantity,
+                                     space_units=space, arrival_day=arrival, until_day=None,
+                                     for_ref=payload.get("for_ref") or payload["procurement_request_id"],
+                                     case_id=payload["procurement_request_id"], negotiation_id=leg["leg_id"],
+                                     status="ACTIVE", version=1)
+        db.add(commitment)
+        db.flush()
+        db.add(SpaceMovement(commitment_id=commitment.id, zone=MATERIALS, kind="ARRIVAL", space_units=space,
+                             planned_day=arrival, status="PLANNED"))
+        ledger.write(MATERIALS, "PLANNED_ARRIVAL", space, "DELIVERY_EXPECTED", day=arrival, commitment=commitment.id)
+
+
+def on_supplier_delayed(db: DbSession, event: Event) -> None:
+    """The expected delivery (planned arrival in the materials zone) moves to the new date."""
+    if not channel.is_newer(db, EventVersion, event):
+        return
+    commitment = db.scalar(select(SpaceCommitment).where(
+        SpaceCommitment.kind == "DELIVERY", SpaceCommitment.negotiation_id == event.payload["leg_id"],
+        SpaceCommitment.status == "ACTIVE").with_for_update())
+    if commitment is None:
+        return
+    new_day = date.fromisoformat(event.payload["new_date"])
+    ledger = LedgerWriter(db, SpaceLedger, str(event.event_id), today(db))
+    ledger.write(MATERIALS, "PLANNED_ARRIVAL", -commitment.space_units, "DELAYED", day=commitment.arrival_day,
+                 commitment=commitment.id)
+    ledger.write(MATERIALS, "PLANNED_ARRIVAL", commitment.space_units, "DELAYED", day=new_day,
+                 commitment=commitment.id)
+    for movement in db.scalars(select(SpaceMovement).where(SpaceMovement.commitment_id == commitment.id,
+                                                           SpaceMovement.status == "PLANNED")):
+        movement.planned_day = new_day
+    commitment.arrival_day, commitment.version = new_day, commitment.version + 1
+
+
+def receive_deliveries(db: DbSession, day: date, correlation_id: str, source_id: str) -> None:
+    """Every delivery due (simulated supplier delivers on the agreed day): into the materials zone -> MaterialReceived."""
+    zone = db.get(Zone, MATERIALS, with_for_update=True)
+    ledger = LedgerWriter(db, SpaceLedger, f"{source_id}:receive", day)
+    for commitment in db.scalars(select(SpaceCommitment).where(
+            SpaceCommitment.kind == "DELIVERY", SpaceCommitment.status == "ACTIVE",
+            SpaceCommitment.arrival_day <= day).order_by(SpaceCommitment.arrival_day, SpaceCommitment.id)
+            .with_for_update()).all():
+        for movement in db.scalars(select(SpaceMovement).where(SpaceMovement.commitment_id == commitment.id,
+                                                               SpaceMovement.status == "PLANNED")):
+            movement.status = "DONE"
+        ledger.write(MATERIALS, "PLANNED_ARRIVAL", -commitment.space_units, "RECEIVED", day=day,
+                     commitment=commitment.id)
+        if zone is not None:
+            _zone_change(ledger, zone, commitment.space_units, "RECEIVED", commitment=commitment.id)
+        commitment.status, commitment.version = "RECEIVED", commitment.version + 1
+        channel.publish(db, event_type="MaterialReceived", publisher=AGENT, entity_type="delivery",
+                        entity_id=commitment.negotiation_id, entity_version=1, correlation_id=correlation_id,
+                        payload={"leg_id": commitment.negotiation_id, "procurement_request_id": commitment.case_id,
+                                 "item_id": commitment.item_id, "quantity": str(commitment.quantity),
+                                 "for_ref": commitment.for_ref, "day": day.isoformat()})
+
+
 def run_day(db: DbSession, event: Event) -> None:
-    """The daily routine (WB-3), in order: expire holds -> (receive: step 6) -> issue kits -> ship."""
+    """The daily routine (WB-3), in order: expire holds -> receive deliveries -> issue kits -> ship."""
     expire_holds(db, event)
     day = date.fromisoformat(event.payload["date"])
     source = str(event.event_id)
+    receive_deliveries(db, day, event.correlation_id, source)
     for order in planning.production_orders_starting(db, day):
         components = components_of(db, order["item_id"])
         if components:
@@ -425,3 +492,5 @@ def register(runner_register) -> None:
     channel.subscribe(AGENT, "ProductionCompleted", store_finished_goods)
     channel.subscribe(AGENT, "SimulatedDayStarted", run_day)
     channel.subscribe(AGENT, "PlanRevised", on_plan_revised)
+    channel.subscribe(AGENT, "ProcurementCommitted", on_procurement_committed)
+    channel.subscribe(AGENT, "SupplierDeliveryDelayed", on_supplier_delayed)

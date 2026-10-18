@@ -14,8 +14,9 @@ reservation for what the goods were made for: the customer demand or the parent 
 Every quantity change is a ledger row + a balance update in the same transaction under the item's row lock. A repeated
 event cannot change numbers twice (`source_id` + `line_no` unique; stale versions ignored through `event_versions`).
 
-Not yet: incoming receipts from Purchasing (`ProcurementCommitted`, delays, receipts) and AT_RISK marking (IF-2) come
-with the Purchasing stub and replanning (step 6); a reconcile door comes with snapshots (step 7).
+Supply (PI-4): `ProcurementCommitted` adds one expected receipt per supplier Leg; bought for an order it is pegged to it
+(other requests do not count on it); `MaterialReceived` raises on hand and reserves a pegged delivery for its order.
+Not yet: supplier delays and AT_RISK marking (IF-2, S2); a reconcile door comes with snapshots (step 7).
 
 **Tests:** `backend/tests/platform/test_inventory_agent.py` (the 5000 → 3000 example with an exact ledger; no double
 booking under competing requests).

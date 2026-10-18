@@ -90,6 +90,9 @@ class IncomingReceipt(PlatformBase):
     expected_day: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="EXPECTED")
     source_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # bought for one order (pegged): other requests do not count on it; reserved for it when it arrives (011)
+    for_kind: Mapped[str | None] = mapped_column(String)
+    for_ref: Mapped[str | None] = mapped_column(String)
 
 
 class EventVersion(EventVersionMixin, PlatformBase):

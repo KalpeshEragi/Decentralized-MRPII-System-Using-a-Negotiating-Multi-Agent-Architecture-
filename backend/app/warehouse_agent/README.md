@@ -11,7 +11,9 @@ on (IMP-2).
 | `reads.py` | Read module (IB-2): `free_space`, `free_receiving`, `commitments_for`. |
 | `api.py` | `POST /warehouse/setup` (simulator, `X-Door-Key`), `GET /warehouse/zones/{zone}/space`, `/receiving`, `/commitments/{ref}`. |
 
-Daily routine (`run_day` on `SimulatedDayStarted`, WB-3): expire holds → (receive: step 6) → issue complete kits for
+`ProcurementCommitted` makes Warehouse expect each delivery in the materials zone (a planned arrival); the receiving
+slot itself is negotiated later (WH-1, PI-5). Daily routine (`run_day` on `SimulatedDayStarted`, WB-3): expire holds →
+receive the deliveries due (`MaterialReceived`) → issue complete kits for
 the production orders starting today (Planning's read module, kit from the shared BOM) → ship what is due and stored
 for its order. Goods from production go to the finished-goods space committed for their customer demand; a
 sub-assembly for another production order goes to the materials zone. Simulated deliveries and capacity changes come
