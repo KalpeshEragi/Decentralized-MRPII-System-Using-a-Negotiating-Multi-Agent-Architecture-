@@ -2,9 +2,9 @@
 
     python scripts/a2a_spike_client.py http://localhost:8000 <negotiation_id>
 
-It sends the C4 REQUEST (Inventory -> Purchasing) and OFFER (Purchasing -> supplier interface) for an existing session
-(create one with POST /negotiations) as A2A `SendMessage` calls, one data part each, and prints the acknowledgements.
-Then it sends the same OFFER again (refused as a duplicate) and a malformed envelope (refused as invalid).
+It sends the C4 REQUEST (Inventory -> Purchasing) for an existing session (create one with POST /negotiations) as an
+A2A `SendMessage` call, one data part, and prints the acknowledgement. Then it sends a malformed envelope (refused as
+invalid). (The legacy supplier-interface endpoint was removed on 2026-10-18.)
 """
 
 import sys
@@ -42,9 +42,6 @@ def main(base: str, negotiation_id: str) -> None:
 
     request = envelope(1, "INVENTORY", "PURCHASING", "REQUEST", {"quantity": 500, "required_date": "2026-10-26"})
     print("REQUEST ->", send(base, "/a2a/purchasing", request))
-    offer = envelope(2, "PURCHASING", "SUPPLIER_INTERFACE", "OFFER", {"quantity": 500, "delivery_date": "2026-10-15"})
-    print("OFFER ->", send(base, "/a2a/supplier-interface", offer))
-    print("OFFER again ->", send(base, "/a2a/supplier-interface", offer))
     print("malformed ->", send(base, "/a2a/inventory", {"not": "an envelope"}))
 
 

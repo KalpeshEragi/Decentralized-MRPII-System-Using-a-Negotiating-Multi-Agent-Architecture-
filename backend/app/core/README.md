@@ -9,7 +9,7 @@ Cross-cutting infrastructure used by the rest of the backend. No business logic.
 | `config.py` | `Settings` (pydantic-settings) and `get_settings()` (cached). Reads environment variables, then the repository-root `.env`. |
 | `database.py` | Engine (from `DATABASE_URL`, created on first use), `new_session()`, `get_db()` FastAPI dependency, `make_engine(url)`. |
 | `errors.py` | C5 error format: `ErrorCode`, `AppError` (raised by services) and the exception handlers installed by `main.py`. |
-| `a2a_client.py` | A2A client used by the agents and the supplier interface: sends one C4 envelope as a JSON-RPC `SendMessage` (one data part) to `/a2a/{inventory,purchasing,supplier-interface}` at `A2A_BASE_URL` and returns the acknowledgement. `set_http_client` lets tests route it through a TestClient. |
+| `a2a_client.py` | A2A client used by the legacy agents: sends one C4 envelope as a JSON-RPC `SendMessage` (one data part) to `/a2a/{inventory,purchasing}` at `A2A_BASE_URL` and returns the acknowledgement. `set_http_client` lets tests route it through a TestClient. |
 | `logging.py` | Empty placeholder. |
 
 ## Settings

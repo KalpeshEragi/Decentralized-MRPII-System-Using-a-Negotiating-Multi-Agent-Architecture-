@@ -93,34 +93,3 @@ def display_session(db, order_id):
     conversation = Conversation(db, view["id"])
     conversation.send("INV", "PUR", MessageType.REQUEST, 500, required=date(2026, 10, 26))
     return conversation
-
-
-@pytest.fixture
-def api(db, engine, monkeypatch):
-    """Phase 3+: the app on the test database. A2A calls go through the app's own endpoints in-process (TestClient,
-    same wire format); no LLM (FakeLLMClient without replies), so Purchasing's deterministic policy decides."""
-    from fastapi.testclient import TestClient
-
-    from app.agents import base
-    from app.api import a2a
-    from app.core import a2a_client
-    from app.core.database import get_db
-    from app.llm.client import FakeLLMClient
-    from app.main import app
-
-    factory = sessionmaker(bind=engine, expire_on_commit=False)
-
-    def override():
-        session = factory()
-        try:
-            yield session
-        finally:
-            session.close()
-
-    app.dependency_overrides[get_db] = override
-    monkeypatch.setattr(a2a, "new_session", factory)
-    client = TestClient(app)
-    monkeypatch.setattr(a2a_client, "_http_client", client)
-    monkeypatch.setattr(base, "_llm_client", FakeLLMClient([]))
-    yield client
-    app.dependency_overrides.clear()

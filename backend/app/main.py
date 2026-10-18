@@ -1,4 +1,4 @@
-"""FastAPI application: orders, plans, negotiations and agents APIs, the supplier interface, and the three A2A
+"""FastAPI application: orders, plans, negotiations and agents APIs and the two legacy A2A
 endpoints (one app) behind which the Inventory and Purchasing Agents react."""
 
 from contextlib import asynccontextmanager
@@ -32,7 +32,6 @@ app.include_router(orders.router)
 app.include_router(planning.router)
 app.include_router(negotiations.router)
 app.include_router(agents.router)
-app.include_router(agents.supplier_router)
 app.include_router(simulation.router)
 app.include_router(sales_agent.router)
 app.include_router(purchasing_agent.router)

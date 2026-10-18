@@ -1,5 +1,6 @@
-"""Agents API (Phase 3): hand an order to the Production Planning Agent, answer as the supplier interface, and read
-procurement results, agent state (C6) and the decision log (C7). Routes only; the agents decide.
+"""Agents API (Phase 3, legacy): hand an order to the Production Planning Agent, and read procurement results, agent
+state (C6) and the decision log (C7). Routes only; the agents decide. (The legacy `/supplier-interface` route was
+removed on 2026-10-18.)
 """
 
 import uuid
@@ -11,13 +12,10 @@ from sqlalchemy.orm import Session
 from app.agents.base import load_state
 from app.agents import workflow
 from app.agents.planning.planning_agent import PlanningAgent
-from app.api.negotiations import SupplierResponseIn
 from app.core.database import get_db
-from app.schemas.negotiation import MessageType
-from app.services import audit_service, order_service, supplier_interface_service
+from app.services import audit_service, order_service
 
 router = APIRouter(prefix="/agents", tags=["agents"])
-supplier_router = APIRouter(prefix="/supplier-interface", tags=["supplier interface"])
 
 AgentCode = Literal["PRODUCTION_PLANNING_AGENT", "INVENTORY_AGENT", "PURCHASING_AGENT"]  # audit_service.AGENT_*
 
@@ -53,12 +51,3 @@ def agent_state(agent_code: AgentCode, db: Session = Depends(get_db)):
     """The agent's C6 state (read-only)."""
     return load_state(db, agent_code).model_dump(mode="json")
 
-
-@supplier_router.post("/negotiations/{negotiation_id}/responses")
-def supplier_response(negotiation_id: uuid.UUID, data: SupplierResponseIn, db: Session = Depends(get_db)):
-    """The supplier form (the tester plays the supplier): delivered to the Purchasing Agent over A2A, which reacts.
-    Returns the session after the agents' reaction. No price/cost field."""
-    return supplier_interface_service.respond(
-        db, negotiation_id, data.round_number, MessageType(data.response_type), data.quantity, data.delivery_date,
-        data.message,
-    )

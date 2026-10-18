@@ -37,8 +37,8 @@ def test_unknown_route_uses_c5_format():
     assert body["error"]["code"] == "NOT_FOUND"
 
 
-@pytest.mark.parametrize("path", ["/a2a/inventory", "/a2a/purchasing", "/a2a/supplier-interface"])
-def test_three_agent_cards_are_served(path):
+@pytest.mark.parametrize("path", ["/a2a/inventory", "/a2a/purchasing"])
+def test_agent_cards_are_served(path):
     card = client.get(f"{path}/.well-known/agent-card.json")
     assert card.status_code == 200
     assert card.json()["supportedInterfaces"][0]["url"].endswith(path)
@@ -61,8 +61,8 @@ def test_a2a_endpoint_refuses_a_message_for_another_receiver():
         "timestamp": "2026-10-01T00:00:00Z",
         "payload": {"terms": {"quantity": 500, "required_date": "2026-10-26"}},
     }
-    ack = send_message("/a2a/supplier-interface", envelope)  # addressed to PURCHASING, sent to the supplier endpoint
-    assert ack["accepted"] is False and "SUPPLIER_INTERFACE" in ack["error"]["message"]
+    ack = send_message("/a2a/inventory", envelope)  # addressed to PURCHASING, sent to the Inventory endpoint
+    assert ack["accepted"] is False and "INVENTORY" in ack["error"]["message"]
 
 
 def test_a2a_refuses_commit_until_the_approval_workflow_exists():

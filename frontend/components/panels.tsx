@@ -194,15 +194,12 @@ function supplierName(messages: Message[]) {
   return /- (.+?):/.exec(note)?.[1] ?? null;
 }
 
-export function NegotiationCard({ negotiation, items, disabled, onRespond }: {
-  negotiation: Negotiation; items: Items; disabled: boolean;
-  onRespond: (body: { round_number: number; response_type: string; quantity?: number; delivery_date?: string }) => void;
-}) {
+// The supplier response form was removed with the legacy supplier routes (2026-10-18): a legacy negotiation can no
+// longer receive a supplier reply. The new supplier chat is the Purchasing test channel (/purchasing/test-channel).
+export function NegotiationCard({ negotiation, items }: { negotiation: Negotiation; items: Items }) {
   const n = negotiation;
-  const [quantity, setQuantity] = useState<number>(n.objective.shortage_quantity);
-  const [delivery, setDelivery] = useState<string>(n.objective.required_by);
   const supplier = supplierName(n.messages);
-  const acting = n.awaiting_supplier ? "Supplier Interface (you)" : n.status === "NEGOTIATING" ? "Purchasing Agent" : "—";
+  const acting = n.awaiting_supplier ? "Supplier (no longer answerable)" : n.status === "NEGOTIATING" ? "Purchasing Agent" : "—";
   return (
     <div className="card">
       <div className="card-head">
@@ -241,21 +238,6 @@ export function NegotiationCard({ negotiation, items, disabled, onRespond }: {
           <b>Agreement:</b> <TermsView terms={n.agreement.agreed_terms} />
           <Badge value={n.agreement.validated ? "VALIDATED" : "INVALID"} />
           {n.agreement.committed ? <Badge value="COMMITTED" /> : <span className="badge warn">NOT COMMITTED</span>}
-        </div>
-      )}
-      {n.awaiting_supplier && (
-        <div className="supplier-form">
-          <div className="row"><b>Supplier response: round {n.round_number} of {n.max_rounds}</b><span className="muted small">You play the supplier. The Purchasing Agent decides what happens next.</span></div>
-          <div className="row">
-            <button className="ok" disabled={disabled} onClick={() => onRespond({ round_number: n.round_number, response_type: "ACCEPT" })}>Accept offer</button>
-            <button className="bad" disabled={disabled} onClick={() => onRespond({ round_number: n.round_number, response_type: "REJECT" })}>Reject</button>
-          </div>
-          <div className="row">
-            <span className="small">Counter:</span>
-            <input type="number" min={1} value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} style={{ width: 90 }} aria-label="quantity" />
-            <input type="date" value={delivery} onChange={(e) => setDelivery(e.target.value)} aria-label="delivery date" />
-            <button disabled={disabled || !quantity || !delivery} onClick={() => onRespond({ round_number: n.round_number, response_type: "COUNTER_OFFER", quantity, delivery_date: delivery })}>Send counter-offer</button>
-          </div>
         </div>
       )}
       {n.reaction_error && <div className="error-box" style={{ marginTop: 10 }}>{n.reaction_error}</div>}

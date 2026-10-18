@@ -29,7 +29,7 @@ export default function SimulationPage() {
   const runPlanning = () => sim.run(
     anyPlanned ? "Replanning all orders: combined MPS / MRP, then negotiations for new orders…" : "Planning: Planning → Inventory → Purchasing (A2A)…",
     api.runPlanning,
-    { success: "Planning finished. See what changed, then answer the supplier negotiations.", trackChange: true },
+    { success: "Planning finished. See what changed.", trackChange: true },
   );
   const createOrder = (data: NewOrder) => sim.run("Saving the customer order…", () => api.createOrder(data), {
     success: `Order saved. Press ${anyPlanned ? "Replan" : "Run planning"} to include it in the plan.`,
@@ -90,13 +90,7 @@ export default function SimulationPage() {
             {attempt && currentNegotiations.length === 0 && <div className="card empty">No shortage for this order: nothing to negotiate.</div>}
             <div className="grid-2">
               {currentNegotiations.map((n) => (
-                <NegotiationCard
-                  key={n.id} negotiation={n} items={s.items} disabled={busy}
-                  onRespond={(body) => void sim.run(
-                    `Supplier ${body.response_type.toLowerCase().replace("_", "-")} sent: Purchasing Agent evaluating…`,
-                    () => api.supplierResponse(n.id, body),
-                  )}
-                />
+                <NegotiationCard key={n.id} negotiation={n} items={s.items} />
               ))}
             </div>
             {attempt && (
@@ -114,7 +108,7 @@ export default function SimulationPage() {
                 <summary>Earlier attempts' negotiations ({earlier.length})</summary>
                 <div className="grid-2" style={{ marginTop: 12 }}>
                   {earlier.flatMap((a) => a.negotiations).map((ref) => s.negotiations[ref.negotiation_id]).filter(Boolean).map((n) => (
-                    <NegotiationCard key={n.id} negotiation={n} items={s.items} disabled onRespond={() => undefined} />
+                    <NegotiationCard key={n.id} negotiation={n} items={s.items} />
                   ))}
                 </div>
               </details>

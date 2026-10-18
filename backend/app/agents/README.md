@@ -18,12 +18,11 @@ POST /agents/planning/orders/{id}
   Planning  -> planning_service.run_plan (MPS, capacity, BOM, MRP)
   Planning  -> Inventory.assess_requirements            (in-process; P1-06 still open)
   Inventory -> open session, REQUEST  --A2A-->  /a2a/purchasing
-  Purchasing: requisition, LLM proposal -> validation -> OFFER  --A2A-->  /a2a/supplier-interface   (round 1 of 3)
-POST /supplier-interface/negotiations/{id}/responses   (the tester as supplier)
-  supplier interface: ACCEPT / COUNTER_OFFER / REJECT  --A2A-->  /a2a/purchasing
-  Purchasing: AGREEMENT_PROPOSED / REJECT --A2A--> /a2a/inventory,  or COUNTER_OFFER --A2A--> supplier interface
-  session AGREEMENT_PROPOSED / REJECTED / FAILED -> Inventory -> Planning   (REJECTED and FAILED reach Planning as FAILED)
+  Purchasing: requisition, LLM proposal -> validation -> OFFER to the supplier interface   (round 1 of 3)
 ```
+**Broken since 2026-10-18:** the supplier interface (`/a2a/supplier-interface`, `/supplier-interface/...` and
+`/negotiations/{id}/supplier-responses`) was removed, so the OFFER can't be delivered and no supplier can answer; this
+legacy flow stops at the first offer. The new supplier chat is the Purchasing test channel.
 
 Everything runs synchronously inside the HTTP request that started it (no event bus, no background jobs).
 
@@ -45,4 +44,4 @@ remaining shortages); rejecting attempt 2 → `HUMAN_INTERVENTION_REQUIRED`. Age
 - `AGREEMENT_PROPOSED` is not committed and nothing is reserved; human approval and `COMMIT` are Phase 4 (C8).
 - C6 has one state row per agent: it describes the negotiation (or order) the agent handled last.
 
-Tests: `tests/agents/` (policy and state, no database), `tests/db/test_phase3_workflow.py` (end to end, needs `TEST_DATABASE_URL`).
+Tests: `tests/agents/` (policy and state, no database), (the end-to-end `tests/db/test_phase3_workflow.py` was removed 2026-10-18 with the supplier routes).

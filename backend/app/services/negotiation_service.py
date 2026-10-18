@@ -10,7 +10,6 @@ Working values still open in C4 / C7 (flagged in docs): negotiation_type, partic
 
 import uuid
 from datetime import date, datetime, time, timezone
-from decimal import Decimal
 
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
@@ -313,60 +312,6 @@ def send_approval_action(db: Session, negotiation_id: uuid.UUID, kind: MessageTy
         sequence_number=len(session.messages) + 1,
         timestamp=_now(),
     )
-    return submit_message(db, negotiation_id, message)
-
-
-def build_supplier_message(
-    db: Session,
-    negotiation_id: uuid.UUID,
-    round_number: int,
-    response_type: MessageType,
-    quantity: Decimal | None = None,
-    delivery_date: date | None = None,
-    note: str | None = None,
-) -> NegotiationMessage:
-    """The supplier form as a C4 message from SUPPLIER_INTERFACE: one response for the current round (C4 section 7,
-    C5 INVALID_STATE_TRANSITION rules). Nothing is stored here."""
-    if response_type not in (MessageType.ACCEPT, MessageType.COUNTER_OFFER, MessageType.REJECT):
-        raise AppError(ErrorCode.VALIDATION_ERROR, "a supplier response is ACCEPT, COUNTER_OFFER or REJECT")
-    row, session = _load(db, negotiation_id)
-    if session.is_ended:
-        raise AppError(ErrorCode.INVALID_STATE_TRANSITION, f"the negotiation is {row.status}")
-    if not session.awaiting_supplier or round_number != session.round_number:
-        raise AppError(
-            ErrorCode.INVALID_STATE_TRANSITION,
-            f"no supplier response is expected for round {round_number}",
-            [{"field": "round_number", "issue": f"current round is {session.round_number}"}],
-        )
-    terms = None
-    if response_type == MessageType.COUNTER_OFFER:
-        if quantity is None or delivery_date is None:
-            raise AppError(ErrorCode.VALIDATION_ERROR, "a counter offer needs quantity and delivery_date")
-        terms = OfferTerms(quantity=quantity, delivery_date=delivery_date)
-    return NegotiationMessage(
-        message_id=str(uuid.uuid4()),
-        negotiation_id=str(negotiation_id),
-        sender=AgentRef(agent_id=SUPPLIER_INTERFACE_ID, agent_type=AgentType.SUPPLIER_INTERFACE),
-        receiver=AgentRef(agent_id=_agent_ids(db)[AgentType.PURCHASING], agent_type=AgentType.PURCHASING),
-        message_type=response_type,
-        sequence_number=len(session.messages) + 1,
-        timestamp=_now(),
-        payload=MessagePayload(terms=terms, message=note),
-    )
-
-
-def submit_supplier_response(
-    db: Session,
-    negotiation_id: uuid.UUID,
-    round_number: int,
-    response_type: MessageType,
-    quantity: Decimal | None = None,
-    delivery_date: date | None = None,
-    note: str | None = None,
-) -> dict:
-    """Store a supplier-form response directly (Phase 2 path; no agent reacts). The agent-driven path is
-    `supplier_interface_service.respond`, which delivers the same message to the Purchasing Agent over A2A."""
-    message = build_supplier_message(db, negotiation_id, round_number, response_type, quantity, delivery_date, note)
     return submit_message(db, negotiation_id, message)
 
 

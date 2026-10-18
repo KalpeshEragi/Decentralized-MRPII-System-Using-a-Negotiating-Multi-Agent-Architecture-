@@ -19,7 +19,6 @@ from app.schemas.negotiation import AgentType, NegotiationMessage
 PATHS = {
     AgentType.INVENTORY: "/a2a/inventory",
     AgentType.PURCHASING: "/a2a/purchasing",
-    AgentType.SUPPLIER_INTERFACE: "/a2a/supplier-interface",
 }
 HEADERS = {"A2A-Version": "1.0"}
 TIMEOUT = 300.0  # a delivery returns after the receiving agent has reacted, which may include LLM calls

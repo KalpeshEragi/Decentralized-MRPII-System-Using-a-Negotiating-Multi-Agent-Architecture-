@@ -1,8 +1,9 @@
-"""A2A endpoints: three A2A HTTP endpoints in this same FastAPI app that carry the C4 envelope (Phase 2 transport).
+"""A2A endpoints (legacy): two A2A HTTP endpoints in this same FastAPI app that carry the C4 envelope (Phase 2
+transport). The legacy `/a2a/supplier-interface` endpoint was removed (2026-10-18), so a legacy negotiation can no
+longer reach or hear from a supplier; the new supplier chat is the Purchasing test channel.
 
     /a2a/inventory           receiver type INVENTORY           -> Inventory Agent
     /a2a/purchasing          receiver type PURCHASING          -> Purchasing Agent
-    /a2a/supplier-interface  receiver type SUPPLIER_INTERFACE  (the supplier form/service, not an agent)
 
 Each is a JSON-RPC endpoint of the official A2A SDK. The client (`app/core/a2a_client.py`) sends an A2A `SendMessage`
 whose message has one data part holding the C4 `NegotiationMessage`; the executor validates it with the protocol,
@@ -42,7 +43,6 @@ logger = logging.getLogger(__name__)
 DESCRIPTIONS = {
     AgentType.INVENTORY: "Inventory Agent endpoint",
     AgentType.PURCHASING: "Purchasing Agent endpoint",
-    AgentType.SUPPLIER_INTERFACE: "Supplier interface endpoint (the supplier form/service, not an agent)",
 }
 ENDPOINTS = {path: (receiver_type, DESCRIPTIONS[receiver_type]) for receiver_type, path in PATHS.items()}
 
