@@ -1,4 +1,4 @@
-"""The Purchasing fixture (docs/purchasing_agent_fixture.md §2–§4) in the three new schemas only: `supplier_service`,
+"""The Purchasing fixture (dev_docs/purchasing_agent/seed_data.md §2–§4) in the three new schemas only: `supplier_service`,
 `purchasing_agent` and `negotiation_engine`. Legacy schemas and the Sales Agent are never touched.
 
 The Pixel Boards contracts overlap on purpose. They are inserted directly, bypassing the contract write check, so the

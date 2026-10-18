@@ -1,4 +1,4 @@
-"""Supplier Service fixture data: docs/purchasing_agent_fixture.md §2–§3.
+"""Supplier Service fixture data: dev_docs/purchasing_agent/seed_data.md §2–§3.
 
 IDs are fixed (derived from the SKU or name), so tests and the Purchasing seed can refer to them. `reset` empties only
 the `supplier_service` tables. The whole fixture (all three new schemas) is loaded by `app.purchasing_agent.seed`.

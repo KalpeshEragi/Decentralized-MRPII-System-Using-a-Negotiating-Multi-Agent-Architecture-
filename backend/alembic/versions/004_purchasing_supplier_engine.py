@@ -1,4 +1,4 @@
-"""004 Supplier Service, Purchasing Agent and Negotiation Engine schemas (docs/database_schema.md §5 and §8).
+"""004 Supplier Service, Purchasing Agent and Negotiation Engine schemas (dev_docs/OVERALL_DATABASE_SCHEMA.md §5 and §8).
 
 Creates only `supplier_service`, `purchasing_agent` and `negotiation_engine`. Legacy schemas (`purchasing`,
 `negotiation`, ...) and the Sales Agent are untouched. References between the three schemas are logical (no database

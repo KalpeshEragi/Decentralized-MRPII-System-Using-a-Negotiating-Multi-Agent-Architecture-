@@ -1,4 +1,4 @@
-"""The Supplier Service tables (schema `supplier_service`, docs/database_schema.md §5.1). They match migration 004.
+"""The Supplier Service tables (schema `supplier_service`, dev_docs/OVERALL_DATABASE_SCHEMA.md §5.1). They match migration 004.
 
 Own declarative base, like the Sales Agent: the legacy demo reset cannot touch these tables. Other modules read this
 data only through `service.py`, never these classes.
