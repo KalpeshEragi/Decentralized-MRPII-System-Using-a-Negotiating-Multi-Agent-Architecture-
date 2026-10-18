@@ -8,7 +8,13 @@ from app.core.config import get_settings
 from app.core.database import new_session
 from app.core.work_runner import WorkRunner
 from app.events import channel
+from app.hr_agent import manager as hr
+from app.inventory_agent import manager as inventory
 from app.negotiation import layer as negotiation
+from app.planning_agent import manager as planning
+from app.warehouse_agent import manager as warehouse
+
+AGENTS = (planning, inventory, hr, warehouse)  # each registers its inbox and event subscriptions
 
 runner = WorkRunner(session_factory=new_session)
 
@@ -18,7 +24,8 @@ def register_all() -> None:
     runner.poll_seconds = settings.worker_poll_seconds
     runner.register(channel.dispatcher_registration(settings.event_dispatcher_workers))
     runner.register(negotiation.outbox_registration())
-    # Agents add their own registrations here as they are built (inbox handlers, work queues).
+    for agent in AGENTS:
+        agent.register(runner.register)
 
 
 def start_workers() -> bool:

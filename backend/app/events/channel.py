@@ -33,7 +33,7 @@ CATALOGUE: dict[str, tuple[str, tuple[str, ...]]] = {
     "PlanAtRisk": (PLANNING, (SALES,)),
     "ProductionOrderReleased": (PLANNING, (WAREHOUSE, HR, INVENTORY)),
     "ProductionStarted": (PLANNING, (SALES, INVENTORY, WAREHOUSE)),
-    "ProductionCompleted": (PLANNING, (SALES, WAREHOUSE)),
+    "ProductionCompleted": (PLANNING, (SALES, WAREHOUSE, HR)),
     "ReservationCommitted": (INVENTORY, (PLANNING,)),
     "ReservationReleased": (INVENTORY, (PLANNING,)),
     "StockAvailabilityChanged": (INVENTORY, (PLANNING,)),
