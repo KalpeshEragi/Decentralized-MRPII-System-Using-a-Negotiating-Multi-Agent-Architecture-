@@ -82,12 +82,14 @@ def receive(db: DbSession, receiver: str, data: object) -> dict:
         terms = envelope.terms
         open_twin = db.scalar(select(Session.id).where(
             Session.case_id == envelope.case_id, Session.resource_type == terms.resource_type.value,
-            Session.resource_ref == terms.resource_ref, Session.starter == envelope.sender,
+            Session.resource_ref == terms.resource_ref, Session.need_ref.is_not_distinct_from(terms.order_id),
+            Session.starter == envelope.sender,
             Session.owner == envelope.receiver, Session.status.in_(("NEGOTIATING", "AGREEMENT_PROPOSED"))))
         if open_twin is not None:  # NG-5: one open negotiation per need and resource
             return _refusal("CONFLICT", f"an open negotiation for this need already exists ({open_twin})")
         row = Session(id=session_id, case_id=envelope.case_id, resource_type=terms.resource_type.value,
-                      resource_ref=terms.resource_ref, starter=new.starter, owner=new.owner, status=new.status,
+                      resource_ref=terms.resource_ref, need_ref=terms.order_id, starter=new.starter, owner=new.owner,
+                      status=new.status,
                       turn=new.turn, round=0, accepted=False, commit_requested=False, message_count=0)
         db.add(row)
     row.status, row.turn, row.round = new.status, new.turn, new.round

@@ -27,6 +27,7 @@ class Session(PlatformBase):
     case_id: Mapped[str] = mapped_column(String, nullable=False)
     resource_type: Mapped[str] = mapped_column(String, nullable=False)
     resource_ref: Mapped[str] = mapped_column(String, nullable=False)
+    need_ref: Mapped[str | None] = mapped_column(String)  # what the resource is for (terms.order_id): the "need" of NG-5
     starter: Mapped[str] = mapped_column(String, nullable=False)
     owner: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False)

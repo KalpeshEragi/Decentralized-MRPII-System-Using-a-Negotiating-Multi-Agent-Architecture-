@@ -4,8 +4,8 @@ per negotiating agent at `/a2a/<agent>`, with its agent card at `/a2a/<agent>/.w
 Store and acknowledge: the endpoint validates the message, stores it (session change + inbox item) and answers at
 once. The agent reacts later, from its inbox worker — no agent work happens inside the HTTP request.
 
-Inventory's and Purchasing's endpoints go live when the old ones at the same paths (`app/api/a2a.py`) are retired
-(Inventory in step 4, Purchasing with the contributor's agent).
+The old 25% endpoints were retired in step 4; Purchasing's endpoint goes live with the contributor's agent (or the
+FAKE stub, step 6).
 """
 
 import asyncio
@@ -26,7 +26,7 @@ from app.core.database import new_session
 from app.negotiation import layer
 from app.negotiation.transport import path_for
 
-LIVE_AGENTS = ("PLANNING", "WAREHOUSE", "HR")
+LIVE_AGENTS = ("PLANNING", "INVENTORY", "WAREHOUSE", "HR")  # Purchasing: with the contributor's agent
 
 _session_factory: Callable[[], Session] = new_session
 

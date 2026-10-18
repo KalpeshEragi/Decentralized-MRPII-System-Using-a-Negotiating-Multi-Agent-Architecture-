@@ -92,7 +92,9 @@ Every REJECT and COUNTER_OFFER carries exactly one of these. Purchasing may add 
 | `INVALID_REQUEST` | The request itself is not valid (missing or wrong terms) |
 
 **One at a time (NG-5):** a starter keeps at most one open negotiation per need and resource; if it fails, it opens
-the next one. No alternative offers are held "just in case".
+the next one. No alternative offers are held "just in case". The need is what the resource is for (`terms.order_id`:
+a customer demand or a production order), so one case may ask for the same item or skill for two production orders.
+Enforced by a partial unique index on (case, resource type, resource, need, starter, owner) over open sessions.
 
 ## 6. How an agent decides inside a negotiation
 

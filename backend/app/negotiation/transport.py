@@ -1,6 +1,6 @@
 """A2A transport for negotiation messages (NG-1): a JSON-RPC `SendMessage` of the official A2A protocol whose message
 carries the envelope as one data part; the endpoint answers with one data part (the acknowledgement). Same wire format
-as the old client (`app/core/a2a_client.py`). The endpoints live in this same app at `A2A_BASE_URL`; tests replace
+as the retired 25% client. The endpoints live in this same app at `A2A_BASE_URL`; tests replace
 the HTTP client with a FastAPI TestClient through `set_http_client`."""
 
 import uuid
