@@ -21,7 +21,7 @@ from app.hr_agent import reads as hr
 from app.inventory_agent import reads as inventory
 from app.models.core import Bom, BomItem, Item, Routing
 from app.mrpii.atp import Dated
-from app.mrpii.hours import RoutingStep, schedule_backward
+from app.mrpii.hours import RoutingStep, round_hours_up as round_hours, schedule_backward
 from app.mrpii.multilevel import BUY, MAKE, BomLine, Demand, ItemData, run_mrp
 from app.planning_agent.models import WorkCenter, WorkCenterDay
 from app.simulation.clock import today
