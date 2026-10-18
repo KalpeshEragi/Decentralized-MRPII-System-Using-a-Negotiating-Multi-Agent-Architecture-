@@ -31,7 +31,7 @@ This is a plan, not a record of what is built. Work only on the current step.
     Status 2026-10-18: design docs written and the agent built standalone (branch `purchasing-agent`); alignment
     with `negotiation.md`, WH-1 and the event catalogue is future integration.
 
-## Implementation steps (current: step 5)
+## Implementation steps (current: step 6)
 
 Each step: implement from the referenced docs → run tests → small commits → fast-forward `master` locally (IMP-4).
 AI steps are switched on only after S1 works; until then owners use template wording and Planning the fixed ranking
@@ -43,7 +43,7 @@ AI steps are switched on only after S1 works; until then owners use template wor
 | [x] 2 | Pure calculations: multi-level MRP, lot sizing, lead-time offset, hours per day (QA-5), ATP by date, capacity fit, PL-6 ranking | `quantity_accounting.md`, `planning_agent/2`, research §4.2 | Research phone example exact · ATP with supplier delay · Ranking filters and ties |
 | [x] 3 | Negotiation v2: starter/owner sessions, A2A store-and-acknowledge, outbox/inbox, holds, commit, expiry, reason codes, `case_id` | `negotiation.md` | Request → offer → hold → commit; duplicate; stale |
 | [x] 4 | Owners: Inventory, HR, Warehouse (templates only) | `inventory_agent/`, `hr_agent/`, `warehouse_agent/` | 5000 → 3000 ledger + no double booking · HR absence cover |
-| [ ] 5 | Planning + Sales integration → **S1 end to end**; retire old agents, routes, tables and their tests | `planning_agent/`, `sales_agent/`, PB-O1, API-4 | S1 request → shipment (fake AI, simulated days) |
+| [x] 5 | Planning + Sales integration → **S1 end to end**; retire old agents, routes, tables and their tests | `planning_agent/`, `sales_agent/`, PB-O1, API-4 | S1 request → shipment (fake AI, simulated days) |
 | [ ] 6 | Replanning: pegging, net change, dampener, time fence, AT_RISK repair; S5–S7; Purchasing stub for S2/S3 | RD-4, RD-5, RD-8, `planning_agent/2` §6 | Worker absence repair · Cancellation release |
 | [ ] 7 | Simulator + observer API + minimal control panel; then switch on the AI steps | `demo.md`, `backend_api.md` §7 | Snapshot restore + reconcile |
 | [ ] 8 | Real Purchasing (contributor); S2–S4, S8; load 10 → 20 → 100 orders with measurements | `demo.md` §8, `system_design.md` §10 | Competing orders across agents |
