@@ -55,7 +55,7 @@ Commands for Git Bash on Windows, from the repository root (use `.venv/bin/pytho
    ```
 
 3. Optional AI model: install Ollama, then `ollama pull qwen3.5:4b`. Defaults: `OLLAMA_BASE_URL=http://localhost:11434/v1`,
-   `OLLAMA_MODEL=qwen3.5:4b`. Without Ollama only the strict reply format works (§12).
+   `OLLAMA_MODEL=qwen3.5:4b`. Without Ollama only the strict reply format works (§13).
 
 ## 4. Run
 
@@ -71,7 +71,70 @@ From `backend/`:
 - API (send requests here): <http://localhost:8000/docs>
 - Supplier chat: <http://localhost:8000/purchasing/test-channel>
 
-## 5. Fixture cheat sheet
+## 5. How to test the changes
+
+For checking what this branch (`purchasing-agent`) changed. Do §3 and §4 first.
+
+### 5.1 What changed
+
+| Change | What to check | Expected result |
+| --- | --- | --- |
+| Purchasing Agent, tickets 01–11: selection, splits, negotiation, reallocation, holds, deadlines, abort, approval, LLM reading/wording with guardrails, no locks during LLM calls | Run the scenarios in §7, then look at the results as in §8 | Each scenario ends as its "Expected" column says; the audit explains every decision |
+| Supplier chat (test channel) and its new hint | Open <http://localhost:8000/purchasing/test-channel>; read the hint; reply in normal words, then with Ollama stopped, in strict format | Hint says write naturally; strict format (`ACCEPT` / `COUNTER <qty> <yyyy-mm-dd>` / `REJECT`) only if the AI model is unavailable. Both ways work (natural text only with the model) |
+| Ollama "thinking" off (`reasoning_effort: "none"` in `backend/app/llm/client.py`) | With Ollama running, time a request submit and a chat reply (see below) | Seconds, not minutes: about 18 s to submit, 8–14 s per reply (2026-10-18). Minutes or fallback-only text means something is wrong |
+| Legacy supplier routes removed | <http://localhost:8000/docs>: look for `/supplier-interface/...` and `/negotiations/{id}/supplier-responses`; open <http://localhost:8000/a2a/supplier-interface/.well-known/agent-card.json> | Neither route is listed; the agent card gives **404** (for contrast, `/a2a/purchasing/.well-known/agent-card.json` still answers). The old three-agent demo stops at its first offer (expected) |
+| Docs moved from `docs/` to `dev_docs/` | Open `dev_docs/README.md` (index) and `dev_docs/PROJECT_STATUS.md` | All current docs are under `dev_docs/`; the old `docs/` folder is gone |
+
+**Timing a call** (Git Bash, server running; use a new `request_ref` each time):
+
+```bash
+curl -s -o /dev/null -w "%{time_total} s\n" -X POST http://localhost:8000/purchasing/procurement-requests \
+  -H "Content-Type: application/json" \
+  -d '{"request_ref":"T-TIME-1","item_id":"17b19502-e17e-5721-b38a-43fb4e5d88ed","shortage_quantity":500,"required_date":"2026-11-05","priority":3,"requested_by":"tester"}'
+```
+
+For a chat reply, count from "Send" until Purchasing's answer appears (the page polls every 2 s).
+
+### 5.2 Automated tests
+
+From `backend/` in Git Bash:
+
+| Run | Command | Notes |
+| --- | --- | --- |
+| Fast, no database | `.venv/Scripts/python -m pytest --ignore=tests/db --ignore=tests/purchasing_agent/db --ignore=tests/sales_agent/db` | About 170 tests, seconds |
+| Purchasing incl. database | `.venv/Scripts/python -m pytest tests/purchasing_agent` | Needs `TEST_DATABASE_URL` in `.env` (a **separate** Neon database; it is wiped). About 25 min. Without it the DB tests are skipped |
+| Everything | `.venv/Scripts/python -m pytest` | Last full run (2026-10-18): 304 passed, 1 failed, 1 skipped |
+
+Warnings:
+- Never run two pytest processes at once on the same test database: they wipe each other's data and fail randomly.
+- Neon sometimes drops connections (503 / setup errors). Rerun before reporting.
+- Known, unrelated failure: `tests/sales_agent/db/test_manager.py::test_a_customer_with_many_accepted_delays_gets_exactly_the_same_request_and_options_as_a_new_one`
+  (a Sales test bug: an unordered query picks history rows without a planning request). Don't report it.
+- The 1 skip is the live-model Sales test (`tests/sales_agent/db/test_live_model.py`, runs only with `RUN_LIVE_MODEL=1`).
+
+### 5.3 Checklist
+
+- [ ] Setup, migrations and seed ran without errors
+- [ ] Fast tests pass
+- [ ] Purchasing tests pass (or only Neon connection errors that pass on rerun)
+- [ ] Chat page opens; hint text as described
+- [ ] A1 + N1 + approve → scheduled receipt
+- [ ] N4 late date countered; N5 unclear ×3 fails; N6 reject fails
+- [ ] B2 split: both accept → AGREEMENT_PROPOSED; reject → APPROVAL_REJECTED
+- [ ] E1 + N2 reallocation (with the model)
+- [ ] E2 holds: second request picks EchoTech
+- [ ] A4 / B4 fail at once with the right Constrained Quantity
+- [ ] Abort, duplicate `request_ref`, duplicate `message_id` behave as described
+- [ ] No price anywhere in the chat
+- [ ] Natural replies understood with Ollama; strict format works without it
+- [ ] Replies take seconds, not minutes
+- [ ] Legacy supplier routes gone (404)
+
+**When reporting a problem, include:** scenario ID, request `id` and `request_ref`, Leg `id`, the exact message text you
+sent, the full response body (status code + JSON), the server log lines around it, the date/time and your timezone
+(the server uses `Asia/Kolkata`), and whether Ollama was running.
+
+## 6. Fixture cheat sheet
 
 Full data and reference results: `seed_data.md`. Item IDs (fixed):
 
@@ -86,7 +149,7 @@ Full data and reference results: `seed_data.md`. Item IDs (fixed):
 
 MOQ = minimum order quantity. Arrival = today + lead days.
 
-## 6. Test scenarios
+## 7. Test scenarios
 
 ### About dates (read first)
 
@@ -141,7 +204,7 @@ A reply timeout (N7) needs 24 h of waiting. To shorten it, set `PURCHASING_RESPO
 (minimum 1) and restart the server; it applies to messages sent after the restart. After 1 h without a reply, the
 next read of the request (or chat) fails the Leg with `timeout` and the request `FAILED`.
 
-## 7. What to check
+## 8. What to check
 
 | Where | Look at |
 | --- | --- |
@@ -152,7 +215,7 @@ next read of the request (or chat) fails the Leg with `timeout` and the request 
 
 The API views show prices (for the tester); the chat never does.
 
-## 8. Business rules
+## 9. Business rules
 
 Files are in `backend/app/purchasing_agent/` unless stated.
 
@@ -197,7 +260,7 @@ Files are in `backend/app/purchasing_agent/` unless stated.
 | Timeout | A PENDING Leg past its deadline: session TIMED_OUT, Leg FAILED `timeout`, request FAILED (all or nothing). | `deadlines.py` `expire_overdue` |
 | Echo | Every answer starts with how Purchasing read the reply ("Understood: …"). | `messages.py` `understood_text` |
 
-## 9. Constraints and limits
+## 10. Constraints and limits
 
 | Constraint | Value / default | Setting or source | What it means |
 | --- | --- | --- | --- |
@@ -219,7 +282,7 @@ Files are in `backend/app/purchasing_agent/` unless stated.
 | Lock order | request → its Legs; supplier-item advisory locks in key order | `availability.py`, `deadlines.py` | Same order everywhere, so no deadlocks; no lock held during LLM calls. |
 | Stale offer | reply to an offer that changed meanwhile → 409 `offer: superseded` | `negotiation.py` `receive_supplier_message` | Answer the current offer. |
 
-## 10. States
+## 11. States
 
 ### a) Procurement Request (`RequestStatus`)
 
@@ -295,7 +358,7 @@ Files are in `backend/app/purchasing_agent/` unless stated.
 
 Display note: the AI rewording of an offer arrives a few seconds later, so you may first see the plain template text.
 
-## 11. Known limits
+## 12. Known limits
 
 - No access control: anyone can approve, reject, abort or open any supplier's chat (test build).
 - AI is slow: about 4–9 s per model call; submitting a request ~18 s, a supplier reply ~8–14 s (live check
@@ -304,7 +367,7 @@ Display note: the AI rewording of an offer arrives a few seconds later, so you m
   Use only the routes in this guide.
 - Not connected to Planning, Inventory or Warehouse. Approved receipts are not used up anywhere.
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 | Symptom | Meaning / fix |
 | --- | --- |
@@ -317,7 +380,7 @@ Display note: the AI rewording of an offer arrives a few seconds later, so you m
 | 422 | Bad input: unknown `item_id`, fractional or ≤ 0 quantity, missing field. Error body: `{"error": {code, message, details}}`. |
 | Strange leftovers | Re-run the seed (§4) to start clean. |
 
-## 13. Read more
+## 14. Read more
 
 - `1_purchasing_agent_high_architecture.md` … `4_purchasing_agent_database.md`: boundary, functions, backend, tables.
 - `purchasing_agent_architecture.md`: all rules in detail. `seed_data.md`: fixture and reference scenarios.
