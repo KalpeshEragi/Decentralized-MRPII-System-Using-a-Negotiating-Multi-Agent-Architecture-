@@ -40,3 +40,17 @@ def change_settings(changes: dict[str, Any], db: Session = Depends(get_db)) -> d
     result = settings.update_settings(db, changes)
     db.commit()
     return result
+
+
+@router.post("/triggers/supplier-delay", dependencies=[Depends(require_door_key("simulation_door_key"))])
+def supplier_delay(body: dict[str, Any], db: Session = Depends(get_db)) -> dict:
+    """Trigger S2: a supplier announces a later date for a committed delivery. The fact goes through Purchasing (the
+    owner of the supplier commitment); agents react to its event. {"leg_id": ..., "new_date": "YYYY-MM-DD"}"""
+    from datetime import date
+    from uuid import UUID
+
+    from app.purchasing_agent import a2a as purchasing
+
+    payload = purchasing.record_supplier_delay(db, UUID(str(body["leg_id"])), date.fromisoformat(body["new_date"]))
+    db.commit()
+    return payload

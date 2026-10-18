@@ -30,6 +30,7 @@ DEFAULTS: dict[str, object] = {
     "overtime_max_hours_per_day": 2,             # HR-3
     "overtime_max_hours_per_week": 8,            # HR-3
     "quiet_limit_seconds": 300,                  # demo.md §6
+    "simulated_suppliers": 1,                    # PI-1: 1 = suppliers answer automatically, 0 = a person answers
 }
 
 
