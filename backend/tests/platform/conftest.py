@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import text
+from sqlalchemy import func, literal, select, text, union_all
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import get_settings
@@ -76,25 +76,44 @@ def pump(session_factory, agents):
     a2a_endpoints.set_session_factory(session_factory)
     transport.set_http_client(TestClient(app))
 
-    agent_work = [r for r in workers.runner.registrations
-                  if r.mode == "short" and r.model not in (Message, EventDelivery)]
+    # Every queue the pump drains: (model, how one item is run). Inbox messages go to the handler registered for their
+    # receiver (layer.handle_inbox), so a test's fake inbox (e.g. a FAKE Planning) is served like a real one.
+    queues = [(Outbox, lambda: wr.run_one_long(session_factory, Outbox, layer.send_outbox_item, "test-sender")),
+              (Message, lambda: wr.run_one_short(session_factory, Message, layer.handle_inbox)),
+              (EventDelivery, lambda: wr.run_one_short(session_factory, EventDelivery, channel.deliver))]
+    for registration in workers.runner.registrations:  # agents' own short queues (e.g. Planning's work items)
+        if registration.mode == "short" and registration.model not in (Message, EventDelivery):
+            queues.append((registration.model,
+                           lambda r=registration: wr.run_one_short(session_factory, r.model, r.handler)))
+    trace = os.environ.get("PUMP_TRACE")  # set to see each pump round
 
-    trace = os.environ.get("PUMP_TRACE")  # set to see how long each pump round takes
+    def unfinished(db) -> dict[type, int]:
+        """One query: how many unfinished items each queue has (the remote test database makes every trip count)."""
+        parts = [select(literal(i).label("q"), func.count().label("n")).select_from(model)
+                 .where(model.status.not_in(wr.FINISHED)) for i, (model, _) in enumerate(queues)]
+        return {queues[q][0]: n for q, n in db.execute(union_all(*parts)).all() if n}
 
-    def run(extra_inboxes=()) -> None:
-        inboxes = [*agents, *extra_inboxes]
-        for round_no in range(500):
+    def run(extra_inboxes=()) -> None:  # extra_inboxes: kept for older tests; every inbox is served anyway
+        for round_no in range(200):
+            with session_factory() as db:
+                waiting = unfinished(db)
             if trace:
-                print(f"pump round {round_no} at {time.strftime('%X')}", flush=True)
-            worked = wr.run_one_long(session_factory, Outbox, layer.send_outbox_item, "test-sender")
-            for registration in inboxes:
-                worked |= wr.run_one_short(session_factory, Message, layer.handle_inbox, where=registration.where)
-            worked |= wr.run_one_short(session_factory, EventDelivery, channel.deliver)
-            for registration in agent_work:  # agents' own short queues (e.g. Planning's work items)
-                worked |= wr.run_one_short(session_factory, registration.model, registration.handler)
+                print(f"pump round {round_no} at {time.strftime('%X')}: "
+                      f"{ {m.__tablename__: n for m, n in waiting.items()} }", flush=True)
+            worked = False
+            for model, run_one in queues:
+                if model in waiting:
+                    while run_one():  # drain this queue before asking again
+                        worked = True
             if not worked:
-                return
-        raise AssertionError("work did not settle")
+                break
+        else:
+            raise AssertionError("work did not settle")
+        with session_factory() as db:  # nothing may be left behind: a failing handler would only be retried later
+            stuck = [(model.__tablename__, row.kind, row.status, row.last_error)
+                     for model, _ in queues
+                     for row in db.scalars(select(model).where(model.status.not_in(wr.FINISHED)))]
+        assert not stuck, f"unfinished work after the pump: {stuck}"
 
     yield run
     transport.set_http_client(None)
@@ -128,3 +147,28 @@ def fake_planning():
         return session_id
 
     return registration, request
+
+
+@pytest.fixture
+def factory(session_factory, monkeypatch):
+    """The phone factory of `phone_factory.py`, with the doors keyed and the API on the test database.
+    Returns the item ids, the start day and a `client` for the doors."""
+    from fastapi.testclient import TestClient
+
+    from app.core.database import get_db
+    from app.main import app
+    from tests.platform import phone_factory
+
+    monkeypatch.setattr(get_settings(), "planning_door_key", phone_factory.KEY)
+    monkeypatch.setattr(get_settings(), "simulation_door_key", phone_factory.KEY)
+
+    def test_db():
+        with session_factory() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = test_db
+    with session_factory() as db:
+        built = phone_factory.build(db)
+        db.commit()
+    yield {**built, "client": TestClient(app)}
+    app.dependency_overrides.pop(get_db, None)
