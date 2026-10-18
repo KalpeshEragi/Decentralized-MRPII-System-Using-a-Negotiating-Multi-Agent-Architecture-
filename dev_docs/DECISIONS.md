@@ -45,7 +45,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 | --- | --- |
 | HA-1 | One backend program, six agent modules; agents talk only through shared infrastructure. |
 | HA-2 | One database, one schema per agent, shared reference schema; cross-agent reads via read functions. |
-| HA-3 | Procurement starts when a requester submits a Procurement Request through the Purchasing API (built: a test API, `requested_by`). Which agent is the requester in the integrated system is decided at integration (updated 2026-10-18; replaces "Planning starts procurement", which no code implements). |
+| HA-3 | Planning starts procurement (replaces the old "Inventory starts" design). Today the standalone Purchasing Agent receives Procurement Requests through its own API from a test requester (`requested_by`); Planning becomes the requester at integration. |
 | HA-4 | Negotiation partners are dynamic and rule-governed: an agent negotiates only when a fact change breaks its own commitment, it cannot fix it alone, and the fix needs a resource owned by another agent (ownership map). |
 | HA-5 | The problem-holder starts, the owner responds; one two-party session per owner, linked by a case id. |
 | HA-6 | Follow-up negotiation depth limit 3 (starting value), then human escalation. |

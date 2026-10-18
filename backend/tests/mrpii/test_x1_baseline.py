@@ -1,4 +1,4 @@
-"""X1 baseline and scenario numbers from the former docs/smartphone_x1_fixture.md (removed 2026-10-16; still in git history)."""
+"""X1 baseline and scenario numbers from app/data/x1_fixture.py."""
 
 from datetime import date
 from decimal import Decimal

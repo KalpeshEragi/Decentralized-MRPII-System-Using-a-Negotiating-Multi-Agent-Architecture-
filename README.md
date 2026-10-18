@@ -8,6 +8,7 @@ and published events instead of one central planner. Business calculations stay 
 **Status (branch `purchasing-agent`, 2026-10-18):** Sales Agent implemented; Purchasing Agent implemented standalone
 (with the Supplier Service, supplier test chat and Negotiation Engine). Other agents and multi-agent integration are
 not built. Details: `dev_docs/PROJECT_STATUS.md`.
+Project phase and phase gates: `dev_docs/ROADMAP.md`. The backend still holds code from the earlier three-agent design (legacy; reviewed in Phase 2).
 
 ## Repository layout
 
@@ -22,10 +23,11 @@ not built. Details: `dev_docs/PROJECT_STATUS.md`.
 
 ## Start here
 
-1. `dev_docs/README.md`: doc index and what is built.
-2. `dev_docs/PROJECT_STATUS.md`: what is actually in the repository.
-3. `dev_docs/DECISIONS.md` and `dev_docs/adr/`: confirmed and open decisions.
-4. Agent notes: `dev_docs/sales_agent/`, `dev_docs/purchasing_agent/`, `dev_docs/supplier/`.
+1. `dev_docs/ROADMAP.md`: phases and the current phase.
+2. `dev_docs/README.md`: doc index and what is built.
+3. `dev_docs/PROJECT_STATUS.md`: what is actually in the repository.
+4. `dev_docs/DECISIONS.md` and `dev_docs/adr/`: confirmed and open decisions.
+5. Agent notes: `dev_docs/<agent>_agent/` (Sales, Planning, Inventory, Purchasing, Warehouse, HR) and `dev_docs/supplier/`.
 
 ## Setup
 

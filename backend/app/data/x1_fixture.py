@@ -1,4 +1,4 @@
-"""SmartPhone X1 fixture (X1-v2), transcribed from the former docs/smartphone_x1_fixture.md (removed 2026-10-16; still in git history). Do not change these numbers.
+"""SmartPhone X1 fixture (X1-v2). Do not change these numbers.
 
 Scenario variants (fixture section 7) are built with the keyword overrides below, each from the untouched baseline.
 """

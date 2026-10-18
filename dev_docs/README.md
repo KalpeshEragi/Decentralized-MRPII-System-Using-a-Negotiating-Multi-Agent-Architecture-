@@ -17,7 +17,7 @@ LLMs help with wording and reasoning but are never the source of business truth.
 | Purchasing Agent | Implemented standalone (tickets 01–11); runs and is tested on its own, with test inputs instead of other agents | `backend/app/purchasing_agent/` (README), `purchasing_agent/` |
 | Supplier Service | Read-only supplier data service + supplier-facing test chat. **Not an agent** | `backend/app/supplier_service/`, `supplier/` |
 | Negotiation Engine | Shared infrastructure: sessions, messages, rounds, deadlines; no business decisions. Hosts only Purchasing ↔ supplier sessions today (hard-coded) | `backend/app/negotiation_engine/` |
-| Planning, Inventory, Warehouse, HR (roster final: six agents, no separate Production agent, `DECISIONS.md` O-9) | **Not built** in the new architecture. Older agent code in `backend/app/agents/` etc. is legacy/provisional | — |
+| Planning, Inventory, Warehouse, HR (roster final: six agents, no separate Production agent, `DECISIONS.md` O-9) | Designed (4 notes each), **not built** in the new architecture. Older agent code in `backend/app/agents/` etc. is legacy/provisional | `planning_agent/`, `inventory_agent/`, `warehouse_agent/`, `hr_agent/` |
 | Multi-agent integration (A2A, Pub/Sub, cross-agent commit) | **Not built**; open decisions | `adr/ADR-001.md` §10, `DECISIONS.md` |
 
 Details and test results: `PROJECT_STATUS.md`.
@@ -42,14 +42,12 @@ Details and test results: `PROJECT_STATUS.md`.
 | `purchasing_agent/diagrams/` | Purchasing diagrams |
 | `supplier/1`–`4` | Supplier (not an agent): overview and boundaries, test-channel chat, Supplier Service backend, `supplier_service` tables and seed |
 | `sales_agent/1`–`4` | Sales Agent design notes (architecture, functions, backend, database) |
+| `planning_agent/`, `inventory_agent/`, `warehouse_agent/`, `hr_agent/` | Design notes for the other agents (4 notes each) |
+| `research/real_manufacturing_mrpii_research.md` | How real MRPII/ERP systems work; sources; gap analysis |
 | `architecture/` | Six-agent design: high-level architecture, event channel, negotiation, quantity accounting, system design, backend API, demo |
-| `SCENARIOS.md` | Business scenarios (SmartPhone X1) |
-| `TECH_STACK.md` | Original early stack plan (history; superseded by `DECISIONS.md`) |
 | `*.png` | System and relational schema diagrams (to be redrawn by the developer) |
 | `agents/` | How the engineering skills use this repo: issue tracker (`.scratch/`), triage labels, domain docs |
 | `/.scratch/purchasing-agent/` | Purchasing spec and tickets 01–11 |
 
-**Not on this branch:** `planning_agent/`, `inventory_agent/`, `warehouse_agent/`, `hr_agent/` and
-`research/real_manufacturing_mrpii_research.md` are referenced by `ROADMAP.md` and `DECISIONS.md`; they exist on
-`origin/master`. Each agent folder follows the Sales pattern: `1_high_level_architecture`, `2_functions`, `3_backend`,
-`4_database`.
+
+Each agent folder follows the Sales pattern: `1_high_level_architecture`, `2_functions`, `3_backend`, `4_database`.

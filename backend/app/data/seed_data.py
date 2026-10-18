@@ -1,4 +1,4 @@
-"""Deterministic X1 seed and reset (fixture: the former docs/smartphone_x1_fixture.md (removed 2026-10-16; still in git history)).
+"""Deterministic X1 seed and reset (fixture: app/data/x1_fixture.py).
 
 `reset_and_seed(db)` empties every C2 table and loads the X1 baseline: the finished product, single-level BOM, the six
 component inventory positions (one aggregated warehouse), the 14 suppliers with their supplier items, the three

@@ -136,7 +136,7 @@ unless a later need appears.
 
 1. Customer ↔ Sales: details collected and validated. Sales → Planning: feasibility request.
 2. Planning runs MPS/BOM/MRP/capacity/schedule and checks resources owned by others, negotiating where needed
-   (stock with Inventory; **procurement with Purchasing — via a Procurement Request; the requester is decided at integration (HA-3)**; space with Warehouse;
+   (stock with Inventory; **procurement with Purchasing — Planning starts procurement (a Procurement Request, HA-3)**; space with Warehouse;
    workers with HR). Tentative holds may be used and may expire.
 3. Planning → Sales: feasible options, or "nothing feasible". Sales presents only these.
 4. Customer accepts → `OrderConfirmed`. Planning re-validates and owners commit their resources →
@@ -150,7 +150,7 @@ unless a later need appears.
 | --- | --- | --- |
 | HA-1 | One backend program, six agent modules, communication only via shared infrastructure | Decided 2026-10-16 |
 | HA-2 | One database, one schema per agent, shared reference schema, cross-agent reads via read functions | Decided 2026-10-16 |
-| HA-3 | Procurement starts when a requester submits a Procurement Request through the Purchasing API (built: a test API, `requested_by`). Which agent is the requester in the integrated system is decided at integration (updated 2026-10-18; replaces "Planning starts procurement", which no code implements). | Updated 2026-10-18 |
+| HA-3 | Planning starts procurement (replaces the old "Inventory starts" design). Today the standalone Purchasing Agent receives Procurement Requests through its own API from a test requester (`requested_by`); Planning becomes the requester at integration. | Decided 2026-10-16; Purchasing note 2026-10-18 |
 | HA-4 | Dynamic, rule-governed negotiation partners (§6) instead of fixed pairs | Decided 2026-10-17 |
 | HA-5 | Problem-holder starts, owner responds; one two-party session per owner, linked by case id | Decided 2026-10-17 |
 | HA-6 | Follow-up depth limit 3, then human escalation | Decided 2026-10-17 (starting value) |
