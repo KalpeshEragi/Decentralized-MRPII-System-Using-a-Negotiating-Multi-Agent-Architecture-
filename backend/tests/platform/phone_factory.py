@@ -14,11 +14,12 @@ from sqlalchemy import select
 from app.hr_agent import manager as hr
 from app.inventory_agent import manager as inventory
 from app.models.core import Bom, BomItem, Item, ItemType, Routing
-from app.planning_agent import manager as planning, reads as plans
+from app.planning_agent import manager as planning
 from app.planning_agent.models import SalesOutbox
 from app.sales_agent.models import Product
 from app.sales_agent.planning import RealPlanning
-from app.simulation.clock import next_day, today
+from app.simulation import runner
+from app.simulation.clock import today
 from app.warehouse_agent import manager as warehouse
 
 PRODUCT_ID = uuid.UUID("5e1e0000-0000-4000-8000-000000000001")
@@ -84,18 +85,11 @@ def confirm(session_factory, sent: dict, order_number: str, quantity: int, due: 
 
 
 def run_day(session_factory, pump, client: TestClient) -> date:
-    """Advance one simulated day; the simulated shop floor runs every order starting that day in one day."""
-    with session_factory() as db:
-        next_day(db)
-        db.commit()
-    pump()
-    with session_factory() as db:
-        day = today(db)
-        orders = [o for o in plans.production_orders(db, "RELEASED") if o["start_day"] == day.isoformat()]
-    for order in orders:
-        for kind, quantity in (("STARTED", None), ("QUANTITY_COMPLETED", order["quantity"])):
-            body = {"report_id": f"{order['id']}:{kind}", "production_order_id": order["id"], "kind": kind,
-                    "quantity": quantity}
-            assert client.post("/planning/shop-floor/reports", json=body, headers={"X-Door-Key": KEY}).status_code == 202
-    pump()
-    return day
+    """One simulated day through the simulator's own day cycle (`app/simulation/runner.py`): advance the clock, let
+    every agent finish, the simulated shop floor reports, let every agent finish. The pump stands in for the
+    background workers (and fails the test if any work is left unfinished)."""
+    def settle() -> dict:
+        pump()
+        return {}
+
+    return date.fromisoformat(runner.run_one_day(session_factory, settle)["day"])
