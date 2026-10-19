@@ -39,3 +39,19 @@ class Setting(PlatformBase):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
                                                  onupdate=func.now())
+
+
+class TriggerLog(PlatformBase):
+    """Every trigger the operator (or a scenario) fires, now or scheduled for a simulated day (demo.md §7)."""
+
+    __tablename__ = "trigger_log"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String, nullable=False)  # WORKER_ABSENT, SUPPLIER_DELAY, ...
+    params: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    scheduled_day: Mapped[date | None] = mapped_column(Date)  # empty = fired at once
+    status: Mapped[str] = mapped_column(String, nullable=False, default="SCHEDULED")  # SCHEDULED, DONE, FAILED
+    result: Mapped[dict | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
