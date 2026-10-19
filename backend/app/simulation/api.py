@@ -1,32 +1,53 @@
-"""Simulation doors of step 1 (demo.md §13): the clock and the factory settings. The rest of the simulator
-(states, scenarios, triggers, Play/Pause, runs) comes in step 7. The old `POST /simulation/reset` stays in
-`app/api/simulation.py` until the Phase 2 retirement."""
+"""Simulation doors (demo.md §13): the clock (next day, Play, Pause, what is still waiting), the factory settings and
+triggers. States, scenarios and runs come later in step 7."""
 
+import threading
+from collections.abc import Callable
+from datetime import date
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import get_db, new_session
 from app.core.doors import require_door_key
-from app.simulation import clock, settings
+from app.simulation import clock, runner, settings, triggers
+from app.simulation.models import TriggerLog
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
+
+
+def get_session_factory() -> Callable[[], Session]:
+    """How the day cycle opens its own sessions (it runs in the background). Tests replace it."""
+    return new_session
 
 
 @router.get("/clock")
 def get_clock(db: Session = Depends(get_db)) -> dict:
     current = clock.get_clock(db)
     db.commit()  # the row is created on first use
-    return {"current_day": current.current_day.isoformat(), "status": current.status}
+    return {"current_day": current.current_day.isoformat(), "status": current.status, "waiting": runner.waiting(db)}
 
 
-@router.post("/clock/next-day")
-def next_day(db: Session = Depends(get_db)) -> dict:
-    """Advance one simulated day; publishes SimulatedDayStarted."""
-    day = clock.next_day(db)
-    db.commit()
-    return {"current_day": day.isoformat()}
+@router.post("/clock/next-day", status_code=202)
+def next_day(session_factory: Callable[[], Session] = Depends(get_session_factory)) -> dict:
+    """Play one simulated day in the background: advance, wait until quiet, shop floor, wait until quiet."""
+    threading.Thread(target=runner.run_one_day, args=(session_factory,), name="simulation-day", daemon=True).start()
+    return {"status": "started"}
+
+
+@router.post("/clock/play", status_code=202)
+def play(session_factory: Callable[[], Session] = Depends(get_session_factory)) -> dict:
+    """Advance day after day, each only when the factory is quiet, until paused (DM-1)."""
+    runner.play(session_factory)
+    return {"status": "PLAYING"}
+
+
+@router.post("/clock/pause")
+def pause(session_factory: Callable[[], Session] = Depends(get_session_factory)) -> dict:
+    runner.pause(session_factory)
+    return {"status": "PAUSED"}
 
 
 @router.get("/settings")
@@ -42,15 +63,15 @@ def change_settings(changes: dict[str, Any], db: Session = Depends(get_db)) -> d
     return result
 
 
-@router.post("/triggers/supplier-delay", dependencies=[Depends(require_door_key("simulation_door_key"))])
-def supplier_delay(body: dict[str, Any], db: Session = Depends(get_db)) -> dict:
-    """Trigger S2: a supplier announces a later date for a committed delivery. The fact goes through Purchasing (the
-    owner of the supplier commitment); agents react to its event. {"leg_id": ..., "new_date": "YYYY-MM-DD"}"""
-    from datetime import date
-    from uuid import UUID
-
-    from app.purchasing_agent import a2a as purchasing
-
-    payload = purchasing.record_supplier_delay(db, UUID(str(body["leg_id"])), date.fromisoformat(body["new_date"]))
+@router.post("/triggers", status_code=201, dependencies=[Depends(require_door_key("simulation_door_key"))])
+def add_trigger(body: dict[str, Any], db: Session = Depends(get_db)) -> dict:
+    """Fire a trigger now, or schedule it for a simulated day: {"kind", "params", "day"?} (demo.md §7)."""
+    day = date.fromisoformat(body["day"]) if body.get("day") else None
+    entry = triggers.add(db, body["kind"], body.get("params", {}), day)
     db.commit()
-    return payload
+    return triggers.view(entry)
+
+
+@router.get("/triggers")
+def list_triggers(db: Session = Depends(get_db)) -> list[dict]:
+    return [triggers.view(t) for t in db.scalars(select(TriggerLog).order_by(TriggerLog.id))]

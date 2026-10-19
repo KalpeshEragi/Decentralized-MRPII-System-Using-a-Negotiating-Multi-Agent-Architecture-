@@ -82,9 +82,9 @@ def test_a_supplier_delay_moves_the_expected_delivery_and_puts_the_order_at_risk
     with session_factory() as db:
         (leg,) = db.scalars(select(PurchaseRequisition).where(PurchaseRequisition.status == "COMMITTED")).all()
     late = leg.agreed_delivery_date + timedelta(days=2)
-    answer = client.post("/simulation/triggers/supplier-delay", json={"leg_id": str(leg.id), "new_date": late.isoformat()},
-                         headers={"X-Door-Key": KEY})
-    assert answer.status_code == 200, answer.text
+    answer = client.post("/simulation/triggers", headers={"X-Door-Key": KEY}, json={
+        "kind": "SUPPLIER_DELAY", "params": {"leg_id": str(leg.id), "new_date": late.isoformat()}})
+    assert answer.status_code == 201 and answer.json()["status"] == "DONE", answer.text
     pump()
 
     with session_factory() as db:
