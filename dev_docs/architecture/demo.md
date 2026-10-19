@@ -21,6 +21,7 @@ did and why. It is **infrastructure, not an agent**: it changes conditions; agen
 | DM-4 | On reset, a **run report** is saved, then all run data is cleared or restored (§12). |
 | DM-5 | Every simulated day is a working day unless HR's calendar says otherwise for a worker (resolves HR-O2 / HB-O2). |
 | DM-6 | Randomness is optional, only for outside-world facts, and always seeded per run (§10). |
+| DM-7 | The customer driver has two modes, chosen by a setting (decided 2026-10-20): **structured** (default; product, quantity and date reach Sales as data through a simulated-customer door, so only the language-reading step is skipped and everything after is Sales' normal code; for large runs such as 100 orders, no Ollama needed) and **chat** (simulated customers type messages that Sales reads with the model; for showing one or two orders live). Refines DM-3. |
 
 ## 3. Parts of the simulator
 
@@ -141,6 +142,8 @@ A scenario = a starting state + a list of (simulated day, trigger) + customer-dr
 ## 9. Customer driver (DM-3)
 
 - Simulated customers (fictional phone numbers) send requests through Sales door 1 — the same path as a real chat.
+- Two modes (DM-7): **structured** (default, for large runs: the request reaches Sales as data) and **chat**
+  (messages read by the model, for showing one or two orders live).
 - Rules (configurable, seeded): orders per simulated day, product mix, quantities, requested dates.
 - Answering options: it reads the inquiry's options from Sales' view door (structured data, not the chat text) and
   replies with a short fixed message by a rule (default: accept REQUESTED; else LATER_DATE if ≤ 10 days later; else

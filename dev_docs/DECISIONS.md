@@ -191,6 +191,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 | DM-4 | On reset a run report is saved, then all run data is cleared or restored. |
 | DM-5 | Every simulated day is a working day unless HR's calendar says otherwise for a worker. |
 | DM-6 | Randomness is optional, only for outside-world facts, and seeded per run. |
+| DM-7 | The customer driver has two modes, chosen by a setting (decided 2026-10-20): **structured** (default; product, quantity and date reach Sales as data through a simulated-customer door, so only the language-reading step is skipped and everything after is Sales' normal code; for large runs such as 100 orders, no Ollama needed) and **chat** (simulated customers type messages that Sales reads with the model; for showing one or two orders live). Refines DM-3. |
 
 ### Implementation plan (2026-10-17, see `ROADMAP.md`)
 

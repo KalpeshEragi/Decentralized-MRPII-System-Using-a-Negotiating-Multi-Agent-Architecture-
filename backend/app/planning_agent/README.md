@@ -14,7 +14,9 @@ Deterministic in step 5: the fixed ranking (PL-6) and template wording stand in 
 Sales reaches this agent when `PLANNING_CONNECTOR=real` (`sales_agent/planning.py` `RealPlanning`); the default is still
 the fake Planning.
 
-Not yet (rest of step 6): buying through Purchasing (a plan that needs a bought item not in stock is infeasible for
-now), counter-offer alternatives and the ranking between them, replanning on disruptions and order changes.
+Also (step 6): worker absence repair (S5: move the missing hours to another day through HR, or `PlanAtRisk` inside
+the time fence), order change as a delta (S7, QA-3, RD-8 dampener), buying short items through Purchasing (PI-6; a
+supply need arrives the day before production), a late supplier delivery → `PlanAtRisk` with an estimated date (S2).
+Not yet: counter-offer alternatives and the AI ranking between them (step 7 switches the AI steps on).
 
-**Tests:** `backend/tests/platform/test_s1_order_flow.py` (S1 end to end), `test_replanning.py` (S6 cancellation).
+**Tests:** `backend/tests/platform/test_s1_order_flow.py` (S1), `test_replanning.py` (S5, S6, S7), `test_supply_flow.py` (S2, S3).
