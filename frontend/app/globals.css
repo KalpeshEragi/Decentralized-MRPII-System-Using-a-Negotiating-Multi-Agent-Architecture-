@@ -37,7 +37,7 @@ button { font: inherit; cursor: pointer; }
 
 /* top bar */
 .topbar {
-  display: flex; align-items: center; gap: 16px; padding: 0 20px; background: var(--card-solid);
+  display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--card-solid);
   border-bottom: 1px solid var(--line); z-index: 5;
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; letter-spacing: -0.3px; }
@@ -51,11 +51,14 @@ button { font: inherit; cursor: pointer; }
   border: 1px solid var(--line); background: #f7f9fc; white-space: nowrap; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .dot.live { background: var(--green); box-shadow: 0 0 0 4px var(--green-soft); }
-.btn { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 7px 12px; font-size: 13px; }
+.btn { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 7px 12px; font-size: 13px;
+  white-space: nowrap; }
 .btn:hover { border-color: var(--blue); }
 .btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 select.btn { padding-right: 8px; }
+.topbar select.btn { max-width: 210px; text-overflow: ellipsis; }
+@media (max-width: 1400px) { .brand small { display: none; } .topbar .pill.paused { max-width: 120px; overflow: hidden; text-overflow: ellipsis; } }
 
 /* KPI cards */
 .kpis { position: absolute; top: 16px; left: 16px; display: flex; gap: 12px; z-index: 3; flex-wrap: wrap; max-width: 70%; }
@@ -166,3 +169,5 @@ select.btn { padding-right: 8px; }
 .report-kpis span { font-size: 12px; color: var(--muted); }
 .report-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
 @media (max-width: 640px) { .report-cols, .report-kpis { grid-template-columns: 1fr 1fr; } }
+.field.small { width: 72px; }
+.pair { display: inline-flex; gap: 6px; }

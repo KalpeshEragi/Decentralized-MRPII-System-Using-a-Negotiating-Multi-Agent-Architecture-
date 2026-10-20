@@ -5,9 +5,9 @@
 import { useEffect, useState } from "react";
 import { api, Live, Scenario } from "@/lib/api";
 
-export function TopBar({ live, onChanged, onError, onDisruptions, onReport }: {
+export function TopBar({ live, onChanged, onError, onDisruptions, onCustomers, onReport }: {
   live: Live | null; onChanged: (reset?: boolean) => void; onError: (message: string) => void;
-  onDisruptions: () => void; onReport: (runId: number | null) => void;
+  onDisruptions: () => void; onCustomers: () => void; onReport: (runId: number | null) => void;
 }) {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [chosen, setChosen] = useState("S1");
@@ -64,6 +64,7 @@ export function TopBar({ live, onChanged, onError, onDisruptions, onReport }: {
       </select>
       <button className="btn" disabled={busy || playing}
               onClick={() => act(`/simulation/scenarios/${chosen}/start`, { seed: 1 }, true)}>Start scenario</button>
+      <button className="btn" onClick={onCustomers} title="Simulated customers: how many, structured or chat">👥 Customers</button>
       <button className="btn" onClick={onDisruptions} title="Fire a simulator trigger">⚡ Disruption</button>
       {live?.run
         ? <button className="btn" disabled={busy} onClick={() => finishRun(live.run!.id)}>Finish run {live.run.scenario}</button>
