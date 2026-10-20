@@ -7,7 +7,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from app.planning_agent.models import CustomerDemand, ProductionOrder
+from app.planning_agent.models import Case, CustomerDemand, ProductionOrder, WorkCenter
 
 
 def _order(o: ProductionOrder) -> dict:
@@ -52,8 +52,37 @@ def get_order_plan(db: DbSession, order_ref: str) -> dict | None:
     orders = db.scalars(select(ProductionOrder).where(ProductionOrder.demand_id == demand.id,
                                                       ProductionOrder.status != "CANCELLED")).all()
     return {"demand_id": str(demand.id), "request_ref": demand.request_ref, "order_number": demand.sales_order_number,
+            "sales_inquiry_id": demand.sales_inquiry_id,
             "item_id": demand.item_id, "quantity": str(demand.quantity), "requested_day": demand.requested_day.isoformat(),
             "status": demand.status,
             "committed_quantity": str(demand.committed_quantity) if demand.committed_quantity is not None else None,
             "committed_day": demand.committed_day.isoformat() if demand.committed_day else None,
             "production_orders": [_order(o) for o in orders]}
+
+
+def demands(db: DbSession, limit: int = 500) -> list[dict]:
+    """Every customer demand Planning knows, newest first (the observer's order list)."""
+    return [{"demand_id": str(d.id), "request_ref": d.request_ref, "order_number": d.sales_order_number,
+             "sales_inquiry_id": d.sales_inquiry_id, "item_id": d.item_id, "quantity": str(d.quantity),
+             "requested_day": d.requested_day.isoformat(), "status": d.status,
+             "committed_quantity": str(d.committed_quantity) if d.committed_quantity is not None else None,
+             "committed_day": d.committed_day.isoformat() if d.committed_day else None,
+             "quantity_shipped": str(d.quantity_shipped), "created_at": d.created_at.isoformat()}
+            for d in db.scalars(select(CustomerDemand).order_by(CustomerDemand.created_at.desc()).limit(limit))]
+
+
+def cases_for(db: DbSession, demand_id: str) -> list[dict]:
+    """The cases Planning opened for a demand (each holds its negotiation sessions)."""
+    return [{"case_id": c.id, "kind": c.kind, "status": c.status, "sessions": c.sessions}
+            for c in db.scalars(select(Case).where(Case.demand_id == uuid.UUID(demand_id)).order_by(Case.created_at))]
+
+
+def work_centers(db: DbSession) -> list[str]:
+    return [w.code for w in db.scalars(select(WorkCenter).order_by(WorkCenter.code))]
+
+
+def machine_hours_free(db: DbSession, work_center: str, day: date) -> str:
+    """Free machine-hours of a work center on a day (capacity - committed - held)."""
+    from app.planning_agent.plan import machine_free
+
+    return str(machine_free(db, work_center, day))

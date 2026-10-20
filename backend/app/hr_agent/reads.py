@@ -35,3 +35,12 @@ def assignments_for(db: DbSession, production_order_id: str) -> list[dict]:
 def commitments_for(db: DbSession, production_order_id: str) -> list[dict]:
     return [{"id": str(c.id), "skill": c.skill, "lines": c.lines, "missing": c.missing, "status": c.status}
             for c in db.scalars(select(Commitment).where(Commitment.production_order_ref == production_order_id))]
+
+
+def skills(db: DbSession) -> list[str]:
+    """Every skill pool (primary and secondary skills of the workers), sorted."""
+    found = set()
+    for worker in db.scalars(select(Worker)):
+        found.add(worker.primary_skill)
+        found.update(worker.secondary_skills or [])
+    return sorted(found)
