@@ -31,6 +31,13 @@ DEFAULTS: dict[str, object] = {
     "overtime_max_hours_per_week": 8,            # HR-3
     "quiet_limit_seconds": 300,                  # demo.md §6
     "simulated_suppliers": 1,                    # PI-1: 1 = suppliers answer automatically, 0 = a person answers
+    "customer_orders_per_day": 0,                # DM-3/DM-7: structured simulated customers' new requests per day
+    "customer_seed": 1,                          # DM-6: the customer driver's random generator is seeded per day
+    "customer_quantity_min": 50,                 # DM-3 rules (starting values)
+    "customer_quantity_max": 200,
+    "customer_lead_days_min": 5,                 # requested date = today + this many days (min..max)
+    "customer_lead_days_max": 15,
+    "customer_later_date_max_days": 10,          # demo.md §9: accept LATER_DATE only if at most this much later
 }
 
 

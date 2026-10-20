@@ -1,9 +1,10 @@
 """The simulated day cycle and Play / Pause (demo.md §6, DM-1). Infrastructure: it moves time and plays the outside
 world; it never decides anything for an agent.
 
-One day:  advance the clock (`SimulatedDayStarted`) and fire the triggers scheduled for that day -> wait until quiet (every agent finished its
-(holds expired, deliveries received, kits issued, ...) -> the shop floor reports today's progress ->
-wait until quiet again.
+One day:  advance the clock (`SimulatedDayStarted`) and fire the triggers scheduled for that day -> simulated
+customers send today's requests -> wait until quiet (holds expired, deliveries received, kits issued, requests
+planned, ...) -> customers decide on Planning's answers -> wait until quiet -> the shop floor reports today's
+progress -> wait until quiet again.
 
 Quiet = no PENDING or RUNNING item in any work queue (FAILED items do not count; they wait for a person). A day that
 does not become quiet within `quiet_limit_seconds` (real time) pauses the run and reports what is still waiting.
@@ -18,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core import work_runner
-from app.simulation import shop_floor, triggers
+from app.simulation import customers, shop_floor, triggers
 from app.simulation.clock import get_clock, next_day
 from app.simulation.settings import setting
 
@@ -62,19 +63,28 @@ def wait_until_quiet(session_factory: Callable[[], Session]) -> dict[str, int]:
 
 
 def run_one_day(session_factory: Callable[[], Session], settle: Settle | None = None) -> dict:
-    """Advance one simulated day and play it out. `settle` waits for the work (tests pass their pump)."""
+    """Advance one simulated day and play it out. `settle` waits for the work (tests pass their pump).
+
+    Order: clock + due triggers -> new customer requests -> quiet -> customers decide on Planning's answers -> quiet
+    -> shop floor -> quiet. Stops early (and reports) when a step does not become quiet."""
     settle = settle or (lambda: wait_until_quiet(session_factory))
     with session_factory() as db:
         day = next_day(db)
         triggers.fire_due(db, day)  # scheduled triggers change their facts with the new day
         db.commit()
-    left = settle()
-    if left:
-        return {"day": day.isoformat(), "waiting": left, "shop_floor": []}
+    result = {"day": day.isoformat(), "customers": [], "decisions": [], "shop_floor": []}
     with session_factory() as db:
-        reports = shop_floor.report_day(db, day)
+        result["customers"] = customers.place_orders(db, day)
+    if left := settle():
+        return {**result, "waiting": left}
+    with session_factory() as db:
+        result["decisions"] = customers.answer_options(db)
+    if left := settle():
+        return {**result, "waiting": left}
+    with session_factory() as db:
+        result["shop_floor"] = shop_floor.report_day(db, day)
         db.commit()
-    return {"day": day.isoformat(), "waiting": settle(), "shop_floor": reports}
+    return {**result, "waiting": settle()}
 
 
 # -- Play / Pause (one background thread; the clock row holds the status) ----------------------------------------------
