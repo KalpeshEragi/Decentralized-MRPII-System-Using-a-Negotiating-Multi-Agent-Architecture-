@@ -1,8 +1,8 @@
 """S8 (demo.md §8): competing orders. Four orders on the same day (phones and tablets) need the same main boards, the
 same SMT and assembly lines and the same assemblers. Each owner commits its own resource atomically, so nothing is
 booked twice: every owner's records still add up, no machine-hours are over-committed, and every order that was
-committed ships exactly its committed quantity. An order whose offer can no longer be secured ends NOT_FEASIBLE (the
-customer is told), so the run can finish. Played only through the simulator's doors."""
+committed ships exactly its committed quantity. An order whose offer can no longer be secured is replanned once from
+the new facts (usually a later date); if still nothing fits it ends NOT_FEASIBLE (the customer is told). Played only through the simulator's doors."""
 
 from decimal import Decimal
 
@@ -33,7 +33,9 @@ def test_s8_competing_orders_never_double_book_and_committed_orders_ship_in_full
         assert len(demands) == 4 and all(d["status"] in plans.FINISHED_DEMANDS for d in demands), demands
         assert not plans.open_demand_count(db)
         committed = [d for d in demands if d["committed_quantity"] is not None and d["status"] == "COMPLETED"]
-        assert committed, "at least one competing order is committed and delivered"
+        # the first order wins the resources; a losing order is replanned from the new facts and delivered later
+        assert len(committed) >= 2
+        assert any(d["committed_day"] > d["requested_day"] for d in committed)
         for d in committed:
             assert d["quantity_shipped"] == d["committed_quantity"]
         for balance in stock.balances(db).values():  # stock is never promised twice

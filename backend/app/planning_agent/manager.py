@@ -294,9 +294,33 @@ def _fail_case(db: DbSession, case: Case, reason: str) -> None:
     elif case.auto_commit:
         _publish_plan_event(db, demand, "PlanCommitFailed", {"reason": reason})
         demand.status = "COMMIT_FAILED"
+    elif not _replanned(db, demand) and _replan(db, demand, case.id, reason):
+        return  # new options from today's facts are being secured
     else:  # final: no option could be secured (another order took the resources first, S8)
         demand.status = "NOT_FEASIBLE"
         _send_result(db, demand, "NOTHING_FEASIBLE", reason=reason)
+
+
+def _replanned(db: DbSession, demand: CustomerDemand) -> bool:
+    return db.scalar(select(AuditLog.id).where(AuditLog.event_type == "REPLANNED",
+                                               AuditLog.details["request_ref"].astext == demand.request_ref)
+                     .limit(1)) is not None
+
+
+def _replan(db: DbSession, demand: CustomerDemand, case_id: str, reason: str) -> bool:
+    """Every option failed because the facts changed while it was being secured (typically: a competing order took
+    the resources first, S8). Plan once more from today's facts — usually a later date — and secure the best new
+    option. Returns False when nothing is feasible any more."""
+    _audit(db, "REPLANNED", case_id, request_ref=demand.request_ref, reason=reason)
+    found = planner.options(db, demand.item_id, demand.quantity, demand.requested_day)
+    if not found:
+        return False
+    new = [Option(demand_id=demand.id, kind=kind, quantity=spec.quantity, delivery_day=spec.delivery_day,
+                  held=False, status="OFFERED", plan=spec.to_json()) for kind, spec in found]
+    db.add_all(new)
+    db.flush()
+    _secure(db, demand, next(o for o in _options(db, demand) if o in new), auto_commit=False)
+    return True
 
 
 def _abort_open_sessions(db: DbSession, case: Case) -> None:
