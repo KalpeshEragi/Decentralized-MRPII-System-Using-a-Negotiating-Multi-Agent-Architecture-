@@ -70,7 +70,9 @@ def run_one_day(session_factory: Callable[[], Session], settle: Settle | None = 
     settle = settle or (lambda: wait_until_quiet(session_factory))
     with session_factory() as db:
         day = next_day(db)
-        triggers.fire_due(db, day)  # scheduled triggers change their facts with the new day
+        db.commit()
+    with session_factory() as db:  # after the new day is committed: a trigger may call an agent's door
+        triggers.fire_due(db, day)
         db.commit()
     result = {"day": day.isoformat(), "customers": [], "decisions": [], "shop_floor": []}
     with session_factory() as db:

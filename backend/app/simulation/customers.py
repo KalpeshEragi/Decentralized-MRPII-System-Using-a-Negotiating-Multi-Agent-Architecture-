@@ -117,3 +117,21 @@ def _answer_in_chat(db: Session, later_limit: int) -> list[dict]:
         response = _say(inquiry["phone"], f"{inquiry['inquiry_id']}:{inquiry['stage']}", text)
         done.append({"inquiry_id": inquiry["inquiry_id"], "said": text, "status": response.status_code})
     return done
+
+
+def request_one(db: Session, day: date, sku: str, quantity: int, lead_days: int, phone: str | None = None) -> dict:
+    """One structured customer request (the NEW_ORDER trigger): `quantity` of a product, wanted `lead_days` later."""
+    product = next((p for p in sales.active_products(db) if p["sku"] == sku), None)
+    if product is None:
+        raise ValueError(f"no product {sku}")
+    body = {"phone": phone or f"+91-trigger-{day.strftime('%Y%m%d')}-{random.randrange(10**6):06d}",
+            "product_id": product["product_id"], "quantity": str(quantity),
+            "requested_date": (day + timedelta(days=lead_days)).isoformat()}
+    response = http_doors.post("/sales/simulated-customers/requests", body, _headers())
+    return {**body, "status": response.status_code, **(response.json() if response.status_code < 400 else {})}
+
+
+def order_action(order_number: str, action: str, body: dict | None = None) -> dict:
+    """Cancel or change a confirmed order through Sales (the CANCEL_ORDER / CHANGE_ORDER triggers)."""
+    response = http_doors.post(f"/sales/simulated-customers/orders/{order_number}/{action}", body or {}, _headers())
+    return {"order_number": order_number, "status": response.status_code, "answer": response.json()}

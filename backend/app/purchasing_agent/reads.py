@@ -38,3 +38,16 @@ def supply_lead_time_days(db: Session, item_id: str, quantity: Decimal) -> int |
         if covered >= quantity:
             return offer.lead_time_days
     return None
+
+
+def next_committed_delivery(db: Session, sku: str, from_day) -> dict | None:
+    """The earliest committed supplier delivery of an item (by SKU) still to come: what a "supplier delay" trigger
+    acts on when the scenario cannot know the delivery's id in advance."""
+    from app.purchasing_agent.models import LegStatus, ProcurementRequest, PurchaseRequisition
+
+    leg = db.scalar(select(PurchaseRequisition).join(
+        ProcurementRequest, ProcurementRequest.id == PurchaseRequisition.procurement_request_id).join(
+        SupplierItem, SupplierItem.id == ProcurementRequest.item_id).where(
+        SupplierItem.sku == sku, PurchaseRequisition.status == LegStatus.COMMITTED,
+        PurchaseRequisition.agreed_delivery_date >= from_day).order_by(PurchaseRequisition.agreed_delivery_date))
+    return {"leg_id": str(leg.id), "delivery_date": leg.agreed_delivery_date.isoformat()} if leg else None
