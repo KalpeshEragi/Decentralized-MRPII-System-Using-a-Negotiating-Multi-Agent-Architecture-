@@ -21,7 +21,6 @@ from app.models import Base
 from app.negotiation import layer
 
 BACKEND = Path(__file__).resolve().parents[2]
-NOT_PUMPED = ("planning-sales-outbox",)  # it would POST to Sales door 3: tests read Planning's results from the outbox
 
 
 @pytest.fixture(scope="session")
@@ -43,11 +42,12 @@ def engine():
 def session_factory(engine):
     from app.negotiation_engine.models import NegotiationEngineBase
     from app.purchasing_agent.models import PurchasingAgentBase
+    from app.sales_agent.models import SalesAgentBase
     from app.supplier_service.models import SupplierServiceBase
 
     tables = [*PlatformBase.metadata.sorted_tables, *Base.metadata.sorted_tables,
               *SupplierServiceBase.metadata.sorted_tables, *PurchasingAgentBase.metadata.sorted_tables,
-              *NegotiationEngineBase.metadata.sorted_tables]
+              *NegotiationEngineBase.metadata.sorted_tables, *SalesAgentBase.metadata.sorted_tables]
     with engine.begin() as connection:
         connection.execute(text("TRUNCATE " + ", ".join(f'"{t.schema}"."{t.name}"' for t in tables)
                                 + " RESTART IDENTITY CASCADE"))
@@ -89,11 +89,13 @@ def pump(session_factory, agents):
     from app.core import work_runner as wr
     from app.events.models import EventDelivery
     from app.main import app
+    from app.core import http_doors
     from app.negotiation import a2a_endpoints, transport
     from app.negotiation.models import Message, Outbox
 
     a2a_endpoints.set_session_factory(session_factory)
     transport.set_http_client(TestClient(app))
+    http_doors.set_http_client(TestClient(app))  # doors between agents (Planning -> Sales door 3, simulated customers)
 
     # Every queue the pump drains: (model, how one item is run). Inbox messages go to the handler registered for their
     # receiver (layer.handle_inbox), so a test's fake inbox (e.g. a FAKE Planning) is served like a real one.
@@ -101,7 +103,7 @@ def pump(session_factory, agents):
               (Message, lambda: wr.run_one_short(session_factory, Message, layer.handle_inbox)),
               (EventDelivery, lambda: wr.run_one_short(session_factory, EventDelivery, channel.deliver))]
     for registration in workers.runner.registrations:  # agents' own queues (Planning's work, Purchasing's adapter)
-        if registration.model in (Message, EventDelivery, Outbox) or registration.name in NOT_PUMPED:
+        if registration.model in (Message, EventDelivery, Outbox):
             continue
         if registration.mode == "short":
             queues.append((registration.model,
@@ -141,6 +143,7 @@ def pump(session_factory, agents):
 
     yield run
     transport.set_http_client(None)
+    http_doors.set_http_client(None)
     a2a_endpoints.set_session_factory(a2a_endpoints.new_session)
 
 
@@ -183,8 +186,15 @@ def factory(session_factory, monkeypatch):
     from app.main import app
     from tests.platform import phone_factory
 
+    from app.sales_agent import api as sales_api
+    from app.simulation import api as simulation_api
+
     monkeypatch.setattr(get_settings(), "planning_door_key", phone_factory.KEY)
     monkeypatch.setattr(get_settings(), "simulation_door_key", phone_factory.KEY)
+    monkeypatch.setattr(get_settings(), "sales_planning_key", phone_factory.KEY)  # Planning -> Sales door 3
+    monkeypatch.setattr(get_settings(), "planning_connector", "real")  # Sales talks to the real Planning
+    app.dependency_overrides[sales_api.get_session_factory] = lambda: session_factory
+    app.dependency_overrides[simulation_api.get_session_factory] = lambda: session_factory
 
     def test_db():
         with session_factory() as db:
@@ -195,4 +205,5 @@ def factory(session_factory, monkeypatch):
         built = phone_factory.build(db)
         db.commit()
     yield {**built, "client": TestClient(app)}
-    app.dependency_overrides.pop(get_db, None)
+    for dependency in (get_db, sales_api.get_session_factory, simulation_api.get_session_factory):
+        app.dependency_overrides.pop(dependency, None)

@@ -69,3 +69,14 @@ def test_one_normal_order_goes_from_request_to_shipment(session_factory, pump, f
     lifecycle = ["OrderConfirmed", "PlanCommitted", "ProductionOrderReleased", "MaterialIssuedToProduction",
                  "ProductionStarted", "ProductionCompleted", "FinishedGoodsStored", "ShipmentDispatched"]
     assert [happened.index(e) for e in lifecycle] == sorted(happened.index(e) for e in lifecycle)
+
+    # 4. The observer (read-only, for the frontend) tells the same story.
+    story = client.get("/observer/orders/SA-S1").json()
+    assert story["plan"]["status"] == "COMPLETED"
+    assert {n["owner"] for n in story["negotiations"]} == {"INVENTORY", "HR", "WAREHOUSE"}
+    assert {n["status"] for n in story["negotiations"]} == {"COMMITTED"}
+    assert "ShipmentDispatched" in [e["type"] for e in story["events"]]
+    state = client.get("/observer/factory-state").json()
+    assert {s["sku"]: s["on_hand"] for s in state["stock"]}["S1-CHIP"] == "800"
+    sources = {item["source"] for item in client.get("/observer/timeline").json()["items"]}
+    assert {"event", "negotiation"} <= sources
