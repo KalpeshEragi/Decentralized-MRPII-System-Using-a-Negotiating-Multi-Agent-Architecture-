@@ -129,3 +129,40 @@ select.btn { padding-right: 8px; }
   background: var(--red-soft); color: var(--red); border-radius: 10px; font-size: 13px; }
 .waiting { position: absolute; top: 16px; left: 50%; transform: translateX(-50%); z-index: 4; padding: 8px 14px;
   font-size: 12px; }
+
+/* Panel polish: AI switch, pause reason, disruptions popover, alert feed, run report */
+.pill.paused { background: var(--amber-soft); color: var(--amber); border-color: transparent; }
+.switch { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: #fff;
+  border-radius: 999px; padding: 5px 12px 5px 6px; font-size: 13px; }
+.switch .knob { width: 30px; height: 18px; border-radius: 999px; background: #d5dce8; position: relative; transition: background 0.2s; }
+.switch .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; transition: left 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+.switch.on .knob { background: var(--green); }
+.switch.on .knob::after { left: 14px; }
+.switch:disabled { opacity: 0.5; }
+.popover { position: absolute; top: 16px; right: 16px; width: 330px; padding: 16px; z-index: 5; display: flex;
+  flex-direction: column; gap: 8px; }
+.popover h3 { margin: 0 0 2px; font-size: 18px; }
+.popover .kind, .modal .kind { font-size: 11px; color: var(--blue); font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; }
+.popover label { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.field { width: 180px; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.help { font-size: 12px; color: var(--muted); margin: 0; }
+.btn.wide { width: 100%; margin-top: 4px; }
+.result { display: block; white-space: normal; }
+.alerts { position: absolute; top: 112px; left: 16px; width: 330px; padding: 12px 14px; z-index: 3; display: flex;
+  flex-direction: column; gap: 6px; }
+.alerts h4 { margin: 0 0 4px; font-size: 13px; }
+.alert { display: flex; gap: 8px; align-items: baseline; font-size: 12px; }
+.alert .badge { flex-shrink: 0; }
+.modal-back { position: fixed; inset: 0; background: rgba(20, 32, 54, 0.35); display: grid; place-items: center; z-index: 20; }
+.modal { position: relative; width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 64px); overflow: auto; padding: 20px; }
+.modal-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-right: 24px; }
+.modal h3 { margin: 4px 0; font-size: 20px; }
+.modal h4 { margin: 14px 0 6px; font-size: 13px; }
+.report-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 12px 0; }
+.report-kpis div { background: var(--blue-soft); border-radius: 10px; padding: 10px; text-align: center; }
+.report-kpis b { display: block; font-size: 24px; }
+.report-kpis span { font-size: 12px; color: var(--muted); }
+.report-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 640px) { .report-cols, .report-kpis { grid-template-columns: 1fr 1fr; } }

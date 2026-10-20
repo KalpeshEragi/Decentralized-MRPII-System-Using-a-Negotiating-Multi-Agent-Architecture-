@@ -114,11 +114,14 @@ export function Machine({ position, busy, onClick }: { position: [number, number
   );
 }
 
-export function Person({ position, working }: { position: [number, number, number]; working: boolean }) {
+export function Person({ position, working, absent }: {
+  position: [number, number, number]; working: boolean; absent?: boolean;
+}) {
   return (
     <group position={position}>
       <mesh position={[0, 0.6, 0]} castShadow><capsuleGeometry args={[0.22, 0.6, 4, 8]} />
-        <meshStandardMaterial color={working ? "#2f6fed" : "#9aa7bb"} /></mesh>
+        <meshStandardMaterial color={absent ? "#d64545" : working ? "#2f6fed" : "#9aa7bb"} transparent={absent}
+                              opacity={absent ? 0.45 : 1} /></mesh>
       <mesh position={[0, 1.25, 0]} castShadow><sphereGeometry args={[0.2, 12, 12]} />
         <meshStandardMaterial color={COLORS.person} /></mesh>
     </group>

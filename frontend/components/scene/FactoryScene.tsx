@@ -38,7 +38,7 @@ export function FactoryScene({ live, items, onSelect }: {
       <directionalLight position={[30, 50, 25]} intensity={1.2} castShadow shadow-mapSize={[2048, 2048]}
                         shadow-camera-left={-60} shadow-camera-right={60} shadow-camera-top={50} shadow-camera-bottom={-50} />
       <Ground />
-      <Site live={live} onSelect={onSelect} />
+      <Site live={live} items={items} onSelect={onSelect} />
       {movers.map((m) => <MovingThing key={m.id} mover={m} />)}
       <OrbitControls target={[0, 0, -4]} maxPolarAngle={Math.PI / 2.3} minDistance={25} maxDistance={140} enableDamping />
     </Canvas>
@@ -102,7 +102,15 @@ function Ground() {
   );
 }
 
-function Site({ live, onSelect }: { live: Live | null; onSelect: (s: Selection) => void }) {
+/** The latest supplier delay whose new date is still ahead: shown as a red pin over the receiving dock. */
+function supplierDelay(items: TimelineItem[], live: Live | null, names: Record<string, string>): string | null {
+  const delay = [...items].reverse().find((i) => i.source === "event" && i.type === "SupplierDeliveryDelayed");
+  const until = String(delay?.payload?.new_date ?? "");
+  if (!delay || !live || until < live.clock.day) return null;
+  return `⚠ ${names[String(delay.payload?.item_id)] ?? "Delivery"} late → ${until}`;
+}
+
+function Site({ live, items, onSelect }: { live: Live | null; items: TimelineItem[]; onSelect: (s: Selection) => void }) {
   const stock = live?.stock ?? [];
   const finished = stock.filter((s) => s.type === "FINISHED_PRODUCT");
   const materials = stock.filter((s) => s.type !== "FINISHED_PRODUCT");
@@ -111,6 +119,8 @@ function Site({ live, onSelect }: { live: Live | null; onSelect: (s: Selection) 
   const planned = (code: string) => (line(code)?.orders_today ?? []).length > 0;
   const inbound = live?.docks.inbound.filter((d) => d.status !== "RECEIVED").length ?? 0;
   const outbound = live?.docks.outbound.length ?? 0;
+  const delay = supplierDelay(items, live, Object.fromEntries(stock.map((s) => [s.item_id, s.sku])));
+  const crew = (skill: string) => (live?.workers ?? []).filter((w) => w.primary_skill === skill);
 
   return (
     <group>
@@ -119,6 +129,7 @@ function Site({ live, onSelect }: { live: Live | null; onSelect: (s: Selection) 
                 onClick={(e) => { e.stopPropagation(); onSelect({ kind: "zone", id: "MATERIALS" }); }} />
       <DockMarker position={[-16, 0, 4.5]} text={`Receiving${inbound ? ` · ${inbound} expected` : ""}`}
                   onClick={() => onSelect({ kind: "dock", id: "inbound" })} />
+      {delay && <Pin position={[-16, 5, 6.5]} tone="red" text={delay} />}
       {/* Production hall: open sides so the lines are visible */}
       <group>
         <Block position={[8, 0.06, -4]} size={[20, 0.12, 14]} color="#f3f6fa" />
@@ -126,8 +137,9 @@ function Site({ live, onSelect }: { live: Live | null; onSelect: (s: Selection) 
         <Block position={[-2, 1, -4]} size={[0.3, 2, 14]} color={COLORS.wall} />
         <Block position={[18, 1, -4]} size={[0.3, 2, 14]} color={COLORS.wall} />
         <Pin position={[8, 6, -4]} text="Production hall" />
-        <LineRow code="SMT" z={-7.5} busy={busy("SMT")} planned={planned("SMT")} onSelect={onSelect} />
-        <LineRow code="ASM" z={-0.5} busy={busy("ASM")} planned={planned("ASM")} onSelect={onSelect} />
+        <LineRow code="SMT" z={-7.5} busy={busy("SMT")} planned={planned("SMT")} crew={crew("SMT")} onSelect={onSelect} />
+        <LineRow code="ASM" z={-0.5} busy={busy("ASM")} planned={planned("ASM")} crew={crew("ASSEMBLY")}
+                 onSelect={onSelect} />
       </group>
       {/* Finished goods warehouse (shipping dock in front) */}
       <Building position={[29, 0, -5]} size={[12, 7, 14]} doors={[-2, 2]} label="Finished goods"
@@ -144,8 +156,8 @@ function Site({ live, onSelect }: { live: Live | null; onSelect: (s: Selection) 
   );
 }
 
-function LineRow({ code, z, busy, planned, onSelect }: {
-  code: string; z: number; busy: boolean; planned: boolean; onSelect: (s: Selection) => void;
+function LineRow({ code, z, busy, planned, crew, onSelect }: {
+  code: string; z: number; busy: boolean; planned: boolean; crew: Live["workers"]; onSelect: (s: Selection) => void;
 }) {
   const select = () => onSelect({ kind: "line", id: code });
   return (
@@ -153,8 +165,16 @@ function LineRow({ code, z, busy, planned, onSelect }: {
       {[2, 8, 14].map((x) => (
         <Machine key={x} position={[x, 0, z]} busy={busy} onClick={(e) => { e.stopPropagation(); select(); }} />
       ))}
-      <Person position={[5, 0, z + 1.8]} working={busy} />
-      <Person position={[11, 0, z + 1.8]} working={busy} />
+      {/* The line's workers (HR's records); an absent worker is a faded red figure with a red pin */}
+      {crew.map((w, i) => {
+        const x = 3.5 + i * 3.5;
+        return (
+          <group key={w.code}>
+            <Person position={[x, 0, z + 1.8]} working={busy && !w.absent} absent={w.absent} />
+            {w.absent && <Pin position={[x, 2.4, z + 1.8]} small tone="red" text={`${w.name} absent`} />}
+          </group>
+        );
+      })}
       <Pin position={[-0.5, 3.4, z]} small tone={busy ? "green" : planned ? "blue" : "amber"}
            text={`${code === "SMT" ? "SMT line" : "Assembly"} · ${busy ? "running" : planned ? "planned today" : "idle"}`} />
     </group>

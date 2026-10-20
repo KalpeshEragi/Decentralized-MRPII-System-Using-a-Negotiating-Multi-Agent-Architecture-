@@ -44,7 +44,9 @@ export const api = {
 // -- shapes the panel reads ----------------------------------------------------------------------------------------
 
 export type Live = {
-  clock: { day: string; status: "PAUSED" | "RUNNING"; waiting: Record<string, number> };
+  clock: { day: string; status: "PAUSED" | "RUNNING"; waiting: Record<string, number>; pause_reason: string | null };
+  ai_enabled: boolean;
+  workers: { code: string; name: string; primary_skill: string; secondary_skills: string[]; absent: boolean }[];
   run: { id: number; scenario: string; start_day: string } | null;
   kpis: {
     stock_on_hand: string;
@@ -81,6 +83,7 @@ export type TimelineItem = {
   text?: string | null;
   params?: Record<string, unknown>;
   status?: string;
+  scheduled_day?: string | null;
   agent?: string;
   purpose?: string;
   outcome?: string;
@@ -99,4 +102,18 @@ export type OrderStory = {
   sales: { stage: string; order_number: string | null } | null;
   negotiations: { session_id: string; case_id: string; owner: string; resource_type: string; status: string }[];
   events: { type: string; publisher: string; payload: Record<string, unknown> }[];
+};
+
+export type TriggerResult = { id: number; kind: string; status: string; result: Record<string, unknown> | null };
+
+export type RunSummary = { id: number; scenario: string; status: string; start_day: string; end_day: string | null };
+
+export type RunReport = {
+  run: { id: number; scenario: string; seed: number; start_day: string; end_day: string | null };
+  metrics: {
+    orders: number; completed: number; completed_on_time: number; plan_at_risk_events: number;
+    orders_by_status: Record<string, number>; events_by_type: Record<string, number>;
+    ai_calls_by_outcome: Record<string, number>;
+  };
+  triggers: { kind: string; status: string; scheduled_day: string | null; params: Record<string, unknown> }[];
 };

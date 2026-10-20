@@ -3,7 +3,8 @@
 // All figures come from the observer; nothing is computed here except display formatting.
 
 import { useEffect, useState } from "react";
-import { api, Live, OrderStory } from "@/lib/api";
+import { agent, describeEvent } from "@/lib/agents";
+import { api, Live, OrderStory, TimelineItem } from "@/lib/api";
 
 export type Selection =
   | { kind: "item"; id: string } | { kind: "line"; id: string } | { kind: "zone"; id: string }
@@ -172,6 +173,34 @@ export function DocksPanel({ live, onSelect }: { live: Live | null; onSelect: (s
           <b>{n.starter.slice(0, 4)}→{n.owner.slice(0, 4)}</b><span>{n.resource_type.toLowerCase()} · round {n.round}</span>
           <span className="badge blue">{n.status === "AGREEMENT_PROPOSED" ? "held" : "talking"}</span>
         </div>)) : <div className="dock-row"><b>—</b><span>No open negotiation</span><span className="badge">Quiet</span></div>)}
+    </div>
+  );
+}
+
+// Disruptions and the agents' reactions to them, newest first (the full story is in the agent conversation).
+const ALERT_EVENTS = new Set(["SupplierDeliveryDelayed", "WorkforceCapacityChanged", "PlanAtRisk", "PlanRevised",
+  "PlanCommitFailed", "OrderCancelled", "OrderChangeRequested", "SafetyStockBreached"]);
+const CALM = new Set(["PlanRevised"]);
+
+export function AlertFeed({ items }: { items: TimelineItem[] }) {
+  const alerts = items.filter((i) => i.source === "trigger" || (i.source === "event" && ALERT_EVENTS.has(i.type ?? "")))
+    .slice(-4).reverse();
+  if (!alerts.length) return null;
+  return (
+    <div className="card alerts">
+      <h4>⚡ Disruptions & reactions</h4>
+      {alerts.map((a, n) => {
+        const trigger = a.source === "trigger";
+        const text = trigger ? `Simulator: ${String(a.type).toLowerCase().replaceAll("_", " ")}${
+          a.scheduled_day ? ` (planned for ${a.scheduled_day})` : ""}` : describeEvent(a);
+        const tone = trigger ? "amber" : CALM.has(a.type ?? "") ? "blue" : "red";
+        return (
+          <div className="alert" key={`${a.time}-${n}`}>
+            <span className={`badge ${tone}`}>{trigger ? "trigger" : agent(a.publisher).name}</span>
+            <span>{text}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
