@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.errors import AppError, ErrorCode
-from app.observer import live, views
+from app.observer import live, metrics, views
 from app.simulation.clock import today
 
 router = APIRouter(prefix="/observer", tags=["observer"])
@@ -40,3 +40,10 @@ def factory_state(day: date | None = None, db: Session = Depends(get_db)) -> dic
 def live_snapshot(db: Session = Depends(get_db)) -> dict:
     """One compact snapshot for the control panel (FE-6), polled every second or two."""
     return live.live(db)
+
+
+@router.get("/metrics")
+def run_metrics(db: Session = Depends(get_db)) -> dict:
+    """Measurements of the current run (system_design §10): order times, day lengths, event delivery, queues,
+    negotiations, AI calls."""
+    return metrics.measurements(db)

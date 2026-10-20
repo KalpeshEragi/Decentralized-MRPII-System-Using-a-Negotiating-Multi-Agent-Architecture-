@@ -5,7 +5,7 @@ only Sales' doors, over HTTP like any outside caller; they never touch an agent'
 - chat (1; one or two orders shown live): they write chat messages (`/sales/test-channel/messages`) that Sales reads
   with the language model, and answer what Sales shows them (a letter for an option, then "yes").
 
-Morning: `customer_orders_per_day` new requests (product, quantity, requested date drawn from a generator seeded per
+Morning: `customer_orders_per_day` new requests (only on the run's first `customer_order_days` days when that is set) (product, quantity, requested date drawn from a generator seeded per
 run and day, DM-6: same seed, same orders). After the agents settled: every request Planning answered gets a decision
 by a fixed rule — accept REQUESTED; else LATER_DATE if at most `customer_later_date_max_days` later; else decline.
 Accepting is the customer's acceptance only: Planning commits (or not) on its own.
@@ -32,11 +32,27 @@ def _headers() -> dict:
     return {"X-Door-Key": get_settings().simulation_door_key or ""}
 
 
+def ordering_on(db: Session, day: date) -> bool:
+    """Whether simulated customers send requests on `day`: `customer_orders_per_day` > 0 and, for a bounded load run
+    (`customer_order_days` > 0), `day` is one of the open run's first N days."""
+    if int(setting(db, "customer_orders_per_day")) <= 0:
+        return False
+    days = int(setting(db, "customer_order_days"))
+    if days <= 0:
+        return True
+    from sqlalchemy import select
+
+    from app.simulation.models import Run
+
+    run_start = db.scalar(select(Run.start_day).where(Run.status == "RUNNING").order_by(Run.id.desc()))
+    return run_start is None or day <= run_start + timedelta(days=days)
+
+
 def place_orders(db: Session, day: date) -> list[dict]:
     """Today's new customer requests. `db` is only read (settings, products); the requests go through Sales' door."""
     count = int(setting(db, "customer_orders_per_day"))
     products = sales.active_products(db)
-    if count <= 0 or not products:
+    if not ordering_on(db, day) or not products:
         return []
     rng = random.Random(f"{setting(db, 'customer_seed')}:{day.isoformat()}")
     low, high = int(setting(db, "customer_quantity_min")), int(setting(db, "customer_quantity_max"))

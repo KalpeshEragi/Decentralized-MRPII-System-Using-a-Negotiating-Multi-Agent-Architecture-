@@ -52,7 +52,12 @@ SCENARIOS: dict[str, tuple[str, dict, list[tuple[int, str, dict]]]] = {
             (1, "NEW_ORDER", {**TABLETS, "quantity": 100, "lead_days": 6}),
             (1, "NEW_ORDER", {**PHONES, "quantity": 120, "lead_days": 6}),
             (1, "NEW_ORDER", {**TABLETS, "quantity": 80, "lead_days": 6})]),
-    "LOAD-10": ("Load: 10 simulated customers a day (structured)", {"customer_orders_per_day": 10}, []),
+    "LOAD-10": ("Load: 10 simulated customers on day 1 (structured)",
+                {"customer_orders_per_day": 10, "customer_order_days": 1}, []),
+    "LOAD-20": ("Load: 20 simulated customers on day 1 (structured)",
+                {"customer_orders_per_day": 20, "customer_order_days": 1}, []),
+    "LOAD-100": ("Load: 100 simulated customers, 20 a day for 5 days (structured)",
+                 {"customer_orders_per_day": 20, "customer_order_days": 5}, []),
 }
 
 
@@ -101,7 +106,7 @@ def finish(db: Session, run_id: int) -> dict:
 
 def build_report(db: Session, run: Run) -> dict:
     """Metrics (system_design §10, first set), the final factory state and the timeline of the run."""
-    from app.observer import views
+    from app.observer import metrics, views
     from app.planning_agent import reads as planning
 
     demands = planning.demands(db, limit=10000)
@@ -126,6 +131,7 @@ def build_report(db: Session, run: Run) -> dict:
         },
         "orders": demands,
         "triggers": [triggers.view(t) for t in db.scalars(select(triggers.TriggerLog).order_by(triggers.TriggerLog.id))],
+        "measurements": metrics.measurements(db),
         "final_factory_state": views.factory_state(db, today(db)),
         "timeline": _whole_timeline(db),
     }

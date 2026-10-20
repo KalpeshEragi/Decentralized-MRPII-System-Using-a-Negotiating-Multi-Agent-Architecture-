@@ -38,4 +38,13 @@ def test_scenario_s1_runs_on_factory_a_from_start_to_report(session_factory, pum
     assert (metrics["orders"], metrics["completed"], metrics["completed_on_time"]) == (1, 1, 1)
     report = client.get(f"/simulation/runs/{run_id}/report").json()
     assert report["run"]["scenario"] == "S1" and report["timeline"]
+    measured = report["measurements"]  # the run's measurements (system_design §10), also at GET /observer/metrics
+    assert measured == client.get("/observer/metrics").json()
+    assert (measured["orders"]["total"], measured["orders"]["completed_on_time"]) == (1, 1)
+    assert measured["orders"]["seconds_request_to_committed"]["count"] == 1
+    assert measured["orders"]["seconds_confirmed_to_committed"]["count"] == 1
+    assert measured["days"]["count"] >= 2 and measured["days"]["p50"] is not None
+    assert measured["event_delivery"]["failed"] == 0 and measured["event_delivery"]["seconds_lag"]["count"] > 0
+    assert measured["negotiations"]["seconds_open_to_closed"]["count"] > 0
+    assert all(q["failed"] == 0 for q in measured["queues"].values())
     assert client.get("/simulation/runs").json()[0]["status"] == "FINISHED"

@@ -15,6 +15,7 @@ trigger and no simulated customers placing orders. Empty days would only move th
 import logging
 import threading
 import time
+from datetime import timedelta
 from collections.abc import Callable
 
 from sqlalchemy import func, literal, select, union_all
@@ -64,8 +65,8 @@ def work_left(db: Session) -> list[str]:
         left.append(f"{open_demands} open customer orders")
     if scheduled := db.scalar(select(func.count()).select_from(TriggerLog).where(TriggerLog.status == "SCHEDULED")):
         left.append(f"{scheduled} scheduled triggers")
-    if int(setting(db, "customer_orders_per_day")) > 0:
-        left.append("simulated customers place orders every day")
+    if customers.ordering_on(db, get_clock(db).current_day + timedelta(days=1)):
+        left.append("simulated customers place orders tomorrow")
     return left
 
 
