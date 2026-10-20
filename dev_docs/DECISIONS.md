@@ -175,7 +175,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 
 | ID | Decision |
 | --- | --- |
-| API-1 | Future target: RFC 9457 Problem Details with our fixed codes as `code`, field problems as `errors`, plus `correlation_id`; replaces the old body everywhere (incl. Sales) during integration. **Today:** Sales and Purchasing return the C5 body `{"error": {code, message, details}}`. |
+| API-1 | RFC 9457 Problem Details with our fixed codes as `code`, field problems as `errors`, plus `correlation_id`; replaces the old body everywhere. **Built (step 1) for every route of the app, Sales and Purchasing included;** Purchasing's tests were moved to it on 2026-10-20. |
 | API-2 | The frontend sees changes by cursor polling. |
 | API-3 | Cross-agent views come from a read-only observer API that decides and writes nothing. |
 | API-4 | Old routes keep running until the Phase 2 review, then are removed with the old agents. |
@@ -225,6 +225,12 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | FE-4 | A collapsible "agent conversation" sidebar shows every negotiation message as a chat between agents and every published event as a notice, filterable by order; it can be widened into a side panel or minimised. |
 | FE-5 | Working product name "Decentra" on the screens (to be confirmed); the repository and docs keep their names until then. |
 | FE-6 | The panel reads only the observer and simulation doors and polls one `GET /observer/live` door plus the timeline cursor (API-2, API-3). |
+
+### Local databases (2026-10-20, approved by the developer)
+
+| ID | Decision |
+| --- | --- |
+| DB-1 | Tests and the demo run on a local PostgreSQL 17 (portable binaries, no installer or service, outside the repository and outside OneDrive, port 5433), with separate databases `decentra_test` and `decentra_demo`. Reason: the remote Neon database made every end-to-end test take 10–20 minutes and the panel refresh about 6 s, and a demo sharing the test database is wiped by every test run. Neon stays the shared, real database; nothing in the code depends on which one is used (`DATABASE_URL`, `TEST_DATABASE_URL`). |
 
 ## Open
 
