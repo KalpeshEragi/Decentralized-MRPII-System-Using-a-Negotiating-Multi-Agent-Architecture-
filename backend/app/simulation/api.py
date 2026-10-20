@@ -41,7 +41,7 @@ def next_day(session_factory: Callable[[], Session] = Depends(get_session_factor
 def play(session_factory: Callable[[], Session] = Depends(get_session_factory)) -> dict:
     """Advance day after day, each only when the factory is quiet, until paused (DM-1)."""
     runner.play(session_factory)
-    return {"status": "PLAYING"}
+    return {"status": "RUNNING"}
 
 
 @router.post("/clock/pause")

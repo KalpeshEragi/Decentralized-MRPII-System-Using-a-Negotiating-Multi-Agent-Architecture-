@@ -28,7 +28,7 @@ export function TopBar({ live, onChanged, onError }: {
     }
   }
 
-  const playing = live?.clock.status === "PLAYING";
+  const playing = live?.clock.status === "RUNNING";
   const waiting = live ? Object.values(live.clock.waiting).reduce((a, b) => a + b, 0) : 0;
   return (
     <header className="topbar">

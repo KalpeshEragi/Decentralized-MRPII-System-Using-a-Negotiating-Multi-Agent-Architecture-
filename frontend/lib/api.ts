@@ -44,7 +44,7 @@ export const api = {
 // -- shapes the panel reads ----------------------------------------------------------------------------------------
 
 export type Live = {
-  clock: { day: string; status: "PAUSED" | "PLAYING"; waiting: Record<string, number> };
+  clock: { day: string; status: "PAUSED" | "RUNNING"; waiting: Record<string, number> };
   run: { id: number; scenario: string; start_day: string } | null;
   kpis: {
     stock_on_hand: string;

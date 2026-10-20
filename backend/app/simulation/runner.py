@@ -115,7 +115,7 @@ def _set_status(session_factory, status: str, reason: str | None = None) -> None
 
 def _playing(session_factory) -> bool:
     with session_factory() as db:
-        return get_clock(db).status == "PLAYING"
+        return get_clock(db).status == "RUNNING"
 
 
 def _play_loop(session_factory) -> None:
@@ -130,7 +130,7 @@ def play(session_factory: Callable[[], Session]) -> None:
     """Advance day after day, each only when the factory is quiet, until paused."""
     global _play_thread
     with _lock:
-        _set_status(session_factory, "PLAYING")
+        _set_status(session_factory, "RUNNING")
         if _play_thread is None or not _play_thread.is_alive():
             _play_thread = threading.Thread(target=_play_loop, args=(session_factory,), name="simulation-play",
                                             daemon=True)
