@@ -68,10 +68,10 @@ def accepts(db, *rows):
 # -- the tests ------------------------------------------------------------------------------------------------------
 
 
-def test_the_nine_tables_exist(engine, db):
+def test_the_ten_tables_exist(engine, db):
     assert set(inspect(engine).get_table_names(schema="sales_agent")) == {
         "customers", "products", "conversations", "messages", "inquiries", "options", "orders", "customer_memory",
-        "audit_log",
+        "audit_log", "event_versions",  # event_versions: migration 017 (Sales follows PlanRevised)
     }
 
 

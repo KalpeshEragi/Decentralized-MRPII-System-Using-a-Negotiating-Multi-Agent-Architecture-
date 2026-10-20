@@ -27,7 +27,8 @@ def inquiry_status(db: Session, inquiry_id: str) -> dict | None:
         return None
     order = db.scalar(select(Order).where(Order.inquiry_id == inquiry.id))
     return {"inquiry_id": str(inquiry.id), "stage": inquiry.stage,
-            "order_number": order.order_number if order else None, "order_status": order.status if order else None}
+            "order_number": order.order_number if order else None, "order_status": order.status if order else None,
+            "order_quantity": str(order.quantity) if order else None}
 
 
 def active_products(db: Session) -> list[dict]:

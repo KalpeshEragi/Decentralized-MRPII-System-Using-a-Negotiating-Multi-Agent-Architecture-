@@ -1,5 +1,5 @@
 """Step 7 (demo.md §9, DM-7): the customer driver. Structured mode: the simulator alone runs an order from the
-customer's request to the shipment (customer -> Sales as data, no language model -> Planning -> owners -> shop floor
+customer's request to the shipment, with a quantity change on the way (customer -> Sales as data, no language model -> Planning -> owners -> shop floor
 -> shipment). Chat mode: the customer writes messages that Sales reads with the model (scripted here).
 The factory is `phone_factory.py`; every day goes through the simulator's own day cycle."""
 
@@ -15,7 +15,7 @@ from app.sales_agent import api as sales_api
 from app.sales_agent import reads as sales
 from app.sales_agent.models import Message
 from app.simulation.settings import update_settings
-from tests.platform.phone_factory import run_day
+from tests.platform.phone_factory import KEY, run_day
 
 
 def test_a_simulated_customer_order_runs_from_request_to_shipment(session_factory, pump, factory):
@@ -33,6 +33,16 @@ def test_a_simulated_customer_order_runs_from_request_to_shipment(session_factor
         status = sales.inquiry_status(db, demand["sales_inquiry_id"])
         assert status["stage"] == "CONFIRMED" and status["order_number"] == demand["order_number"]
 
+    # the customer asks for 90 instead (S7): Planning decides; Sales then shows the quantity Planning commits
+    changed = client.post("/simulation/triggers", json={"kind": "CHANGE_ORDER", "params": {"quantity": 90}},
+                          headers={"X-Door-Key": KEY})
+    assert changed.json()["status"] == "DONE", changed.text
+    pump()
+    with session_factory() as db:
+        demand = plans.demands(db)[0]
+        assert demand["committed_quantity"] == "90"
+        assert sales.inquiry_status(db, demand["sales_inquiry_id"])["order_quantity"] == "90"
+
     for _ in range(6):
         run_day(session_factory, pump, client)
         with session_factory() as db:
@@ -40,7 +50,7 @@ def test_a_simulated_customer_order_runs_from_request_to_shipment(session_factor
                 break
     with session_factory() as db:
         demand = plans.demands(db)[0]
-        assert demand["status"] == "COMPLETED" and demand["quantity_shipped"] == "100"
+        assert demand["status"] == "COMPLETED" and demand["quantity_shipped"] == "90"
         assert db.scalars(select(Message).where(Message.direction == "OUT")).all() == []  # no chat replies needed
 
 
