@@ -91,6 +91,7 @@ class SpaceCommitment(PlatformBase):
     for_ref: Mapped[str] = mapped_column(String, nullable=False)
     case_id: Mapped[str] = mapped_column(String, nullable=False)
     negotiation_id: Mapped[str | None] = mapped_column(String)
+    receiving_units: Mapped[Decimal] = mapped_column(Numeric, nullable=False, default=0)  # committed receiving (WH-1)
     status: Mapped[str] = mapped_column(String, nullable=False, default="ACTIVE")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

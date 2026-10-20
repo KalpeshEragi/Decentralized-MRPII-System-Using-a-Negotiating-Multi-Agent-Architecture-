@@ -179,7 +179,7 @@ export function DocksPanel({ live, onSelect }: { live: Live | null; onSelect: (s
 
 // Disruptions and the agents' reactions to them, newest first (the full story is in the agent conversation).
 const ALERT_EVENTS = new Set(["SupplierDeliveryDelayed", "WorkforceCapacityChanged", "PlanAtRisk", "PlanRevised",
-  "PlanCommitFailed", "OrderCancelled", "OrderChangeRequested", "SafetyStockBreached"]);
+  "PlanCommitFailed", "OrderCancelled", "OrderChangeRequested", "SafetyStockBreached", "StorageCapacityChanged"]);
 const CALM = new Set(["PlanRevised"]);
 
 export function AlertFeed({ items }: { items: TimelineItem[] }) {

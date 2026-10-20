@@ -136,11 +136,11 @@ A scenario = a starting state + a list of (simulated day, trigger) + customer-dr
 | S1 | One normal order | Full flow: request → options → confirmation → commitment → production → shipment |
 | S2 | Supplier delay | Negotiation, AT_RISK, recovery with overtime / later date |
 | S3 | Material shortage | Procurement started by Planning, holds, options |
-| S4 | Storage limit | Warehouse counter-offer, date change with Purchasing (step 8: needs the receiving slot, WH-1) |
+| S4 | Receiving limit (dock 600 pieces a day) | Planning plans a delivery earlier; Purchasing gets every receiving slot from Warehouse before offering (WH-1); a slot taken meanwhile is asked for again and may be counter-offered later |
 | S5 | Worker absence | HR cover (reassign, move, overtime) or AT_RISK |
 | S6 | Cancellation | Releases, compensation, PO cancel request |
 | S7 | Order change | Delta handling (QA-3) |
-| S8 | Competing orders | Priority rule (NG-3), no double booking |
+| S8 | Competing orders | No double booking; the first order wins, a loser is replanned once (S8-1, usually a later date) or ends NOT_FEASIBLE |
 | S9 | Load | 10, 20, then 100 orders; measurements (Phase 6) |
 
 ## 9. Customer driver (DM-3)

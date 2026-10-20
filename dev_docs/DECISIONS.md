@@ -133,7 +133,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 
 | ID | Decision |
 | --- | --- |
-| WH-1 | Future integration: Purchasing negotiates a receiving slot + material space with Warehouse before committing a supplier date. **Not built:** Purchasing has no Warehouse step yet. |
+| WH-1 | Future integration: Purchasing negotiates a receiving slot + material space with Warehouse before committing a supplier date. **Built 2026-10-20 (step 8):** details under "Step 8" below. |
 | WH-2 | Two storage zones by item type: MATERIALS and FINISHED_GOODS; space per piece from `core.items.space_per_unit`. |
 | WH-3 | Receiving and shipping capacity per day are configured numbers; Warehouse does not use HR workers. |
 | WH-4 | Warehouse ships on the committed delivery date when the order's finished goods are stored and reserved. |
@@ -212,7 +212,7 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | PI-2 | Planning's COMMIT is the approval of a procurement (NG-4 execution policy), recorded as `decided_by = PLANNING`; the human approve/reject stays for manual tests. |
 | PI-3 | A thin adapter (`purchasing_agent/a2a.py`) gives Purchasing an inbox on the negotiation layer and calls Purchasing's own functions; it notices Purchasing's state changes by a hook after a supplier reply and a check at every simulated day start (no polling loop). Purchasing's own logic is not changed. |
 | PI-4 | Deliveries: Warehouse's daily routine receives committed deliveries that are due (from Purchasing's read data) and publishes `MaterialReceived`; Inventory raises stock. |
-| PI-5 | WH-1 (Purchasing negotiates a receiving slot with Warehouse before committing a supplier date) is deferred to step 8. |
+| PI-5 | WH-1 (Purchasing negotiates a receiving slot with Warehouse before committing a supplier date) is deferred to step 8. **Built in step 8 (see WH-1 below).** |
 | PI-6 | Planning plans bought items: if a bought item is short, the earliest supplier date (Purchasing read data) decides feasibility, and the case gets a SUPPLY negotiation with Purchasing. Purchasing runs on the simulated clock; items map by SKU between `core.items` and `supplier_service.items`. |
 
 ### Control panel (2026-10-20, approved by the developer)
@@ -231,6 +231,14 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | ID | Decision |
 | --- | --- |
 | DB-1 | Tests and the demo run on a local PostgreSQL 17 (portable binaries, no installer or service, outside the repository and outside OneDrive, port 5433), with separate databases `decentra_test` and `decentra_demo`. Reason: the remote Neon database made every end-to-end test take 10–20 minutes and the panel refresh about 6 s, and a demo sharing the test database is wiped by every test run. Neon stays the shared, real database; nothing in the code depends on which one is used (`DATABASE_URL`, `TEST_DATABASE_URL`). |
+
+### Step 8: competing orders and receiving slots (2026-10-20, approved by the developer)
+
+| ID | Decision |
+| --- | --- |
+| S8-1 | When every option of a new request fails to be secured (the facts changed meanwhile, typically a competing order took the resources first), Planning replans **once** from today's facts and secures the best new option (usually a later date). If nothing fits, the order ends `NOT_FEASIBLE` and the customer is told; a demand never stays open without an answer. |
+| WH-1 (built) | Purchasing asks Warehouse for a `RECEIVING_SLOT` per agreed delivery before it offers supply to Planning. Warehouse offers the day or counter-offers a later one; Purchasing takes a later day only if Planning's need date holds (the simulated supplier can always deliver later: no new supplier round), else declines and tells Planning `NO_RECEIVING_CAPACITY`. A slot whose day filled up before the hold (`STALE`) is asked for again, at most twice. On Planning's COMMIT: suppliers approved → slots committed → the deliveries take their slot days → `ProcurementCommitted`. Warehouse turns the committed slot into the delivery record (no second booking). Planning reads Warehouse's free receiving when it plans bought deliveries and plans a delivery earlier when the dock is full (within the supplier's lead time). |
+| WH-6 | Warehouse capacities change only through Warehouse's own input (`change_capacity`, simulator trigger `WAREHOUSE_CAPACITY`, S4); commitments already made stay; `StorageCapacityChanged` is published. |
 
 ## Open
 

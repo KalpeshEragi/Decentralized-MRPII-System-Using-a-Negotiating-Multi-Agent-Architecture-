@@ -5,11 +5,13 @@
 import { useState } from "react";
 import { api, Live, TriggerResult } from "@/lib/api";
 
-type Kind = "WORKER_ABSENT" | "SUPPLIER_DELAY" | "CANCEL_ORDER" | "CHANGE_ORDER" | "NEW_ORDER";
+type Kind = "WORKER_ABSENT" | "SUPPLIER_DELAY" | "WAREHOUSE_CAPACITY" | "CANCEL_ORDER" | "CHANGE_ORDER" | "NEW_ORDER";
 
 const KINDS: { kind: Kind; label: string; help: string }[] = [
   { kind: "WORKER_ABSENT", label: "Worker absent", help: "HR records the absence; Planning repairs the plan." },
   { kind: "SUPPLIER_DELAY", label: "Supplier delay", help: "The next committed delivery of the item arrives later." },
+  { kind: "WAREHOUSE_CAPACITY", label: "Dock / storage capacity",
+    help: "Warehouse gets a new capacity; new deliveries and space are planned around it." },
   { kind: "CANCEL_ORDER", label: "Customer cancels", help: "Sales passes it on; Planning frees what the order held." },
   { kind: "CHANGE_ORDER", label: "Customer changes quantity", help: "Planning checks the new quantity." },
   { kind: "NEW_ORDER", label: "New customer request", help: "A simulated customer asks Sales for a product." },
@@ -27,6 +29,8 @@ export function Disruptions({ live, onClose, onFired }: {
   const [quantity, setQuantity] = useState(100);
   const [product, setProduct] = useState("");
   const [leadDays, setLeadDays] = useState(10);
+  const [resource, setResource] = useState("RECEIVING");
+  const [units, setUnits] = useState(600);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -40,6 +44,7 @@ export function Disruptions({ live, onClose, onFired }: {
       case "WORKER_ABSENT":
         return { worker: worker || workers[0]?.code, first_day_offset: fromDay, last_day_offset: fromDay + days - 1 };
       case "SUPPLIER_DELAY": return { item_sku: item || bought[0]?.sku, days };
+      case "WAREHOUSE_CAPACITY": return { resource, units };
       case "CANCEL_ORDER": return { order_number: order };
       case "CHANGE_ORDER": return { order_number: order, quantity };
       case "NEW_ORDER": return { product_sku: product || products[0]?.sku, quantity, lead_days: leadDays };
@@ -97,6 +102,15 @@ export function Disruptions({ live, onClose, onFired }: {
           {bought.map((s) => <option key={s.sku} value={s.sku}>{s.name} ({s.sku})</option>)}
         </select></label>
         <label>Days late{number(days, setDays)}</label>
+      </>)}
+      {kind === "WAREHOUSE_CAPACITY" && (<>
+        <label>Capacity<select className="btn field" value={resource} onChange={(e) => setResource(e.target.value)}>
+          <option value="RECEIVING">Receiving dock (pieces a day)</option>
+          <option value="SHIPPING">Shipping dock (pieces a day)</option>
+          <option value="MATERIALS">Materials zone (space units)</option>
+          <option value="FINISHED_GOODS">Finished goods zone (space units)</option>
+        </select></label>
+        <label>New capacity{number(units, setUnits, 0)}</label>
       </>)}
       {kind === "CANCEL_ORDER" && <label>Order{orderSelect}</label>}
       {kind === "CHANGE_ORDER" && (<><label>Order{orderSelect}</label><label>New quantity{number(quantity, setQuantity)}</label></>)}

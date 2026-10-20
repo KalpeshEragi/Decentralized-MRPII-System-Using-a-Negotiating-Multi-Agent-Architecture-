@@ -28,6 +28,7 @@ from app.planning_agent.models import WorkCenter, WorkCenterDay
 from app.purchasing_agent import reads as purchasing
 from app.simulation.clock import today
 from app.simulation.settings import setting
+from app.warehouse_agent import reads as warehouse
 
 ZERO = Decimal(0)
 DEMAND = "DEMAND"
@@ -123,6 +124,18 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
     def free_worker(skill: str, day: date) -> Decimal:
         return Decimal(hr.free_worker_hours(db, skill, day, day)[day.isoformat()]) - used[("W", skill, day)]
 
+    def receiving_day(earliest: date, latest: date, pieces: Decimal) -> date | None:
+        """The latest day from `latest` back to `earliest` on which Warehouse can still receive the delivery
+        (Warehouse's free receiving minus what this plan already puts on that day). Warehouse confirms it in the
+        receiving-slot negotiation (WH-1); this only keeps the plan from counting on a full dock."""
+        day = latest
+        while day >= earliest:
+            free = Decimal(warehouse.free_receiving(db, day, day)[day.isoformat()]) - used[("R", "RECEIVING", day)]
+            if free >= pieces:
+                return day
+            day -= timedelta(days=1)
+        return None
+
     def production_start(made_item: str, made_quantity: Decimal, need_day: date) -> date | None:
         steps = routings.get(made_item)
         if not steps:
@@ -146,10 +159,15 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
         if not order.source.startswith("planned:"):
             continue  # a refill to safety stock, not needed by this request (Planning refills on its own, RD-6)
         lead = purchasing.supply_lead_time_days(db, order.item_id, order.quantity)
-        arrival = order.need_day - timedelta(days=1)
-        if lead is None or today(db) + timedelta(days=lead) > arrival:
+        latest = order.need_day - timedelta(days=1)
+        if lead is None or today(db) + timedelta(days=lead) > latest:
             spec.feasible, spec.reason = False, "MATERIAL_SHORTAGE"
             break
+        arrival = receiving_day(today(db) + timedelta(days=lead), latest, order.quantity)
+        if arrival is None:  # the dock is full on every day the supplier could deliver in time (WH-1, S4)
+            spec.feasible, spec.reason = False, "NO_RECEIVING_CAPACITY"
+            break
+        used[("R", "RECEIVING", arrival)] += order.quantity
         spec.supply.append(SupplyNeed(order.item_id, order.quantity, arrival,
                                       order.source.removeprefix("planned:").replace(":", "@")))
     if result.unschedulable:

@@ -58,6 +58,8 @@ export function describeEvent(item: TimelineItem): string {
     case "ProcurementCommitted": return `Purchase committed with the supplier`;
     case "MaterialReceived": return `Delivery received (${p.quantity})`;
     case "SupplierDeliveryDelayed": return `Supplier delay: ${p.old_date} → ${p.new_date}`;
+    case "ReceivingSlotCommitted": return `Receiving slot booked: ${p.quantity} on ${p.arrival_day}`;
+    case "StorageCapacityChanged": return `Capacity changed: ${String(p.resource ?? "").toLowerCase().replaceAll("_", " ")} → ${p.units}`;
     case "SafetyStockBreached": return `Safety stock used (${p.released})`;
     case "SimulatedDayStarted": return `New day: ${p.date}`;
     default: return item.type ?? "";

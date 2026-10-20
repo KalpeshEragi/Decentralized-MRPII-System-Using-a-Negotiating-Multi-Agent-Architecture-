@@ -37,6 +37,23 @@ class PlanningLink(PlatformBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class ReceivingSlotLink(PlatformBase):
+    """WH-1: the receiving slot Purchasing negotiates with Warehouse for one agreed delivery (Leg), before it offers
+    the supply to Planning. Warehouse may offer a later day; Purchasing takes it only if Planning's need still holds."""
+
+    __tablename__ = "receiving_slots"
+    __table_args__ = {"schema": SCHEMA}
+
+    session_id: Mapped[str] = mapped_column(String, primary_key=True)  # the negotiation session with Warehouse
+    planning_session_id: Mapped[str] = mapped_column(String, nullable=False)  # the PlanningLink it serves
+    leg_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    quantity: Mapped[Decimal] = mapped_column(Numeric, nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)  # the receiving day (Warehouse may move it later)
+    # REQUESTED -> ACCEPTED -> HELD -> COMMITTING -> COMMITTED; or FAILED / ABORTED / LOST (hold gone at commit)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="REQUESTED")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class AdapterWork(QueueMixin, PlatformBase):
     """Work that runs outside the inbox transaction, because Purchasing's own functions commit and may call the
     language model: SUBMIT (a Procurement Request), CHECK (follow its status), SUPPLIER_TURN (simulated suppliers)."""

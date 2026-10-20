@@ -5,8 +5,7 @@ it restores the state (Factory A is built first when it does not exist yet), app
 triggers and opens a run; Play or Next day then moves time. Finishing a run saves its report (metrics, the final
 factory state and the timeline), which is kept when the run is later reset.
 
-The numbers are starting values (DM-O3): tune them after watching the runs. S4 (storage limit) needs the receiving-slot
-negotiation (WH-1) and comes with step 8.
+The numbers are starting values (DM-O3): tune them after watching the runs.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -34,6 +33,9 @@ SCENARIOS: dict[str, tuple[str, dict, list[tuple[int, str, dict]]]] = {
             (3, "SUPPLIER_DELAY", {"item_sku": "CHIP", "days": 3})]),
     "S3": ("Material shortage: a big order needs batteries and chips bought through Purchasing", {},
            [(1, "NEW_ORDER", {**PHONES, "quantity": 400, "lead_days": 14})]),
+    "S4": ("Receiving limit: the dock takes 600 pieces a day; deliveries are spread and each slot is agreed first",
+           {}, [(1, "WAREHOUSE_CAPACITY", {"resource": "RECEIVING", "units": 600}),
+                (1, "NEW_ORDER", {**PHONES, "quantity": 400, "lead_days": 14})]),
     "S5": ("Worker absence: two assemblers are absent while the order is planned", {},
            [(1, "NEW_ORDER", {**PHONES, "quantity": 300, "lead_days": 10}),
             (2, "WORKER_ABSENT", {"worker": "A1", "first_day_offset": 5, "last_day_offset": 8}),

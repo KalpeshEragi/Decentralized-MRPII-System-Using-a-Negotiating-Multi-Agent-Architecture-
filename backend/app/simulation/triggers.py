@@ -10,6 +10,7 @@ logged in `simulation.trigger_log` and appears in the timeline.
 | CHANGE_ORDER   | Sales (a customer changes, S7)            | order_number or "latest", quantity                       |
 | WORKER_ABSENT  | HR `record_absence` (S5)                  | worker, first_day, last_day (or first/last day offsets) |
 | SUPPLIER_DELAY | Purchasing `record_supplier_delay` (S2)   | leg_id, new_date; or item_sku, days                      |
+| WAREHOUSE_CAPACITY | Warehouse `change_capacity` (S4)      | resource (RECEIVING, SHIPPING, MATERIALS, FINISHED_GOODS), units |
 """
 
 import uuid
@@ -49,6 +50,14 @@ def _supplier_delay(db: Session, params: dict) -> dict:
                                             date.fromisoformat(params["new_date"]))
 
 
+def _warehouse_capacity(db: Session, params: dict) -> dict:
+    from decimal import Decimal
+
+    from app.warehouse_agent import manager as warehouse
+
+    return warehouse.change_capacity(db, str(params["resource"]), Decimal(str(params["units"])))
+
+
 def _new_order(db: Session, params: dict) -> dict:
     from app.simulation import customers
 
@@ -81,7 +90,7 @@ def _change_order(db: Session, params: dict) -> dict:
 
 
 KINDS = {"NEW_ORDER": _new_order, "CANCEL_ORDER": _cancel_order, "CHANGE_ORDER": _change_order,
-         "WORKER_ABSENT": _worker_absent, "SUPPLIER_DELAY": _supplier_delay}
+         "WORKER_ABSENT": _worker_absent, "SUPPLIER_DELAY": _supplier_delay, "WAREHOUSE_CAPACITY": _warehouse_capacity}
 
 
 def add(db: Session, kind: str, params: dict, day: date | None = None) -> TriggerLog:

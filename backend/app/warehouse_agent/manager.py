@@ -191,7 +191,7 @@ def _commit(db: DbSession, message: Envelope, session: Session) -> None:
     commitment = SpaceCommitment(kind=hold.kind, zone=hold.zone, item_id=hold.item_id, quantity=hold.quantity,
                                  space_units=hold.space_units, arrival_day=hold.arrival_day, until_day=hold.until_day,
                                  for_ref=hold.for_ref, case_id=hold.case_id, negotiation_id=hold.negotiation_id,
-                                 status="ACTIVE", version=1)
+                                 receiving_units=hold.receiving_units, status="ACTIVE", version=1)
     db.add(commitment)
     db.flush()
     db.add(SpaceMovement(commitment_id=commitment.id, zone=hold.zone, kind="ARRIVAL", space_units=hold.space_units,
@@ -385,12 +385,23 @@ def components_of(db: DbSession, item_id: str) -> list[dict]:
 
 def on_procurement_committed(db: DbSession, event: Event) -> None:
     """Purchasing committed supply: expect each Leg's delivery in the materials zone on its day (planned arrival).
-    The receiving slot itself is not negotiated yet (PI-5: WH-1 in step 8)."""
+
+    WH-1: Purchasing already committed a receiving slot for the Leg (the slot commitment carries the Leg id as
+    `for_ref`): that commitment becomes the delivery (its references are completed, nothing is booked twice). Without a
+    slot (it was lost before the commit) the delivery is still expected: space is booked as before, without receiving."""
     payload = event.payload
     ledger = LedgerWriter(db, SpaceLedger, str(event.event_id), today(db))
     if ledger.already_applied():
         return
     for leg in payload["legs"]:
+        slot = db.scalar(select(SpaceCommitment).where(
+            SpaceCommitment.kind == "DELIVERY", SpaceCommitment.status == "ACTIVE",
+            SpaceCommitment.for_ref == leg["leg_id"]).with_for_update())
+        if slot is not None:
+            slot.negotiation_id, slot.case_id = leg["leg_id"], payload["procurement_request_id"]
+            slot.for_ref = payload.get("for_ref") or payload["procurement_request_id"]
+            slot.version += 1
+            continue
         quantity, arrival = Decimal(leg["quantity"]), date.fromisoformat(leg["delivery_date"])
         space = space_for(db, payload["item_id"], quantity)
         commitment = SpaceCommitment(kind="DELIVERY", zone=MATERIALS, item_id=payload["item_id"], quantity=quantity,
@@ -420,6 +431,13 @@ def on_supplier_delayed(db: DbSession, event: Event) -> None:
                  commitment=commitment.id)
     ledger.write(MATERIALS, "PLANNED_ARRIVAL", commitment.space_units, "DELAYED", day=new_day,
                  commitment=commitment.id)
+    if commitment.receiving_units > 0:  # the committed receiving moves with the delivery (a fact: may exceed the day)
+        _receiving_day(db, commitment.arrival_day).committed_units -= commitment.receiving_units
+        _receiving_day(db, new_day).committed_units += commitment.receiving_units
+        ledger.write("RECEIVING", "RECEIVING_COMMITTED", -commitment.receiving_units, "DELAYED",
+                     day=commitment.arrival_day, commitment=commitment.id)
+        ledger.write("RECEIVING", "RECEIVING_COMMITTED", commitment.receiving_units, "DELAYED", day=new_day,
+                     commitment=commitment.id)
     for movement in db.scalars(select(SpaceMovement).where(SpaceMovement.commitment_id == commitment.id,
                                                            SpaceMovement.status == "PLANNED")):
         movement.planned_day = new_day
@@ -485,6 +503,29 @@ def setup(db: DbSession, config: dict) -> None:
         if key in config:
             db.merge(DailyCapacity(resource=resource, units=Decimal(str(config[key]))))
     db.flush()
+
+
+def change_capacity(db: DbSession, resource: str, units: Decimal) -> dict:
+    """Warehouse's input for a changed capacity (a simulator trigger, S4, or a person): RECEIVING / SHIPPING units per
+    day, or a zone's space. Commitments already made stay (they are facts); new requests are answered against the new
+    capacity. Publishes `StorageCapacityChanged`. Caller commits."""
+    if resource in ("RECEIVING", "SHIPPING"):
+        row = db.get(DailyCapacity, resource, with_for_update=True)
+        if row is None:
+            row = DailyCapacity(resource=resource, units=ZERO)
+            db.add(row)
+        row.units = units
+    elif resource in (MATERIALS, FINISHED_GOODS):
+        zone = db.get(Zone, resource, with_for_update=True)
+        zone.capacity_units, zone.version = units, zone.version + 1
+    else:
+        raise ValueError(f"unknown capacity {resource}")
+    version = 1 + db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.event_type == "CAPACITY_CHANGED"))
+    payload = {"resource": resource, "units": str(units)}
+    channel.publish(db, event_type="StorageCapacityChanged", publisher=AGENT, entity_type="capacity",
+                    entity_id=resource, entity_version=version, correlation_id=f"capacity-{resource}", payload=payload)
+    db.add(AuditLog(actor="SYSTEM", event_type="CAPACITY_CHANGED", case_id=None, details=payload))
+    return payload
 
 
 def register(runner_register) -> None:
