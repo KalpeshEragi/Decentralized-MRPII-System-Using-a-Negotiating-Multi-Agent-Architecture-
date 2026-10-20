@@ -6,7 +6,7 @@ infrastructure tables (events, negotiation, simulation, observability).
 
 | File | Purpose |
 | --- | --- |
-| `views.py` | `orders` (every order: Sales stage, plan status, production orders), `order_story` (one order: Sales, plan, what each owner holds or committed, its negotiation sessions, its events), `timeline` (events, negotiation messages, triggers, AI calls, failed work, in time order, with a `next` cursor for polling, API-2), `factory_state` (stock and ATP per item, free space per zone, free receiving, free worker-hours per skill, free machine-hours per work center, for one simulated day). |
+| `views.py` | `orders` (every order: Sales stage, plan status, production orders), `order_story` (one order: Sales, plan, what each owner holds or committed, its negotiation sessions, its events), `timeline` (events, negotiation messages, triggers, AI calls, failed work, in time order, with a `next` cursor for polling, API-2; a full page ends with a whole time group, because rows of one transaction share one time, so paging never skips rows), `factory_state` (stock and ATP per item, free space per zone, free receiving, free worker-hours per skill, free machine-hours per work center, for one simulated day). |
 | `live.py` | `live`: one snapshot for the control panel (clock with what is waiting and why Play paused, the AI setting, the open run, KPIs, stock, zones, workers with who is absent today, lines, docks, the latest orders, open negotiations). |
 | `api.py` | `GET /observer/orders`, `/orders/{ref}` (demand id, request ref or Sales order number), `/timeline?after=&case=`, `/factory-state?day=` (default: today), `/live`. |
 

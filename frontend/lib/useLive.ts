@@ -7,6 +7,7 @@ import { api, ApiError, Live, TimelineItem } from "./api";
 
 const POLL_MS = 1500;
 const MAX_ITEMS = 1500;
+const FULL_PAGE = 200;  // the observer's page size: a full page means more is waiting, so read again at once
 
 export function useLive() {
   const [live, setLive] = useState<Live | null>(null);
@@ -15,8 +16,9 @@ export function useLive() {
   const cursor = useRef<string | null>(null);
   const busy = useRef(false);
 
-  const poll = useCallback(async () => {
-    if (busy.current) return;  // one poll at a time: the same timeline page is never read twice
+  /** One poll; returns true when the timeline page was full (more items are waiting). */
+  const poll = useCallback(async (): Promise<boolean> => {
+    if (busy.current) return false;  // one poll at a time: the same timeline page is never read twice
     busy.current = true;
     try {
       const [snapshot, page] = await Promise.all([
@@ -31,8 +33,10 @@ export function useLive() {
         setItems((old) => [...old, ...page.items].slice(-MAX_ITEMS));
       }
       setError(null);
+      return page.items.length >= FULL_PAGE;
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
+      return false;
     } finally {
       busy.current = false;
     }
@@ -42,8 +46,8 @@ export function useLive() {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const loop = async () => {
-      await poll();
-      if (!stopped) timer = setTimeout(loop, POLL_MS);
+      const more = await poll();
+      if (!stopped) timer = setTimeout(loop, more ? 50 : POLL_MS);
     };
     loop();
     return () => { stopped = true; clearTimeout(timer); };

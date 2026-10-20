@@ -75,19 +75,36 @@ def order_story(db: Session, order_ref: str) -> dict | None:
 
 def timeline(db: Session, after: datetime | None = None, case_id: str | None = None) -> dict:
     """One stream in time order: events, negotiation messages, triggers, AI calls and failed work. Poll with the
-    returned `next` cursor (API-2)."""
+    returned `next` cursor (API-2).
+
+    Rows saved in one transaction share one time (PostgreSQL `now()`), and the cursor is a time. So a full page never
+    ends inside such a group: it stops before the last time and then takes that whole group, even past the limit.
+    Otherwise the next page (`> next`) would skip the rest of the group."""
+    items = sorted(_timeline_rows(db, case_id, after=after, limit=TIMELINE_LIMIT), key=lambda i: i["time"])
+    if len(items) >= TIMELINE_LIMIT:  # a source may have more: end the page with a whole time group
+        last = items[TIMELINE_LIMIT - 1]["time"]
+        items = [i for i in items[:TIMELINE_LIMIT] if i["time"] != last] + _timeline_rows(db, case_id, at=last)
+    for item in items:
+        item["time"] = item["time"].isoformat()
+    return {"items": items, "next": items[-1]["time"] if items else (after.isoformat() if after else None)}
+
+
+def _timeline_rows(db: Session, case_id: str | None, after: datetime | None = None, at: datetime | None = None,
+                   limit: int | None = None) -> list[dict]:
+    """The timeline's rows of every source: later than `after` (up to `limit` per source), or exactly at `at`."""
+    def window(query, column):
+        if at is not None:
+            return query.where(column == at)
+        query = query.where(column > after) if after else query
+        return query.limit(limit) if limit else query
+
     items = []
-    query = select(Event).order_by(Event.published_at)
-    if after:
-        query = query.where(Event.published_at > after)
+    query = window(select(Event).order_by(Event.published_at, Event.seq), Event.published_at)
     if case_id:
         query = query.where(Event.correlation_id == case_id)
-    items += [{"time": e.published_at, "source": "event", **_event(e)} for e in db.scalars(query.limit(TIMELINE_LIMIT))]
+    items += [{"time": e.published_at, "source": "event", **_event(e)} for e in db.scalars(query)]
 
-    query = select(Message).order_by(Message.created_at)
-    if after:
-        query = query.where(Message.created_at > after)
-    for m in db.scalars(query.limit(TIMELINE_LIMIT)):
+    for m in db.scalars(window(select(Message).order_by(Message.created_at), Message.created_at)):
         envelope = m.envelope
         if case_id and envelope.get("case_id") != case_id:
             continue
@@ -96,30 +113,22 @@ def timeline(db: Session, after: datetime | None = None, case_id: str | None = N
                       "session_id": str(m.session_id), "terms": envelope.get("terms"),
                       "reason_code": envelope.get("reason_code"), "text": envelope.get("text")})
     if not case_id:
-        query = select(TriggerLog).order_by(TriggerLog.created_at)
-        if after:
-            query = query.where(TriggerLog.created_at > after)
+        query = window(select(TriggerLog).order_by(TriggerLog.created_at), TriggerLog.created_at)
         items += [{"time": t.created_at, "source": "trigger", "type": t.kind, "params": t.params,
                    "status": t.status, "scheduled_day": t.scheduled_day.isoformat() if t.scheduled_day else None}
-                  for t in db.scalars(query.limit(TIMELINE_LIMIT))]
-    query = select(LlmCall).order_by(LlmCall.queued_at)
-    if after:
-        query = query.where(LlmCall.queued_at > after)
+                  for t in db.scalars(query)]
+    query = window(select(LlmCall).order_by(LlmCall.queued_at), LlmCall.queued_at)
     if case_id:
         query = query.where(LlmCall.case_id == case_id)
     items += [{"time": c.queued_at, "source": "ai_call", "agent": c.agent, "purpose": c.purpose, "outcome": c.outcome,
                "case_id": c.case_id, "seconds": (c.finished_at - c.started_at).total_seconds()
-               if c.finished_at and c.started_at else None} for c in db.scalars(query.limit(TIMELINE_LIMIT))]
+               if c.finished_at and c.started_at else None} for c in db.scalars(query)]
     if not case_id:
-        items += _failed_work(db, after)
-    items.sort(key=lambda i: i["time"])
-    items = items[:TIMELINE_LIMIT]
-    for item in items:
-        item["time"] = item["time"].isoformat()
-    return {"items": items, "next": items[-1]["time"] if items else (after.isoformat() if after else None)}
+        items += _failed_work(db, after, at)
+    return items
 
 
-def _failed_work(db: Session, after: datetime | None) -> list[dict]:
+def _failed_work(db: Session, after: datetime | None, at: datetime | None = None) -> list[dict]:
     from app.simulation.runner import queue_counts, queue_models
 
     failing = queue_counts(db, (work_runner.FAILED,))  # one query; rows only from queues that have failures
@@ -128,7 +137,9 @@ def _failed_work(db: Session, after: datetime | None) -> list[dict]:
         if f"{model.__table__.schema}.{model.__tablename__}" not in failing:
             continue
         query = select(model).where(model.status == work_runner.FAILED)
-        if after:
+        if at is not None:
+            query = query.where(model.created_at == at)
+        elif after:
             query = query.where(model.created_at > after)
         found += [{"time": row.created_at, "source": "failed_work", "queue": f"{model.__table__.schema}.{model.__tablename__}",
                    "kind": row.kind, "attempts": row.attempts, "error": row.last_error} for row in db.scalars(query)]
