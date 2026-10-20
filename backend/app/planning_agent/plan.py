@@ -143,9 +143,11 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
     result = run_mrp([Demand(item_id, quantity, due_day, DEMAND)], data, bom, production_start)
     spec = PlanSpec(True, item_id, quantity, due_day)
     for order in (o for o in result.planned_orders if o.sourcing == BUY):
+        if not order.source.startswith("planned:"):
+            continue  # a refill to safety stock, not needed by this request (Planning refills on its own, RD-6)
         lead = purchasing.supply_lead_time_days(db, order.item_id, order.quantity)
         arrival = order.need_day - timedelta(days=1)
-        if not order.source.startswith("planned:") or lead is None or today(db) + timedelta(days=lead) > arrival:
+        if lead is None or today(db) + timedelta(days=lead) > arrival:
             spec.feasible, spec.reason = False, "MATERIAL_SHORTAGE"
             break
         spec.supply.append(SupplyNeed(order.item_id, order.quantity, arrival,
