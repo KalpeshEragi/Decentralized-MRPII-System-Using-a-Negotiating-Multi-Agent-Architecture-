@@ -92,12 +92,16 @@ Settings: defaults from the agent docs. All values are starting values to tune a
 | Control | Effect |
 | --- | --- |
 | Next day | Advance one simulated day now: publish `SimulatedDayStarted(date)` |
-| Play | Advance automatically, but only when the factory is quiet |
+| Play | Advance automatically, but only when the factory is quiet; pauses by itself when nothing is left to do |
 | Pause | Stop advancing; work already queued finishes |
 
 **Quiet** = no PENDING or RUNNING item in any queue (FAILED items do not count), no outbox waiting, and no
 negotiation waiting on an agent. A day that does not become quiet within a limit (setting, default 5 minutes real
 time) pauses the run and shows what is still waiting.
+
+**Nothing left to do** = no open customer demand (all completed, cancelled, expired or failed), no scheduled trigger,
+and no simulated customers placing orders (`customer_orders_per_day` = 0). Play then pauses by itself with that
+reason (shown on the panel) instead of moving the clock through empty days. Next day still works by hand.
 
 Real-time limits (negotiation response timeouts, NG-O2; leases; retries) only protect against stuck work. Because
 Play waits for quiet, no business step is ever cut off by a day change; business deadlines (holds, offers) are counted

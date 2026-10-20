@@ -8,6 +8,8 @@ progress -> wait until quiet again.
 
 Quiet = no PENDING or RUNNING item in any work queue (FAILED items do not count; they wait for a person). A day that
 does not become quiet within `quiet_limit_seconds` (real time) pauses the run and reports what is still waiting.
+Play also pauses by itself when nothing is left to do (`work_left` is empty): no open customer demand, no scheduled
+trigger and no simulated customers placing orders. Empty days would only move the clock.
 """
 
 import logging
@@ -19,8 +21,10 @@ from sqlalchemy import func, literal, select, union_all
 from sqlalchemy.orm import Session
 
 from app.core import work_runner
+from app.planning_agent import reads as planning
 from app.simulation import customers, shop_floor, triggers
 from app.simulation.clock import get_clock, next_day
+from app.simulation.models import TriggerLog
 from app.simulation.settings import setting
 
 logger = logging.getLogger(__name__)
@@ -51,6 +55,18 @@ def queue_counts(db: Session, statuses: tuple[str, ...]) -> dict[str, int]:
 def waiting(db: Session) -> dict[str, int]:
     """Unfinished work per queue (PENDING or RUNNING). Empty = the factory is quiet."""
     return queue_counts(db, (work_runner.PENDING, work_runner.RUNNING))
+
+
+def work_left(db: Session) -> list[str]:
+    """What can still happen in the simulated factory. Empty = Play has nothing to wait for."""
+    left = []
+    if open_demands := planning.open_demand_count(db):
+        left.append(f"{open_demands} open customer orders")
+    if scheduled := db.scalar(select(func.count()).select_from(TriggerLog).where(TriggerLog.status == "SCHEDULED")):
+        left.append(f"{scheduled} scheduled triggers")
+    if int(setting(db, "customer_orders_per_day")) > 0:
+        left.append("simulated customers place orders every day")
+    return left
 
 
 def wait_until_quiet(session_factory: Callable[[], Session]) -> dict[str, int]:
@@ -102,15 +118,18 @@ def run_one_day(session_factory: Callable[[], Session], settle: Settle | None = 
 
 _play_thread: threading.Thread | None = None
 _lock = threading.Lock()
+pause_reason: str | None = None  # why Play last stopped by itself (shown on the panel); None after a person's action
 
 
 def _set_status(session_factory, status: str, reason: str | None = None) -> None:
+    global pause_reason
+    pause_reason = reason
     with session_factory() as db:
         clock = get_clock(db, lock=True)
         clock.status = status
         db.commit()
     if reason:
-        logger.warning("simulation paused: %s", reason)
+        logger.info("simulation paused: %s", reason)
 
 
 def _playing(session_factory) -> bool:
@@ -118,8 +137,16 @@ def _playing(session_factory) -> bool:
         return get_clock(db).status == "RUNNING"
 
 
+def _nothing_left(session_factory) -> bool:
+    with session_factory() as db:
+        return not work_left(db)
+
+
 def _play_loop(session_factory) -> None:
     while _playing(session_factory):
+        if _nothing_left(session_factory):
+            _set_status(session_factory, "PAUSED", "nothing left to do: no open orders, triggers or new customers")
+            return
         day = run_one_day(session_factory)
         if day["waiting"]:
             _set_status(session_factory, "PAUSED", f"day {day['day']} did not become quiet: {day['waiting']}")

@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.events.models import Event
+from app.hr_agent import reads as hr
 from app.inventory_agent import reads as inventory
 from app.models.core import Item
 from app.negotiation.models import Session as NegotiationSession
@@ -15,7 +16,9 @@ from app.observability.models import LlmCall
 from app.planning_agent import reads as planning
 from app.simulation.clock import get_clock
 from app.simulation.models import Run
+from app.simulation import runner
 from app.simulation.runner import waiting
+from app.simulation.settings import setting
 from app.warehouse_agent import reads as warehouse
 
 ACTIVE = ("RELEASED", "STARTED", "FIRM")
@@ -38,7 +41,9 @@ def live(db: Session) -> dict:
     orders = planning.production_orders(db)
     run = db.scalar(select(Run).where(Run.status == "RUNNING").order_by(Run.id.desc()))
     return {
-        "clock": {"day": day.isoformat(), "status": clock.status, "waiting": waiting(db)},
+        "clock": {"day": day.isoformat(), "status": clock.status, "waiting": waiting(db),
+                  "pause_reason": runner.pause_reason},
+        "ai_enabled": bool(int(setting(db, "ai_enabled"))),
         "run": {"id": run.id, "scenario": run.scenario, "start_day": run.start_day.isoformat()} if run else None,
         "kpis": {
             "stock_on_hand": str(sum((Decimal(s["on_hand"]) for s in stock), Decimal(0))),
@@ -51,6 +56,7 @@ def live(db: Session) -> dict:
         },
         "stock": stock,
         "zones": warehouse.zones(db),
+        "workers": hr.workers(db, day),
         "lines": [_line(db, wc, day, orders, items) for wc in planning.work_centers(db)],
         "docks": {
             "inbound": [{**d, "sku": items[d["item_id"]].sku if d["item_id"] in items else None}

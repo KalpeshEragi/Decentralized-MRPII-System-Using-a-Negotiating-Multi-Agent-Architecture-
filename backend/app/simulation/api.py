@@ -27,7 +27,8 @@ def get_session_factory() -> Callable[[], Session]:
 def get_clock(db: Session = Depends(get_db)) -> dict:
     current = clock.get_clock(db)
     db.commit()  # the row is created on first use
-    return {"current_day": current.current_day.isoformat(), "status": current.status, "waiting": runner.waiting(db)}
+    return {"current_day": current.current_day.isoformat(), "status": current.status, "waiting": runner.waiting(db),
+            "pause_reason": runner.pause_reason, "work_left": runner.work_left(db)}
 
 
 @router.post("/clock/next-day", status_code=202)

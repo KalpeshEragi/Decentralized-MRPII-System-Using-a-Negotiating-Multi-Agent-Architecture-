@@ -4,7 +4,7 @@ data. Warehouse uses it for its daily routine (which kits to issue, what to ship
 import uuid
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DbSession
 
 from app.core.owner_tables import differences, ledger_sums
@@ -72,6 +72,15 @@ def demands(db: DbSession, limit: int = 500) -> list[dict]:
              "committed_day": d.committed_day.isoformat() if d.committed_day else None,
              "quantity_shipped": str(d.quantity_shipped), "created_at": d.created_at.isoformat()}
             for d in db.scalars(select(CustomerDemand).order_by(CustomerDemand.created_at.desc()).limit(limit))]
+
+
+FINISHED_DEMANDS = ("COMPLETED", "CANCELLED", "EXPIRED", "COMMIT_FAILED", "WITHDRAWN")
+
+
+def open_demand_count(db: DbSession) -> int:
+    """Customer demands still in progress (not completed, cancelled, expired or failed)."""
+    return db.scalar(select(func.count()).select_from(CustomerDemand)
+                     .where(CustomerDemand.status.not_in(FINISHED_DEMANDS))) or 0
 
 
 def cases_for(db: DbSession, demand_id: str) -> list[dict]:

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.hr_agent.manager import _overtime_room, free
 from app.core.owner_tables import differences, ledger_sums
-from app.hr_agent.models import Assignment, Commitment, HoursLedger, PoolDay, Worker
+from app.hr_agent.models import Absence, Assignment, Commitment, HoursLedger, PoolDay, Worker
 
 
 def free_worker_hours(db: DbSession, skill: str, start: date, end: date) -> dict[str, str]:
@@ -36,6 +36,14 @@ def assignments_for(db: DbSession, production_order_id: str) -> list[dict]:
 def commitments_for(db: DbSession, production_order_id: str) -> list[dict]:
     return [{"id": str(c.id), "skill": c.skill, "lines": c.lines, "missing": c.missing, "status": c.status}
             for c in db.scalars(select(Commitment).where(Commitment.production_order_ref == production_order_id))]
+
+
+def workers(db: DbSession, day: date) -> list[dict]:
+    """Every worker with skills and whether an absence covers `day` (the observer shows absent workers)."""
+    absent = set(db.scalars(select(Absence.worker_id).where(Absence.first_day <= day, Absence.last_day >= day)))
+    return [{"code": w.code, "name": w.display_name, "primary_skill": w.primary_skill,
+             "secondary_skills": w.secondary_skills or [], "absent": w.id in absent}
+            for w in db.scalars(select(Worker).order_by(Worker.code))]
 
 
 def skills(db: DbSession) -> list[str]:
