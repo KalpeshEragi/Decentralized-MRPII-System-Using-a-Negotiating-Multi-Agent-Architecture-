@@ -1,14 +1,16 @@
 # backend/app/llm
 
-LLM proposer/helper layer (Phase 1). The LLM only proposes structured data; it never changes business state.
+The shared language-model layer: one Ollama model for all agents (configured in `app/core/config.py`). The model only
+proposes words or a choice among code-made alternatives; code checks every answer and falls back on any failure. It
+never changes business state.
 
 | File | Purpose |
 | --- | --- |
-| `client.py` | `LLMClient` protocol, `OllamaClient` (OpenAI-compatible endpoint, base URL and model from settings, `reasoning_effort="none"`), `FakeLLMClient`. |
-| `reasoning.py` | `parse_structured` (strips `<think>` blocks and code fences, validates JSON), `propose` (one retry), `NegotiationProposal`. |
-| `agents_spike.py` | OpenAI Agents SDK + Ollama compatibility spike (Phase 2): `build_proposer_agent` (configurable base URL / model, `ModelSettings(reasoning=Reasoning(effort="none"))`), `propose_with_agent` (reply is parsed and validated before use). Not one of the real agents. |
-| `prompts.py` | `build_messages`, the system prompt (no price/cost) and `PURCHASING_TASK` (Phase 3, used by the Purchasing Agent). |
+| `client.py` | `LLMClient` protocol, `OllamaClient` (OpenAI-compatible endpoint, base URL and model from settings, `reasoning_effort="none"`, timeout), `FakeLLMClient` (scripted replies for tests). |
+| `reasoning.py` | `parse_structured` (strips `<think>` blocks and code fences, validates JSON against a model), `propose` (one retry). |
+| `wording.py` | Negotiation wording (IN-4, HR-4, WH-5, PL-4): the model rewords a message from its code-computed terms; every number and date must come from the terms (one retry, then the template). Used by the negotiation outbox just before sending, outside any lock, when the factory setting `ai_enabled` is 1. Logged in `observability.llm_calls` (SD-3). |
 
-`OllamaClient` has not been run against a real Ollama; how no-reasoning mode is honoured is checked in the Phase 2 spike (D13).
-Callers must run deterministic validation on a proposal before using it. Phase 3: the Purchasing Agent uses `OllamaClient`
-through `app/agents/base.py` (`llm_client()`); the Agents SDK spike is not in the agents' runtime path (D13 not verified live).
+Other agents' own AI steps: Sales (`sales_agent/agent.py`, chat), Purchasing (`purchasing_agent/interpretation.py`,
+`writer.py`), Planning's ranking (`planning_agent/ai.py`, PL-4).
+
+**Tests:** `backend/tests/llm/test_structured_output.py`, `test_ai_steps.py` (wording fallback, AI choice checked).

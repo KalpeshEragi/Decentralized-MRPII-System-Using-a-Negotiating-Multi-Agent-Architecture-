@@ -19,10 +19,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.core.work_runner import Registration, WorkItem, enqueue
+from app.llm import wording
 from app.negotiation import transport
 from app.negotiation.envelope import AGENTS, Envelope, Hold, MessageType, ReasonCode, Terms
 from app.negotiation.models import Message, Outbox, Session
 from app.negotiation.state import ENDED, ProtocolError, SessionState, apply
+from app.simulation.settings import setting
 
 logger = logging.getLogger(__name__)
 
@@ -141,10 +143,16 @@ def handle_inbox(db: DbSession, row: Message) -> None:
 
 
 def send_outbox_item(session_factory: Callable[[], DbSession], item: WorkItem, renew: Callable[[], None]) -> None:
-    """Long-mode handler: one HTTP send. Raises on network failure (retried). A refusal is recorded, not retried."""
+    """Long-mode handler: one HTTP send. Raises on network failure (retried). A refusal is recorded, not retried.
+    With the AI switched on (`ai_enabled`), the message text is reworded once before the first send, outside any
+    lock (`app/llm/wording.py`: words only, checked against the terms, template on any failure)."""
     with session_factory() as db:
         row = db.scalar(select(Outbox).where(Outbox.id == item.id))
         envelope, receiver = row.envelope, row.receiver
+        if not row.payload.get("worded") and int(setting(db, "ai_enabled")):
+            envelope = {**envelope, "text": wording.word(db, envelope)}
+            row.envelope, row.payload = envelope, {**row.payload, "worded": True}
+            db.commit()
     ack = transport.send(receiver, envelope)
     if not ack.get("accepted"):
         logger.error("negotiation message %s refused by %s: %s", envelope["message_id"], receiver, ack.get("error"))
