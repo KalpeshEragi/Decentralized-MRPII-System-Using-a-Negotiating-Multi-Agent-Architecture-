@@ -6,7 +6,6 @@
   requests do not count on it (like produced goods, RD-5).
 """
 
-import sqlalchemy as sa
 from alembic import op
 
 from app.purchasing_agent import link_models as link
@@ -24,8 +23,9 @@ def upgrade() -> None:
     op.execute(f'CREATE SCHEMA IF NOT EXISTS "{link.SCHEMA}"')
     for model in TABLES:
         model.__table__.create(bind)
-    op.add_column("incoming_receipts", sa.Column("for_kind", sa.String), schema="inventory")
-    op.add_column("incoming_receipts", sa.Column("for_ref", sa.String), schema="inventory")
+    # IF NOT EXISTS: 007 creates the table from the current model, which already has these columns on a new database
+    op.execute("ALTER TABLE inventory.incoming_receipts ADD COLUMN IF NOT EXISTS for_kind VARCHAR")
+    op.execute("ALTER TABLE inventory.incoming_receipts ADD COLUMN IF NOT EXISTS for_ref VARCHAR")
 
 
 def downgrade() -> None:
