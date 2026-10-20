@@ -90,7 +90,7 @@ def test_n7_a_silent_supplier_times_out_when_the_request_is_next_read(client):
 
     # A late reply finds the negotiation closed; reading again changes nothing.
     late = reply(client, leg, "ACCEPT")
-    assert late.status_code == 409 and late.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert late.status_code == 409 and late.json()["code"] == "INVALID_STATE_TRANSITION"
     assert len(audit_of(client, request, "RESPONSE_DEADLINE")) == 1
 
 
@@ -244,7 +244,7 @@ def test_aborting_a_negotiation_fails_the_request_and_aborts_every_open_leg(clie
     # Further replies and a second abort are refused.
     assert reply(client, legs_by_supplier(request)["Cell Works"], "ACCEPT").status_code == 409
     second = abort(client, request)
-    assert second.status_code == 409 and second.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert second.status_code == 409 and second.json()["code"] == "INVALID_STATE_TRANSITION"
 
 
 def test_a_proposed_agreement_cannot_be_aborted_but_can_be_rejected(client):
@@ -253,7 +253,7 @@ def test_a_proposed_agreement_cannot_be_aborted_but_can_be_rejected(client):
     assert request_of(client, request)["status"] == "AGREEMENT_PROPOSED"
 
     refused = abort(client, request)
-    assert refused.status_code == 409 and refused.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert refused.status_code == 409 and refused.json()["code"] == "INVALID_STATE_TRANSITION"
     after = request_of(client, request)
     assert (after["status"], after["legs"][0]["status"]) == ("AGREEMENT_PROPOSED", "AGREED")  # nothing changed
     reject = client.post(f"/purchasing/procurement-requests/{request['id']}/reject", json={"decided_by": "approver"})
@@ -266,7 +266,7 @@ def test_a_committed_request_cannot_be_aborted(client):
     client.post(f"/purchasing/procurement-requests/{request['id']}/approve", json={"decided_by": "approver"})
 
     refused = abort(client, request)
-    assert refused.status_code == 409 and refused.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert refused.status_code == 409 and refused.json()["code"] == "INVALID_STATE_TRANSITION"
     after = request_of(client, request)
     assert after["status"] == "COMMITTED" and after["legs"][0]["status"] == "COMMITTED"
 

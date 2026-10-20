@@ -125,9 +125,9 @@ def test_a_decided_request_cannot_be_decided_again(client):
 
     for stale in (approve(client, approved), reject(client, approved), approve(client, rejected)):
         assert stale.status_code == 409
-        error = stale.json()["error"]
+        error = stale.json()  # RFC 9457 problem details (API-1)
         assert error["code"] == "INVALID_STATE_TRANSITION"
-        assert error["details"][0]["field"] == "status"
+        assert error["errors"][0]["field"] == "status"
 
     assert request_status(client, approved) == "COMMITTED"
     assert request_status(client, rejected) == "APPROVAL_REJECTED"
@@ -142,7 +142,7 @@ def test_a_request_still_negotiating_cannot_be_approved_or_rejected(client):
     reply(client, request["legs"][0]["id"], "ACCEPT")  # only one of the two Legs agreed
 
     for refused in (approve(client, request), reject(client, request)):
-        assert refused.status_code == 409 and refused.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+        assert refused.status_code == 409 and refused.json()["code"] == "INVALID_STATE_TRANSITION"
 
     after = client.get(f"/purchasing/procurement-requests/{request['id']}").json()
     assert after["status"] == "NEGOTIATING"
@@ -154,7 +154,7 @@ def test_approving_an_unknown_request_or_without_an_approver_is_refused(client):
     assert approve(client, {"id": str(uuid.uuid4())}).status_code == 404
     request = proposed_a1(client)
     missing = client.post(f"/purchasing/procurement-requests/{request['id']}/approve", json={})
-    assert missing.status_code == 422 and missing.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert missing.status_code == 422 and missing.json()["code"] == "VALIDATION_ERROR"
 
 
 def request_status(client, request: dict) -> str:
@@ -186,7 +186,7 @@ def test_a_proposed_agreement_with_a_leg_no_longer_agreed_is_neither_approved_no
 
     for refused in (approve(client, request), reject(client, request)):
         assert refused.status_code == 409
-        assert refused.json()["error"]["details"] == [{"field": f"legs.{cell['id']}.status", "issue": "is PENDING"}]
+        assert refused.json()["errors"] == [{"field": f"legs.{cell['id']}.status", "issue": "is PENDING"}]
 
     after = client.get(f"/purchasing/procurement-requests/{request['id']}").json()
     assert after["status"] == "AGREEMENT_PROPOSED"
