@@ -9,7 +9,8 @@ channel, negotiation layer, work runner, simulator) and the pure MRPII calculati
 | `app/events/` | Publish-subscribe event channel. |
 | `app/negotiation/` | Private negotiation: envelope, state machine, outbox/inbox, A2A endpoints. |
 | `app/mrpii/` | Pure calculations: multi-level MRP, hours scheduling, ATP, ranking. |
-| `app/simulation/` | Simulated clock and factory settings (more in step 7). |
+| `app/simulation/` | The simulator: clock, factory settings, day cycle with Play / Pause, simulated shop floor and suppliers, triggers. |
+| `app/observer/` | Read-only views for the demo frontend: orders, one order's story, timeline, factory state. |
 | `app/observability/` | AI-call log table. |
 | `app/models/` | Shared reference data (`core`: items, BOM, routings). |
 | `app/sales_agent/`, `app/planning_agent/`, `app/inventory_agent/`, `app/hr_agent/`, `app/warehouse_agent/` | The agents on the shared platform (events, negotiation v2, work runner). |
