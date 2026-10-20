@@ -54,3 +54,9 @@ def reconcile(db: DbSession) -> list[str]:
     actual = {f"{row.item_id} {bucket}": getattr(row, column) for row in db.scalars(select(StockBalance))
               for bucket, column in columns.items()}
     return [f"inventory {d}" for d in differences(expected, actual)]
+
+
+def balances(db: DbSession) -> dict[str, dict]:
+    """Every item's balance in one query: {item_id: {on_hand, reserved, held, safety_stock}} (for overviews)."""
+    return {row.item_id: {"on_hand": str(row.on_hand), "reserved": str(row.reserved), "held": str(row.held),
+                          "safety_stock": str(row.safety_stock)} for row in db.scalars(select(StockBalance))}

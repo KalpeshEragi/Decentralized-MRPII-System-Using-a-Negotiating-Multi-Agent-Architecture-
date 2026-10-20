@@ -15,7 +15,8 @@ from app.planning_agent.models import (Case, CustomerDemand, MachineHoursLedger,
 def _order(o: ProductionOrder) -> dict:
     return {"id": str(o.id), "item_id": o.item_id, "quantity": str(o.quantity), "start_day": o.start_day.isoformat(),
             "end_day": o.end_day.isoformat(), "status": o.status, "for_kind": o.for_kind, "for_ref": o.for_ref,
-            "demand_id": str(o.demand_id), "quantity_completed": str(o.quantity_completed)}
+            "demand_id": str(o.demand_id), "quantity_completed": str(o.quantity_completed),
+            "work_centers": sorted({step["work_center"] for step in o.steps})}
 
 
 def production_orders_starting(db: DbSession, day: date) -> list[dict]:

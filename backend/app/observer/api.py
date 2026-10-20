@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.errors import AppError, ErrorCode
-from app.observer import views
+from app.observer import live, views
 from app.simulation.clock import today
 
 router = APIRouter(prefix="/observer", tags=["observer"])
@@ -34,3 +34,9 @@ def timeline(after: datetime | None = None, case: str | None = None, db: Session
 @router.get("/factory-state")
 def factory_state(day: date | None = None, db: Session = Depends(get_db)) -> dict:
     return views.factory_state(db, day or today(db))
+
+
+@router.get("/live")
+def live_snapshot(db: Session = Depends(get_db)) -> dict:
+    """One compact snapshot for the control panel (FE-6), polled every second or two."""
+    return live.live(db)

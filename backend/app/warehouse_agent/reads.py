@@ -43,3 +43,18 @@ def reconcile(db: DbSession) -> list[str]:
                                                            SpaceMovement.status == "PLANNED")):
         actual[f"{movement.zone} PLANNED_ARRIVAL"] += movement.space_units
     return [f"warehouse {d}" for d in differences(dict(sums), dict(actual))]
+
+
+def zones(db: DbSession) -> list[dict]:
+    from app.warehouse_agent.models import Zone
+
+    return [{"zone": z.zone, "capacity_units": str(z.capacity_units), "occupied_now": str(z.occupied_now)}
+            for z in db.scalars(select(Zone).order_by(Zone.zone))]
+
+
+def deliveries_on(db: DbSession, day: date) -> list[dict]:
+    """Supplier deliveries expected or received on a day (inbound dock)."""
+    return [{"commitment_id": str(c.id), "item_id": c.item_id, "quantity": str(c.quantity), "status": c.status,
+             "arrival_day": c.arrival_day.isoformat(), "for_ref": c.for_ref}
+            for c in db.scalars(select(SpaceCommitment).where(SpaceCommitment.kind == "DELIVERY",
+                                                              SpaceCommitment.arrival_day == day))]

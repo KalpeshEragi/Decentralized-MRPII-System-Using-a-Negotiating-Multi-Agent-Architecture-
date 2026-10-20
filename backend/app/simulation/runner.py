@@ -15,7 +15,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from sqlalchemy import func, select
+from sqlalchemy import func, literal, select, union_all
 from sqlalchemy.orm import Session
 
 from app.core import work_runner
@@ -38,15 +38,19 @@ def queue_models() -> list[type]:
     return list({r.model: None for r in workers.runner.registrations})
 
 
+def queue_counts(db: Session, statuses: tuple[str, ...]) -> dict[str, int]:
+    """Items per queue in these statuses, in one query (the database may be far away: one round trip, not one per
+    queue). Queues with none are left out."""
+    models = queue_models()
+    parts = [select(literal(i).label("q"), func.count().label("n")).select_from(model)
+             .where(model.status.in_(statuses)) for i, model in enumerate(models)]
+    return {f"{models[q].__table__.schema}.{models[q].__tablename__}": n
+            for q, n in db.execute(union_all(*parts)).all() if n}
+
+
 def waiting(db: Session) -> dict[str, int]:
     """Unfinished work per queue (PENDING or RUNNING). Empty = the factory is quiet."""
-    found = {}
-    for model in queue_models():
-        count = db.scalar(select(func.count()).select_from(model).where(
-            model.status.in_((work_runner.PENDING, work_runner.RUNNING))))
-        if count:
-            found[f"{model.__table__.schema}.{model.__tablename__}"] = count
-    return found
+    return queue_counts(db, (work_runner.PENDING, work_runner.RUNNING))
 
 
 def wait_until_quiet(session_factory: Callable[[], Session]) -> dict[str, int]:

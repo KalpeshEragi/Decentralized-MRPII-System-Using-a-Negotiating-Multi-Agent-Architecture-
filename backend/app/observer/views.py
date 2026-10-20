@@ -120,10 +120,13 @@ def timeline(db: Session, after: datetime | None = None, case_id: str | None = N
 
 
 def _failed_work(db: Session, after: datetime | None) -> list[dict]:
-    from app.simulation.runner import queue_models
+    from app.simulation.runner import queue_counts, queue_models
 
+    failing = queue_counts(db, (work_runner.FAILED,))  # one query; rows only from queues that have failures
     found = []
     for model in queue_models():
+        if f"{model.__table__.schema}.{model.__tablename__}" not in failing:
+            continue
         query = select(model).where(model.status == work_runner.FAILED)
         if after:
             query = query.where(model.created_at > after)
