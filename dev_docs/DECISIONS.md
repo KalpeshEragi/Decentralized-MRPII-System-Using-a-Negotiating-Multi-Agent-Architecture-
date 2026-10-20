@@ -215,6 +215,17 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | PI-5 | WH-1 (Purchasing negotiates a receiving slot with Warehouse before committing a supplier date) is deferred to step 8. |
 | PI-6 | Planning plans bought items: if a bought item is short, the earliest supplier date (Purchasing read data) decides feasibility, and the case gets a SUPPLY negotiation with Purchasing. Purchasing runs on the simulated clock; items map by SKU between `core.items` and `supplier_service.items`. |
 
+### Control panel (2026-10-20, approved by the developer)
+
+| ID | Decision |
+| --- | --- |
+| FE-1 | The control panel is a living 3D view of the factory in the browser: Three.js through React Three Fiber and drei, inside the existing Next.js + React frontend (new libraries, approved). |
+| FE-2 | 3D models are built in code from simple shapes (low-poly, soft blue and white); no downloaded model packs. |
+| FE-3 | Everything that moves in the scene is driven by a real event or fact (a truck arrives because `MaterialReceived` happened, a line is busy because `ProductionStarted` happened); nothing is animated for show. |
+| FE-4 | A collapsible "agent conversation" sidebar shows every negotiation message as a chat between agents and every published event as a notice, filterable by order; it can be widened into a side panel or minimised. |
+| FE-5 | Working product name "Decentra" on the screens (to be confirmed); the repository and docs keep their names until then. |
+| FE-6 | The panel reads only the observer and simulation doors and polls one `GET /observer/live` door plus the timeline cursor (API-2, API-3). |
+
 ## Open
 
 | ID | Question | Notes |
