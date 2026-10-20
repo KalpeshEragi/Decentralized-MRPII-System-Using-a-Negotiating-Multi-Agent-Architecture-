@@ -51,3 +51,25 @@ def simulated_inquiries_answered(db: Session) -> list[dict]:
                       "options": [{"option_id": str(o.id), "kind": o.kind, "quantity": str(o.quantity),
                                    "delivery_date": o.delivery_date.isoformat()} for o in offered]})
     return found
+
+
+def chat_inquiries(db: Session, phone_prefix: str) -> list[dict]:
+    """Current inquiries of test-chat conversations whose phone starts with `phone_prefix` (the chat-mode simulated
+    customers, DM-7): stage and open options in the letter order the customer was shown."""
+    from app.sales_agent.models import Conversation, Option
+
+    found = []
+    for conversation in db.scalars(select(Conversation).where(Conversation.channel == "TEST",
+                                                              Conversation.sender_ref.startswith(phone_prefix))
+                                   .order_by(Conversation.created_at)):
+        inquiry = db.get(Inquiry, conversation.current_inquiry_id) if conversation.current_inquiry_id else None
+        if inquiry is None:
+            continue
+        offered = db.scalars(select(Option).where(Option.inquiry_id == inquiry.id,
+                                                  Option.status.in_(("OFFERED", "SELECTED")))
+                             .order_by(Option.created_at, Option.id)).all()
+        found.append({"phone": conversation.sender_ref, "inquiry_id": str(inquiry.id), "stage": inquiry.stage,
+                      "requested_date": inquiry.requested_date.isoformat() if inquiry.requested_date else None,
+                      "options": [{"letter": "ABCDEFG"[i], "kind": o.kind, "quantity": str(o.quantity),
+                                   "delivery_date": o.delivery_date.isoformat()} for i, o in enumerate(offered)]})
+    return found

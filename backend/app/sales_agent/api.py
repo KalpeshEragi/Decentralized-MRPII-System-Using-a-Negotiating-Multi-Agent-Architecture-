@@ -100,7 +100,7 @@ def answer_in_background(
 ) -> None:
     try:
         with session_factory() as db:
-            manager.process_conversation(db, conversation_id, llm_client, date.today(), planning)
+            manager.process_conversation(db, conversation_id, llm_client, simulated_today(db), planning)
     except Exception:  # a failure here must not stop the server; the customer's message stays saved
         logger.exception("could not answer conversation %s", conversation_id)
 

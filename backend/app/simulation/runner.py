@@ -77,10 +77,14 @@ def run_one_day(session_factory: Callable[[], Session], settle: Settle | None = 
         result["customers"] = customers.place_orders(db, day)
     if left := settle():
         return {**result, "waiting": left}
-    with session_factory() as db:
-        result["decisions"] = customers.answer_options(db)
-    if left := settle():
-        return {**result, "waiting": left}
+    for _ in range(3):  # a chat customer may need a few turns (a letter, then "yes"); structured needs one
+        with session_factory() as db:
+            decided = customers.answer_options(db)
+        result["decisions"] += decided
+        if left := settle():
+            return {**result, "waiting": left}
+        if not decided:
+            break
     with session_factory() as db:
         result["shop_floor"] = shop_floor.report_day(db, day)
         db.commit()
