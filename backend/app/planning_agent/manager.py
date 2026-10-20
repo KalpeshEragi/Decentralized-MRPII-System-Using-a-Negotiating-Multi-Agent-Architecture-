@@ -32,7 +32,8 @@ from app.models.core import Bom, BomItem, Item, Routing
 from app.negotiation import layer
 from app.negotiation.envelope import Envelope, MessageType as M, ReasonCode, ResourceType, Terms
 from app.negotiation.models import Session
-from app.planning_agent import plan as planner
+from app.mrpii.ranking import Alternative, check_ai_choice, rank
+from app.planning_agent import ai as planning_ai, plan as planner
 from app.planning_agent.models import (AuditLog, Case, CustomerDemand, EventVersion, MachineHoursLedger, Option,
                                        ProductionOrder, SalesOutbox, ShopFloorReport, WorkCenter, WorkCenterDay,
                                        WorkItem)
@@ -639,29 +640,80 @@ def on_workforce_changed(db: DbSession, event: Event) -> None:
         if order.status != "FIRM" or order.start_day <= fence or skill is None:
             _plan_at_risk(db, order, entry["day"], skill, str(missing), "INSIDE_TIME_FENCE")
             continue
-        _start_repair(db, order, skill, date.fromisoformat(entry["day"]), missing, entry["commitment_id"], fence)
+        enqueue(db, WorkItem, scope_key=str(order.id), kind="REPAIR", payload={
+            "order_id": str(order.id), "skill": skill, "day": entry["day"], "missing_hours": str(missing),
+            "commitment_id": entry["commitment_id"]})  # ranked outside any lock (the AI may be asked)
 
 
-def _start_repair(db: DbSession, order: ProductionOrder, skill: str, from_day: date, missing: Decimal,
-                  commitment_id: str, fence: date) -> None:
-    """Find the nearest other day with room for the missing hours (workers and machine): after the time fence, no
-    later than the order's end day, and not before its start if a sub-assembly made here must be finished first.
-    Then ask HR for those hours (a normal negotiation)."""
+def _repair_alternatives(db: DbSession, order: ProductionOrder, skill: str, from_day: date, missing: Decimal,
+                         fence: date) -> tuple[list[Alternative], dict, Decimal]:
+    """Every other day the missing hours could move to, as PL-6 alternatives (planning_agent/2 §6.1): after the time
+    fence, no later than the order's end day, not before its start if a sub-assembly made here must be finished
+    first. A day without room for the workers and the machine fails the hard-constraint filter."""
     step = next(s for s in order.steps if s["skill"] == skill and from_day.isoformat() in s["hours_by_day"])
     machine = min(missing / Decimal(step["crew"]), Decimal(step["hours_by_day"][from_day.isoformat()]))
     has_inputs_made_here = db.scalar(select(ProductionOrder.id).where(
         ProductionOrder.for_kind == "PRODUCTION_ORDER", ProductionOrder.for_ref == str(order.id),
         ProductionOrder.status != "CANCELLED")) is not None
     first = max(order.start_day, fence + timedelta(days=1)) if has_inputs_made_here else fence + timedelta(days=1)
-    candidates = [first + timedelta(days=n) for n in range((order.end_day - first).days + 1)]
-    candidates = sorted((d for d in candidates if d != from_day),
-                        key=lambda d: (abs((d - from_day).days), -d.toordinal()))  # nearest; later first on a tie
-    to_day = next((d for d in candidates
-                   if Decimal(hr.free_worker_hours(db, skill, d, d)[d.isoformat()]) >= missing
-                   and planner.machine_free(db, step["work_center"], d) >= machine), None)
-    if to_day is None:
-        _plan_at_risk(db, order, from_day.isoformat(), skill, str(missing), "NO_OTHER_DAY")
-        return
+    alternatives, days = [], {}
+    for n in range((order.end_day - first).days + 1):
+        day = first + timedelta(days=n)
+        if day == from_day:
+            continue
+        room = (Decimal(hr.free_worker_hours(db, skill, day, day)[day.isoformat()]) >= missing
+                and planner.machine_free(db, step["work_center"], day) >= machine)
+        key = f"move {missing}h {skill} to {day.isoformat()}"
+        days[key] = day
+        alternatives.append(Alternative(
+            key=key, quantity=order.quantity, target_quantity=order.quantity, completion_date=order.end_day,
+            hard_ok=room, touches_protected=day <= fence, firm_changes=1, full_on_target=True, days_late=0,
+            orders_moved=0, days_moved=abs((day - from_day).days), safety_stock_used=ZERO, extra_worker_hours=ZERO,
+            negotiations=1))
+    return alternatives, {"days": days, "step": step, "machine": machine}, machine
+
+
+def run_repair(session_factory, item, renew) -> None:
+    """Long-mode work item REPAIR (S5): rank the alternatives (the AI may choose among those that pass the filters,
+    PL-4; else the fixed ranking, PL-6), then — with the facts re-checked under the order's lock — ask HR."""
+    payload = item.payload
+    from_day, missing = date.fromisoformat(payload["day"]), Decimal(payload["missing_hours"])
+    with session_factory() as db:
+        order = db.get(ProductionOrder, uuid.UUID(payload["order_id"]))
+        if order is None or order.status != "FIRM":
+            return
+        fence = today(db) + timedelta(days=int(setting(db, "time_fence_days")))
+        alternatives, _, _ = _repair_alternatives(db, order, payload["skill"], from_day, missing, fence)
+        allowed, _ = rank(alternatives)
+        chosen_key, rationale = None, None
+        if allowed and int(setting(db, "ai_enabled")):
+            db.rollback()  # no lock or transaction while the model thinks
+            chosen_key, rationale = planning_ai.rank_with_ai(
+                db, order.case_id, f"keep production order {order.id} on time without {missing} worker-hours of "
+                f"{payload['skill']} on {from_day.isoformat()}", allowed)
+            db.commit()  # the AI-call log
+    with session_factory() as db:
+        order = db.get(ProductionOrder, uuid.UUID(payload["order_id"]), with_for_update=True)
+        if order is None or order.status != "FIRM":
+            return
+        fence = today(db) + timedelta(days=int(setting(db, "time_fence_days")))
+        alternatives, found, machine = _repair_alternatives(db, order, payload["skill"], from_day, missing, fence)
+        allowed, rejected = rank(alternatives)  # facts may have changed while the model thought
+        if not allowed:
+            _plan_at_risk(db, order, from_day.isoformat(), payload["skill"], str(missing), "NO_OTHER_DAY")
+            db.commit()
+            return
+        chosen = check_ai_choice(chosen_key, alternatives)
+        _audit(db, "REPAIR_RANKED", order.case_id, chosen=chosen.key, by="AI" if chosen.key == chosen_key else "PL-6",
+               rationale=rationale, allowed=[a.key for a in allowed], rejected=rejected)
+        _open_repair(db, order, found["step"], payload["skill"], from_day, found["days"][chosen.key], missing,
+                     machine, payload["commitment_id"])
+        db.commit()
+
+
+def _open_repair(db: DbSession, order: ProductionOrder, step: dict, skill: str, from_day: date, to_day: date,
+                 missing: Decimal, machine: Decimal, commitment_id: str) -> None:
+    """A REPAIR case: ask HR for the missing hours on the chosen day (a normal negotiation)."""
     case = Case(id=planner.new_case_id(), demand_id=order.demand_id, option_id=order.option_id, kind="REPAIR",
                 auto_commit=True, status="OPEN", sessions={}, depth=1)
     db.add(case)
@@ -820,7 +872,9 @@ def setup(db: DbSession, work_centers: dict[str, object]) -> None:
 def register(runner_register) -> None:
     runner_register(layer.register_inbox(AGENT, handle_message))
     runner_register(Registration(name="planning-work", model=WorkItem, handler=handle_work_item, mode="short",
-                                 workers=4))
+                                 workers=4, where=WorkItem.kind != "REPAIR"))
+    runner_register(Registration(name="planning-repair", model=WorkItem, handler=run_repair, mode="long",
+                                 where=WorkItem.kind == "REPAIR"))
     runner_register(Registration(name="planning-sales-outbox", model=SalesOutbox, handler=send_to_sales, mode="long"))
     channel.subscribe(AGENT, "OrderConfirmed", on_order_confirmed)
     channel.subscribe(AGENT, "SimulatedDayStarted", on_day_started)

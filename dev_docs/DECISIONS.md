@@ -198,7 +198,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 | ID | Decision |
 | --- | --- |
 | IMP-1 | Implementation in 8 steps (S1 end to end at step 5); the separate code-review phase is folded into the steps: each step reviews, reuses or retires the old code it replaces. |
-| IMP-2 | Deterministic first: owners use template wording and Planning the fixed ranking until S1 works; then the AI steps are switched on. |
+| IMP-2 | Deterministic first: owners use template wording and Planning the fixed ranking until S1 works; then the AI steps are switched on. **Done in step 7 (2026-10-20):** a factory setting `ai_enabled` (default 0) switches on the negotiation wording (all agents, reworded in the outbox outside any lock) and Planning's AI ranking (PL-4, first used in the S5 repair). Tests and large runs keep it off; the demo turns it on. |
 | IMP-3 | Purchasing is designed and built by another contributor. Status 2026-10-18: built standalone, merged; connected to the negotiation contract in step 6 (PI-1 to PI-6) instead of a FAKE stub. |
 | IMP-4 | About 14 high-value tests in total. After each step: tests pass → small commits → `master` fast-forwarded locally; the developer pushes. |
 
