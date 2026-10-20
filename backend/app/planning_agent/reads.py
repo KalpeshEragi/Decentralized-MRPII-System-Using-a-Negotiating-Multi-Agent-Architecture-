@@ -7,7 +7,9 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from app.planning_agent.models import Case, CustomerDemand, ProductionOrder, WorkCenter
+from app.core.owner_tables import differences, ledger_sums
+from app.planning_agent.models import (Case, CustomerDemand, MachineHoursLedger, ProductionOrder, WorkCenter,
+                                       WorkCenterDay)
 
 
 def _order(o: ProductionOrder) -> dict:
@@ -86,3 +88,14 @@ def machine_hours_free(db: DbSession, work_center: str, day: date) -> str:
     from app.planning_agent.plan import machine_free
 
     return str(machine_free(db, work_center, day))
+
+
+def reconcile(db: DbSession) -> list[str]:
+    """Committed and held machine-hours of every work center and day equal the sum of their ledger rows."""
+    expected = {f"{ref} {day} {bucket}": total
+                for (ref, day, bucket), total in ledger_sums(db, MachineHoursLedger).items()}
+    actual = {}
+    for row in db.scalars(select(WorkCenterDay)):
+        actual[f"{row.work_center} {row.day} COMMITTED"] = row.committed_hours
+        actual[f"{row.work_center} {row.day} HELD"] = row.held_hours
+    return [f"planning {d}" for d in differences(expected, actual)]

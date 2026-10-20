@@ -5,7 +5,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Integer, Numeric, String, func
+from sqlalchemy import Date, DateTime, Integer, Numeric, String, func, select
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -52,3 +52,17 @@ class LedgerWriter:
     def already_applied(self) -> bool:
         """True if this source already wrote rows (a repeat): the caller then changes nothing."""
         return self.db.query(self.model.id).filter(self.model.source_id == self.source_id).first() is not None
+
+
+def ledger_sums(db: Session, model: type) -> dict[tuple, Decimal]:
+    """Sum of every ledger's deltas per (resource, day, bucket): what the balances must equal (QA-1 reconcile)."""
+    rows = db.execute(select(model.resource_ref, model.day, model.bucket, func.sum(model.delta))
+                      .group_by(model.resource_ref, model.day, model.bucket)).all()
+    return {(ref, day, bucket): total for ref, day, bucket, total in rows}
+
+
+def differences(expected: dict[str, Decimal], actual: dict[str, Decimal]) -> list[str]:
+    """Readable list of every key where the ledger and the balance disagree (empty = reconciled)."""
+    zero = Decimal(0)
+    return [f"{key}: ledger {expected.get(key, zero)} != balance {actual.get(key, zero)}"
+            for key in sorted(set(expected) | set(actual)) if expected.get(key, zero) != actual.get(key, zero)]

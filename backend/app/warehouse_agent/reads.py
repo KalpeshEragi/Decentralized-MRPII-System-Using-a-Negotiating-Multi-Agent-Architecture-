@@ -1,12 +1,15 @@
 """Warehouse's read module (IB-2): the only thing other agents may import from the Warehouse Agent. Read-only."""
 
+from collections import defaultdict
 from datetime import date, timedelta
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.warehouse_agent.manager import free_receiving as _free_receiving, free_space as _free_space
-from app.warehouse_agent.models import SpaceCommitment
+from app.core.owner_tables import differences, ledger_sums
+from app.warehouse_agent.models import Hold, SpaceCommitment, SpaceLedger, SpaceMovement
 
 
 def free_space(db: DbSession, zone: str, start: date, end: date) -> dict[str, str]:
@@ -24,3 +27,19 @@ def commitments_for(db: DbSession, for_ref: str) -> list[dict]:
              "space_units": str(c.space_units), "arrival_day": c.arrival_day.isoformat(),
              "until_day": c.until_day.isoformat() if c.until_day else None, "status": c.status}
             for c in db.scalars(select(SpaceCommitment).where(SpaceCommitment.for_ref == for_ref))]
+
+
+def reconcile(db: DbSession) -> list[str]:
+    """Space held by open holds and space of planned arrivals equal their ledger sums, per zone. (Zone occupancy
+    starts from a configured estimate that is not in the ledger, so it is not compared.)"""
+    sums = defaultdict(Decimal)
+    for (ref, _day, bucket), total in ledger_sums(db, SpaceLedger).items():
+        if bucket in ("HELD", "PLANNED_ARRIVAL"):
+            sums[f"{ref} {bucket}"] += total
+    actual = defaultdict(Decimal)
+    for hold in db.scalars(select(Hold).where(Hold.status == "ACTIVE")):
+        actual[f"{hold.zone} HELD"] += hold.space_units
+    for movement in db.scalars(select(SpaceMovement).where(SpaceMovement.kind == "ARRIVAL",
+                                                           SpaceMovement.status == "PLANNED")):
+        actual[f"{movement.zone} PLANNED_ARRIVAL"] += movement.space_units
+    return [f"warehouse {d}" for d in differences(dict(sums), dict(actual))]

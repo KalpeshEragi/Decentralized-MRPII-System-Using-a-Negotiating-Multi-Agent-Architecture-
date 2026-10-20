@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.hr_agent.manager import _overtime_room, free
-from app.hr_agent.models import Assignment, Commitment, Worker
+from app.core.owner_tables import differences, ledger_sums
+from app.hr_agent.models import Assignment, Commitment, HoursLedger, PoolDay, Worker
 
 
 def free_worker_hours(db: DbSession, skill: str, start: date, end: date) -> dict[str, str]:
@@ -44,3 +45,13 @@ def skills(db: DbSession) -> list[str]:
         found.add(worker.primary_skill)
         found.update(worker.secondary_skills or [])
     return sorted(found)
+
+
+def reconcile(db: DbSession) -> list[str]:
+    """Committed and held hours of every pool and day equal the sum of their ledger rows. Empty list = reconciled."""
+    expected = {f"{ref} {day} {bucket}": total for (ref, day, bucket), total in ledger_sums(db, HoursLedger).items()}
+    actual = {}
+    for row in db.scalars(select(PoolDay)):
+        actual[f"{row.skill} {row.day} COMMITTED"] = row.committed_hours
+        actual[f"{row.skill} {row.day} HELD"] = row.held_hours
+    return [f"hr {d}" for d in differences(expected, actual)]

@@ -7,7 +7,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.inventory_agent.manager import profile
-from app.inventory_agent.models import Hold, Reservation, StockBalance
+from app.core.owner_tables import differences, ledger_sums
+from app.inventory_agent.models import Hold, Reservation, StockBalance, StockLedger
 from app.mrpii.atp import atp
 
 
@@ -43,3 +44,13 @@ def reservations_for(db: DbSession, for_ref: str) -> list[dict]:
             + [{"kind": "RESERVATION", "id": str(r.id), "item_id": r.item_id, "quantity": str(r.quantity),
                 "issued": str(r.quantity_issued), "due_day": r.due_day.isoformat(), "status": r.status}
                for r in reservations])
+
+
+def reconcile(db: DbSession) -> list[str]:
+    """Every balance equals the sum of its ledger rows (QA-1). Empty list = reconciled."""
+    columns = {"ON_HAND": "on_hand", "RESERVED": "reserved", "HELD": "held", "INCOMING": "incoming_total",
+               "SAFETY_STOCK": "safety_stock", "SAFETY_STOCK_USE": "safety_stock_released"}
+    expected = {f"{ref} {bucket}": total for (ref, _day, bucket), total in ledger_sums(db, StockLedger).items()}
+    actual = {f"{row.item_id} {bucket}": getattr(row, column) for row in db.scalars(select(StockBalance))
+              for bucket, column in columns.items()}
+    return [f"inventory {d}" for d in differences(expected, actual)]
