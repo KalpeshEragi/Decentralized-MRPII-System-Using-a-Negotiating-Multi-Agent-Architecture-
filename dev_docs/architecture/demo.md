@@ -132,7 +132,7 @@ A scenario = a starting state + a list of (simulated day, trigger) + customer-dr
 | S1 | One normal order | Full flow: request → options → confirmation → commitment → production → shipment |
 | S2 | Supplier delay | Negotiation, AT_RISK, recovery with overtime / later date |
 | S3 | Material shortage | Procurement started by Planning, holds, options |
-| S4 | Storage limit | Warehouse counter-offer, date change with Purchasing |
+| S4 | Storage limit | Warehouse counter-offer, date change with Purchasing (step 8: needs the receiving slot, WH-1) |
 | S5 | Worker absence | HR cover (reassign, move, overtime) or AT_RISK |
 | S6 | Cancellation | Releases, compensation, PO cancel request |
 | S7 | Order change | Delta handling (QA-3) |

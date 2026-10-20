@@ -68,3 +68,31 @@ class Snapshot(PlatformBase):
     simulated_day: Mapped[date] = mapped_column(Date, nullable=False)
     tables: Mapped[dict] = mapped_column(JSONB, nullable=False)  # {"schema.table": [row, ...]}
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Run(PlatformBase):
+    """One run of a scenario (demo.md §12): CONFIGURING -> RUNNING -> FINISHED. Kept across restores."""
+
+    __tablename__ = "runs"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scenario: Mapped[str] = mapped_column(String, nullable=False)
+    seed: Mapped[int] = mapped_column(Integer, nullable=False)
+    state: Mapped[str] = mapped_column(String, nullable=False)  # the starting state it was restored from
+    start_day: Mapped[date] = mapped_column(Date, nullable=False)
+    end_day: Mapped[date | None] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="RUNNING")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RunReport(PlatformBase):
+    """What a run did (DM-4): metrics, the final factory state and the timeline, kept after the run is reset."""
+
+    __tablename__ = "run_reports"
+    __table_args__ = {"schema": SCHEMA}
+
+    run_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    report: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

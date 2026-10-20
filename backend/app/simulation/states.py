@@ -17,11 +17,13 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError, ErrorCode
 from app.simulation.clock import get_clock, today
-from app.simulation.models import Snapshot
+from app.simulation.models import Run, RunReport, Snapshot
+
+KEPT = (Snapshot.__table__, Run.__table__, RunReport.__table__)  # survive a restore: not part of a run's state
 
 
 def run_tables() -> list[Table]:
-    """Every table of a run, parents before children; the snapshots themselves are not part of a run."""
+    """Every table of a run, parents before children. Snapshots, runs and run reports are not part of a run."""
     from app.core.platform_base import PlatformBase
     from app.models import Base
     from app.negotiation_engine.models import NegotiationEngineBase
@@ -31,7 +33,7 @@ def run_tables() -> list[Table]:
 
     tables = []
     for base in (Base, SupplierServiceBase, PlatformBase, SalesAgentBase, PurchasingAgentBase, NegotiationEngineBase):
-        tables += [t for t in base.metadata.sorted_tables if t is not Snapshot.__table__]
+        tables += [t for t in base.metadata.sorted_tables if t not in KEPT]
     return tables
 
 
@@ -71,8 +73,7 @@ def restore(db: Session, name: str) -> dict:
     snapshot = db.get(Snapshot, name)
     if snapshot is None:
         raise AppError(ErrorCode.NOT_FOUND, f"no state named {name}")
-    tables = run_tables()
-    db.execute(text("TRUNCATE " + ", ".join(_name(t) for t in tables) + " CASCADE"))
+    tables = clear(db)
     later: list[tuple[Table, list[str], str]] = []
     for table in tables:
         rows = snapshot.tables.get(_key(table), [])
@@ -97,6 +98,13 @@ def restore(db: Session, name: str) -> dict:
     get_clock(db, lock=True).status = "PAUSED"
     db.flush()
     return {"name": name, "simulated_day": today(db).isoformat(), "reconcile": reconcile(db)}
+
+
+def clear(db: Session) -> list[Table]:
+    """Empty every run table (an empty factory: no items, stock, events, negotiations, clock or settings)."""
+    tables = run_tables()
+    db.execute(text("TRUNCATE " + ", ".join(_name(t) for t in tables) + " CASCADE"))
+    return tables
 
 
 def _reset_counters(db: Session, tables: list[Table]) -> None:

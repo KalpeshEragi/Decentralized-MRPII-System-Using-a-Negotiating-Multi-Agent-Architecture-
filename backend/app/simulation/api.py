@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db, new_session
 from app.core.doors import require_door_key
-from app.simulation import clock, runner, settings, states, triggers
+from app.simulation import clock, factory_a, runner, scenarios, settings, states, triggers
 from app.simulation.models import TriggerLog
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
@@ -96,3 +96,48 @@ def restore_state(name: str, db: Session = Depends(get_db)) -> dict:
     restored = states.restore(db, name)
     db.commit()
     return restored
+
+
+@router.post("/factories/factory-a", status_code=201, dependencies=[Depends(require_door_key("simulation_door_key"))])
+def configure_factory_a(db: Session = Depends(get_db)) -> dict:
+    """Configure (not trigger): empty the run, build the default demo factory (demo.md §4.1) through each owner's own
+    setup, and save it as the starting state `factory-a`."""
+    states.clear(db)
+    items = factory_a.build(db)
+    db.flush()
+    saved = states.save(db, "factory-a", "Default demo factory (demo.md §4.1)")
+    db.commit()
+    return {"items": items, "state": saved}
+
+
+@router.get("/scenarios")
+def list_scenarios() -> list[dict]:
+    return scenarios.listing()
+
+
+@router.post("/scenarios/{name}/start", status_code=201,
+             dependencies=[Depends(require_door_key("simulation_door_key"))])
+def start_scenario(name: str, body: dict[str, Any] | None = None, db: Session = Depends(get_db)) -> dict:
+    """Restore the starting state, apply the scenario's settings and seed, schedule its triggers, open a run. Then use
+    Play or Next day."""
+    started = scenarios.start(db, name, int((body or {}).get("seed", 1)))
+    db.commit()
+    return started
+
+
+@router.get("/runs")
+def list_runs(db: Session = Depends(get_db)) -> list[dict]:
+    return scenarios.runs(db)
+
+
+@router.post("/runs/{run_id}/finish", dependencies=[Depends(require_door_key("simulation_door_key"))])
+def finish_run(run_id: int, db: Session = Depends(get_db)) -> dict:
+    """Close the run and save its report (kept when a state is restored later)."""
+    report = scenarios.finish(db, run_id)
+    db.commit()
+    return report["metrics"]
+
+
+@router.get("/runs/{run_id}/report")
+def run_report(run_id: int, db: Session = Depends(get_db)) -> dict:
+    return scenarios.report_of(db, run_id)
