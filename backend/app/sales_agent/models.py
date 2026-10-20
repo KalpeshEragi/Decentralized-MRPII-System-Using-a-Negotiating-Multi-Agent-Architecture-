@@ -68,7 +68,7 @@ class Conversation(SalesAgentBase):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     customer_id: Mapped[uuid.UUID | None] = foreign_key("customers.id")  # empty for an unknown number
-    channel: Mapped[str] = mapped_column(String)  # TEST, WHATSAPP
+    channel: Mapped[str] = mapped_column(String)  # TEST, WHATSAPP, SIMULATED (structured simulated customers, DM-7)
     sender_ref: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="OPEN")  # OPEN, IDLE, CLOSED
     current_inquiry_id: Mapped[uuid.UUID | None] = foreign_key("inquiries.id", circular_name="fk_conversations_current_inquiry")
