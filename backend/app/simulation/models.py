@@ -55,3 +55,16 @@ class TriggerLog(PlatformBase):
     result: Mapped[dict | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Snapshot(PlatformBase):
+    """A saved starting state (DM-2): one JSON document per run table, taken when the factory was quiet."""
+
+    __tablename__ = "snapshots"
+    __table_args__ = {"schema": SCHEMA}
+
+    name: Mapped[str] = mapped_column(String, primary_key=True)
+    description: Mapped[str | None] = mapped_column(String)
+    simulated_day: Mapped[date] = mapped_column(Date, nullable=False)
+    tables: Mapped[dict] = mapped_column(JSONB, nullable=False)  # {"schema.table": [row, ...]}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

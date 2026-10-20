@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db, new_session
 from app.core.doors import require_door_key
-from app.simulation import clock, runner, settings, triggers
+from app.simulation import clock, runner, settings, states, triggers
 from app.simulation.models import TriggerLog
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
@@ -75,3 +75,24 @@ def add_trigger(body: dict[str, Any], db: Session = Depends(get_db)) -> dict:
 @router.get("/triggers")
 def list_triggers(db: Session = Depends(get_db)) -> list[dict]:
     return [triggers.view(t) for t in db.scalars(select(TriggerLog).order_by(TriggerLog.id))]
+
+
+@router.post("/states", status_code=201, dependencies=[Depends(require_door_key("simulation_door_key"))])
+def save_state(body: dict[str, Any], db: Session = Depends(get_db)) -> dict:
+    """Save the current run state under a name (DM-2). Only when the factory is quiet."""
+    saved = states.save(db, body["name"], body.get("description"))
+    db.commit()
+    return saved
+
+
+@router.get("/states")
+def list_states(db: Session = Depends(get_db)) -> list[dict]:
+    return states.listing(db)
+
+
+@router.post("/states/{name}/restore", dependencies=[Depends(require_door_key("simulation_door_key"))])
+def restore_state(name: str, db: Session = Depends(get_db)) -> dict:
+    """Replace the whole run state with a saved one; every owner's reconcile check reports its differences."""
+    restored = states.restore(db, name)
+    db.commit()
+    return restored
