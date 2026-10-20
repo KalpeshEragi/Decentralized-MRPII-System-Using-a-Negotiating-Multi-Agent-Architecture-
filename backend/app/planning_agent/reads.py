@@ -74,7 +74,7 @@ def demands(db: DbSession, limit: int = 500) -> list[dict]:
             for d in db.scalars(select(CustomerDemand).order_by(CustomerDemand.created_at.desc()).limit(limit))]
 
 
-FINISHED_DEMANDS = ("COMPLETED", "CANCELLED", "EXPIRED", "COMMIT_FAILED", "WITHDRAWN")
+FINISHED_DEMANDS = ("COMPLETED", "CANCELLED", "EXPIRED", "COMMIT_FAILED", "NOT_FEASIBLE", "WITHDRAWN")
 
 
 def open_demand_count(db: DbSession) -> int:

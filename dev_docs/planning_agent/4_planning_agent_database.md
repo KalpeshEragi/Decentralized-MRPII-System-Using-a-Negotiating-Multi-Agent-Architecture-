@@ -106,7 +106,7 @@ OPTIONS_SENT, ALTERNATIVES_RANKED, COMMITTED, COMMIT_FAILED, REPLANNED, ESCALATE
 
 | Table | Statuses |
 | --- | --- |
-| customer_demands | RECEIVED → PLANNING → ANSWERED → CONFIRMED → COMMITTED → COMPLETED; side: COMMIT_FAILED, EXPIRED, CANCELLED |
+| customer_demands | RECEIVED → PLANNING → ANSWERED → CONFIRMED → COMMITTED → COMPLETED; side: COMMIT_FAILED, EXPIRED, CANCELLED, NOT_FEASIBLE (the customer was told nothing can be offered: no option found, or none could be secured) |
 | production_orders | PLANNED → FIRM → RELEASED → STARTED → COMPLETED; side: CANCELLED (RD-4) |
 | procurement_requests | PLANNED → NEGOTIATING → COMMITTED; side: CANCEL_REQUESTED → CANCELLED (only if Purchasing agrees) |
 | options | OFFERED → CHOSEN; side: EXPIRED, WITHDRAWN |

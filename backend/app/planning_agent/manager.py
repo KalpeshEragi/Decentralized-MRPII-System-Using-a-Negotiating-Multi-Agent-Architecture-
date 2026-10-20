@@ -83,11 +83,12 @@ def handle_work_item(db: DbSession, row: WorkItem) -> None:
 
 def plan_request(db: DbSession, demand: CustomerDemand) -> None:
     if not demand.item_id:
+        demand.status = "NOT_FEASIBLE"
         _send_result(db, demand, "NOTHING_FEASIBLE", reason="UNKNOWN_PRODUCT")
         return
     found = planner.options(db, demand.item_id, demand.quantity, demand.requested_day)
     if not found:
-        demand.status = "ANSWERED"
+        demand.status = "NOT_FEASIBLE"  # final: the customer is told nothing can be offered
         _send_result(db, demand, "NOTHING_FEASIBLE", reason="NO_FEASIBLE_PLAN")
         return
     for kind, spec in found:
@@ -293,8 +294,8 @@ def _fail_case(db: DbSession, case: Case, reason: str) -> None:
     elif case.auto_commit:
         _publish_plan_event(db, demand, "PlanCommitFailed", {"reason": reason})
         demand.status = "COMMIT_FAILED"
-    else:
-        demand.status = "ANSWERED"
+    else:  # final: no option could be secured (another order took the resources first, S8)
+        demand.status = "NOT_FEASIBLE"
         _send_result(db, demand, "NOTHING_FEASIBLE", reason=reason)
 
 
