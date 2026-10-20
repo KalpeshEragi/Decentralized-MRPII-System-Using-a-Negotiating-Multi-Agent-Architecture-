@@ -271,3 +271,22 @@ def simulated_accept(inquiry_id: str, body: SimulatedAcceptance, db: Session = D
 @router.post("/simulated-customers/inquiries/{inquiry_id}/decline", dependencies=SIMULATOR)
 def simulated_decline(inquiry_id: str, db: Session = Depends(get_db)) -> dict:
     return structured.decline(db, inquiry_id)
+
+
+
+class SimulatedChange(BaseModel):
+    quantity: Decimal
+
+
+@router.post("/simulated-customers/orders/{order_number}/cancel", dependencies=SIMULATOR)
+def simulated_cancel(order_number: str, db: Session = Depends(get_db),
+                     planning: PlanningConnector = Depends(get_planning)) -> dict:
+    """A simulated customer cancels a confirmed order (S6): Sales records it and tells Planning (OrderCancelled)."""
+    return structured.cancel(db, order_number, planning)
+
+
+@router.post("/simulated-customers/orders/{order_number}/change", dependencies=SIMULATOR)
+def simulated_change(order_number: str, body: SimulatedChange, db: Session = Depends(get_db),
+                     planning: PlanningConnector = Depends(get_planning)) -> dict:
+    """A simulated customer asks for another quantity (S7): Sales tells Planning (OrderChangeRequested)."""
+    return structured.change_quantity(db, order_number, body.quantity, planning)

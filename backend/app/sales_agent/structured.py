@@ -85,3 +85,35 @@ def decline(db: Session, inquiry_id: str) -> dict:
     inquiry.stage, inquiry.closed_reason = "CLOSED", "DECLINED"
     db.commit()
     return {"inquiry_id": str(inquiry.id), "stage": inquiry.stage}
+
+
+def _order_change(db: Session, order_number: str, planning: PlanningConnector, event_type: str, notice: dict) -> dict:
+    """Record the customer's change on the order's history and tell Planning (which decides what it can do)."""
+    order = data_access.find_order_by_number_any(db, order_number)
+    if order is None:
+        raise AppError(ErrorCode.NOT_FOUND, "no such order")
+    if order.status != "CONFIRMED":
+        raise AppError(ErrorCode.INVALID_STATE_TRANSITION, f"the order is {order.status}")
+    inquiry = data_access.get_inquiry(db, order.inquiry_id)
+    earlier = data_access.count_audit_notes(db, inquiry.id, ("ORDER_CHANGE_REQUESTED", "ORDER_CANCELLED"))
+    if event_type == "OrderCancelled":
+        order.status = "CANCELLED"
+    data_access.save_audit_note(db, "SYSTEM", "ORDER_CANCELLED" if event_type == "OrderCancelled"
+                                else "ORDER_CHANGE_REQUESTED", notice, conversation_id=inquiry.conversation_id,
+                                inquiry_id=inquiry.id)
+    db.commit()
+    planning.send_order_change(event_type, notice, version=2 + earlier)  # 1 was the confirmation
+    return {"order_number": order_number, **notice}
+
+
+def cancel(db: Session, order_number: str, planning: PlanningConnector) -> dict:
+    """The customer cancels a confirmed order (S6)."""
+    return _order_change(db, order_number, planning, "OrderCancelled", {"order_number": order_number})
+
+
+def change_quantity(db: Session, order_number: str, quantity: Decimal, planning: PlanningConnector) -> dict:
+    """The customer asks for another quantity (S7). The order keeps its confirmed quantity until Planning answers."""
+    if quantity <= 0:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "quantity must be positive")
+    return _order_change(db, order_number, planning, "OrderChangeRequested",
+                         {"order_number": order_number, "quantity": str(quantity)})

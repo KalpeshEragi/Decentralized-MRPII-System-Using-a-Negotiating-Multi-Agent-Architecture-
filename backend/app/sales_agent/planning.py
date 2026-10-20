@@ -120,6 +120,8 @@ class PlanningConnector(Protocol):
 
     def send_confirmation(self, notice: dict) -> None: ...
 
+    def send_order_change(self, event_type: str, notice: dict, version: int) -> None: ...
+
 
 class RealPlanning:
     """The connection to the real Planning Agent (PB-2): requests go to Planning door 1 over HTTP; a confirmation is
@@ -142,6 +144,15 @@ class RealPlanning:
             channel.publish(db, event_type="OrderConfirmed", publisher="SALES", entity_type="sales_order",
                             entity_id=notice["order_number"], entity_version=1, correlation_id=notice["order_number"],
                             payload=notice)
+            db.commit()
+
+    def send_order_change(self, event_type: str, notice: dict, version: int) -> None:
+        """`OrderChangeRequested` or `OrderCancelled`: the customer changed or cancelled a confirmed order. `version`
+        grows with every change, so Planning ignores an older one arriving late."""
+        with self.session_factory() as db:
+            channel.publish(db, event_type=event_type, publisher="SALES", entity_type="sales_order",
+                            entity_id=notice["order_number"], entity_version=version,
+                            correlation_id=notice["order_number"], payload=notice)
             db.commit()
 
 
@@ -179,6 +190,9 @@ class FakePlanning:
     def send_confirmation(self, notice: dict) -> None:
         """The customer confirmed an option. The real Planning will start its binding work here."""
         self.confirmations.append(notice)
+
+    def send_order_change(self, event_type: str, notice: dict, version: int) -> None:
+        self.confirmations.append({"event_type": event_type, **notice})
 
     @staticmethod
     def answer_for(request: dict) -> PlanningResult | None:
