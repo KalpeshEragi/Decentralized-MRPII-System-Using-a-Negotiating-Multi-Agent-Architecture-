@@ -1,6 +1,6 @@
 # Purchasing Agent Architecture
 
-Last updated: 2026-10-18 (code review, ticket 11). Terms follow `GLOSSARY.md`; tables follow `dev_docs/OVERALL_DATABASE_SCHEMA.md` §5 and §8; test data follows `dev_docs/purchasing_agent/seed_data.md`; the price decision is `dev_docs/adr/ADR-002-price-in-supplier-selection.md`.
+Last updated: 2026-10-20 (re-sourcing, ticket 12, `dev_docs/adr/ADR-003-re-sourcing-during-negotiation.md`). Terms follow `GLOSSARY.md`; tables follow `dev_docs/OVERALL_DATABASE_SCHEMA.md` §5 and §8; test data follows `dev_docs/purchasing_agent/seed_data.md`; the price decision is `dev_docs/adr/ADR-002-price-in-supplier-selection.md`.
 
 # 1. Purpose
 Turns a **Procurement Request** into a feasible **Procurement Agreement** by evaluating supplier options and negotiating quantity and delivery date with suppliers through the supplier-facing chat.
@@ -33,11 +33,11 @@ Create one requisition (= Leg) + one Engine session per selected supplier
       ↓
 Free-text chat per Leg: offer → supplier reply → interpret → validate (§7)
       ↓
-Counteroffer? → reallocate across the already-selected suppliers (§7)
+Quantity counter or a failed Leg? → reallocate among the open Legs → else re-source over every eligible supplier (§7.4)
       ↓
-All Legs AGREED? ── No (a Leg failed / no valid allocation) → request FAILED, abort all other Legs, report Constrained Quantity
-      │
-      Yes
+No feasible allocation (and no counter-back left) → request FAILED, abort all other Legs, report Constrained Quantity
+      ↓
+Every open Leg AGREED
       ↓
 Request AGREEMENT_PROPOSED (combined Procurement Agreement)
       ↓
@@ -54,6 +54,7 @@ Outcome returned to the requester
 - `compute_effective_availability(...)`
 - `select_suppliers(...)` (pure: singles, combinations, allocation, ranking)
 - `reallocate(...)` (pure: same rules, restricted to the selected suppliers and their caps)
+- `re_source(...)` (same rules over every eligible supplier; threshold re-checked; `POST .../re-source`)
 - `open_leg_session(...)`, `send_offer(...)`, `record_supplier_message(...)` (Engine)
 - `interpret_supplier_message(...)` (LLM extraction, fallback parser)
 - `validate_supplier_terms(...)`
@@ -63,7 +64,7 @@ Outcome returned to the requester
 These are responsibility-level names; final names follow repository conventions.
 
 # 5. Separation of Responsibilities
-- **Purchasing Agent:** supplier selection, allocation and reallocation, response validation, Leg and request business status, combined outcome, approval handling, audit.
+- **Purchasing Agent:** supplier selection, allocation, reallocation and re-sourcing, response validation, Leg and request business status, combined outcome, approval handling, audit.
 - **Supplier Service:** deterministic supplier data. It never chooses suppliers.
 - **Purchasing repository (`purchasing_agent`):** contracts, Procurement Requests, requisitions (one row per Leg), decision audit.
 - **Negotiation Engine (`negotiation_engine`):** sessions, participants (`participant_type` AGENT or SUPPLIER plus `participant_ref`, validated to exist), messages, rounds, deadlines. Session statuses: `OPEN`, `AGREED`, `REJECTED`, `TIMED_OUT`, `CANCELLED`. These are separate from Purchasing's Leg statuses (`PENDING`, `AGREED`, `FAILED`, `ABORTED`, `COMMITTED`).
@@ -113,12 +114,13 @@ The deterministic backend selects. The LLM may explain but cannot override, and 
 ## 7.1 Rounds and messages
 - One round = one Purchasing offer/counter-offer + the supplier's reply. **Max 3 rounds per supplier** (Leg). The round count rises when Purchasing sends an offer or counter-offer: the first offer starts round 1 and the supplier's reply completes it (confirmed 2026-10-17).
 - Offer terms (quantity, delivery date) are computed deterministically. The **LLM writes only the message text**; if it fails, a predefined template is used.
-- Each Leg has a **response deadline** (working default 24h, configurable). It is checked when the session is next read or acted on, with no background scheduler. Past the deadline: Engine `TIMED_OUT`, Leg `FAILED` (`timeout`). A manual abort endpoint also exists.
+- Each Leg has a **response deadline** (working default 24h, configurable). It is checked when the session is next read or acted on, with no background scheduler. Past the deadline: Engine `TIMED_OUT`, Leg `FAILED` (`timeout`), then re-sourcing (§7.4.1). A manual abort endpoint also exists.
 
 Implementation clarifications (ticket 09, **confirmed 2026-10-18**):
 - Every Purchasing message awaiting a reply (offer, counter-offer, revised offer, **clarification request**) moves the deadline to now + the configured hours, so each clarification request gives a fresh 24h (bounded by the 2-clarification limit). "Past" means strictly after the deadline.
-- Checked before every read or action on a request or Leg (request and audit reads, the supplier chat's conversation list and conversation, a supplier reply, abort). **Also before availability is calculated** for a selection or reallocation (confirmed 2026-10-18, code review): overdue PENDING Legs of other requests holding the item's supplier-items are timed out first, releasing their holds and applying the failure rules (§7.5). Still lazy; no background scheduler. A timed-out Leg fails the procurement (§7.5); the supplier gets a closing `CONFIRMATION`. A reply after the deadline is refused (409) and not stored.
-- Manual abort (`POST /purchasing/procurement-requests/{id}/abort`, `aborted_by` + `reason`): only while `NEGOTIATING`; a proposed agreement is rejected through approval instead. Request `FAILED` with the reason, no Constrained Quantity; every `PENDING`/`AGREED` Leg told (`CANCEL`), `ABORTED` (`manually_aborted`), its Engine session `CANCELLED`, hold released. The deadline is checked first, so aborting a request whose Leg is already past its deadline gets 409 and the request ends FAILED `timeout`. A repeated abort gets 409 (tester endpoint; not idempotent).
+- Checked before every read or action on a request or Leg (request and audit reads, the supplier chat's conversation list and conversation, a supplier reply, abort). **Also before availability is calculated** for a selection or reallocation (confirmed 2026-10-18, code review): overdue PENDING Legs of other requests holding the item's supplier-items are timed out first, releasing their holds. Still lazy; no background scheduler. The supplier gets a closing `CONFIRMATION`. A reply after the deadline is refused (409) and not stored.
+- **Recording is not re-sourcing (ticket 12, confirmed 2026-10-19):** a check only *records* the timeout: every overdue Leg FAILED `timeout`, session TIMED_OUT, hold released, one `RESPONSE_DEADLINE` audit per Leg; the request stays NEGOTIATING and shows `re_sourcing_needed: true` (its open Legs no longer cover the shortage). A read never creates Legs or sends offers. Re-sourcing then runs on the next write for that request (a supplier reply on any of its Legs runs it first; if that changes the replying Leg's offer, the reply gets 409 `offer: superseded`) or on `POST /purchasing/procurement-requests/{id}/re-source` (idempotent: nothing pending → 200, no change). Future callers: a Purchasing deadline worker (recommended once background jobs exist) or the requesting Inventory Agent nudging a stuck request.
+- Manual abort (`POST /purchasing/procurement-requests/{id}/abort`, `aborted_by` + `reason`): only while `NEGOTIATING`; a proposed agreement is rejected through approval instead. Request `FAILED` with the reason, no Constrained Quantity; every `PENDING`/`AGREED` Leg told (`CANCEL`), `ABORTED` (`manually_aborted`), its Engine session `CANCELLED`, hold released. The deadline is checked first (recorded only), so a request whose Leg is past its deadline is still NEGOTIATING and is aborted; abort never re-sources (ADR-003). A repeated abort gets 409 (tester endpoint; not idempotent).
 - Duplicate deliveries of the same `message_id` are ignored.
 
 ## 7.2 Interpreting free-text supplier replies
@@ -143,38 +145,51 @@ Implementation clarifications (ticket 10, confirmed 2026-10-18):
 - **COUNTER with quantity Q** → Q becomes that supplier's **cap** for this procurement (also limited by effective availability). Then reallocate (§7.4).
 - **REJECT** → Leg FAILED (`supplier_rejected`).
 
-## 7.4 Flexible Legs: reallocation
-After a quantity counteroffer, Purchasing re-runs §6.4–6.5 **using only the already-selected suppliers**, with their caps, MOQs, effective availability and arrival.
+## 7.4 Flexible Legs: reallocation and re-sourcing
+After a quantity counteroffer, Purchasing first re-runs §6.4–6.5 **using only the already-selected suppliers**, with their caps, MOQs, effective availability and arrival.
 - Any subset of them, including a single supplier, may win if it ranks better. The 10% threshold is not re-checked; the revised allocation and actual saving are audited.
 - A selected supplier that is no longer needed → its Leg is ABORTED (`no_longer_needed`) and its Engine session CANCELLED, even if it had agreed (nothing is committed yet).
 - A Leg whose quantity changes → reopened with a revised offer (Engine `AGREED → OPEN` only on this explicit reopen). This **counts as a new round** for that supplier.
-- **No allocation fits the caps:** while the capping supplier has rounds left, Purchasing counters back with the quantity it needs (this also covers a single-supplier procurement). If the supplier accepts, its cap is lifted to that quantity.
-- New suppliers are **never** added, and supplier selection is never restarted.
+- **No allocation fits the caps:** Purchasing **re-sources** (§7.4.1). Only if that finds nothing either, and the capping supplier has rounds left, it counters back with the quantity it needs (this also covers a single-supplier procurement). If the supplier accepts, its cap is lifted to that quantity.
+- Supplier selection is never restarted from scratch: existing Legs keep their price snapshots and, when their quantity is unchanged, their status.
 
 Implementation clarifications (ticket 07, 2026-10-18, **pending review**):
-- "Selected suppliers" = the request's PENDING or AGREED Legs; a Leg dropped as `no_longer_needed` never returns, and is not part of the agreement, approval or Constrained Quantity.
+- "Selected suppliers" = the request's PENDING or AGREED Legs (the **open** Legs). A Leg dropped as `no_longer_needed` is not part of the agreement, approval or Constrained Quantity; its supplier may return through re-sourcing (§7.4.1, ticket 12).
 - Prices come from each Leg's price snapshot; arrival = the agreed delivery date for an AGREED Leg, else today (configured timezone) + lead time (the same rule as the Constrained Quantity). **Confirmed 2026-10-18 (code review):** a PENDING Leg's arrival uses the current date, so time passing can make a supplier too late.
 - A COUNTER above the offered quantity also caps, but leaves the allocation unchanged, so the supplier is countered with its current quantity (a round, as before ticket 07).
 - When a priced single covers, it is ranked against the priced splits as a one-supplier combination (no threshold); otherwise §6.4 rules 2–4 apply unchanged.
 - Only a COUNTER whose quantity differs from the current offer caps and reallocates. The countering supplier's Leg is AGREED when its new quantity equals its counter and the date is on time; otherwise it is countered with its new quantity by the required date.
 - "The quantity it needs" on counter-back = that Leg's current allocated quantity (the last feasible allocation), so no other Leg changes.
-- A Leg that must be revised but has no rounds left FAILS `round_limit_exceeded` (an AGREED one is reopened first so its session ends REJECTED); the procurement then fails as in §7.5.
+- A Leg that must be revised but has no rounds left FAILS `round_limit_exceeded` (an AGREED one is reopened first so its session ends REJECTED); its supplier is excluded and the request is resolved again (reallocate → re-source), ticket 12.
 - After reallocation the request's `split_type` is updated (SINGLE / NECESSARY_SPLIT / COST_SAVING_SPLIT); the actual saving is audited against the original selection's best priced single.
 
+## 7.4.1 Re-sourcing (ticket 12, ADR-003, confirmed 2026-10-19)
+When the open Legs can no longer cover the shortage, Purchasing re-runs §6.4–6.5 over **every eligible supplier of the item**: the open Legs plus any other supplier.
+- **Triggers:** a quantity counter that reallocation can't absorb; a Leg FAILED (reject, round limit → Engine `REJECTED` `round_limit_exceeded`, unclear response, timeout). A failed Leg first gets a reallocation among the remaining open Legs; re-sourcing runs only if that finds nothing. A date-only late counter is not a trigger: it is countered with the required date (§7.3).
+- **Order:** reallocate (threshold not re-checked) → re-source (threshold **re-checked**, as in a fresh selection) → counter back the countering supplier while it has rounds left → FAILED (§7.5).
+- **Eligible:** passes §6.3 (active, no `contract_overlap`, arrives by the required date, effective availability ≥ MOQ), has rounds left in its **per-request budget** (max rounds, 3, shared across all its sessions for the request; never reset), and has no FAILED Leg in this request (a failed supplier is excluded for the rest of the request).
+- **Open Legs** enter as in reallocation: price snapshot, cap, agreed date or today + lead time.
+- **Returning supplier** (dropped `no_longer_needed` earlier): new Leg and Engine session with `max_rounds` = its remaining budget; the old ABORTED Leg stays. Its latest stated cap (`quantity_cap`) and latest stated delivery date are remembered: the cap limits its availability (cap < MOQ → unusable) and its arrival is the later of today + lead time and the remembered date (after the required date → too late). Remembered terms are never a commitment: it gets a fresh offer and must agree again. The new Leg keeps the remembered cap.
+- **New and returning Legs** are priced at the current valid contract (or Not Registered); open Legs keep their snapshot. The audit records both.
+- **Applying the result:** open Legs not in it → ABORTED `no_longer_needed` (even if agreed); changed quantity → revised offer (a round; AGREED reopened); unchanged → kept as they are; new suppliers → new Leg, session and offer (worded by the LLM behind guardrails, template fallback). The countering Leg follows §7.4's rules. A Leg needing a round with none left FAILS `round_limit_exceeded` and the request is resolved again without it.
+- **No supplier limit** per combination (every subset is evaluated; exponential in the suppliers of one item, fine for the fixture, measure before real data).
+- **Audit:** `RE_SOURCING`: trigger, excluded suppliers with reasons (`failed_in_request`, `no_rounds_left`), returning suppliers with remembered cap/date and rounds left, every candidate with its snapshot and current price, options, combinations, outcome, Legs, cost, saving against the best priced single, and the Legs dropped, revised, added and returning. A failed reallocation step before it is still audited as `REALLOCATION`.
+- Examples: N9 (A1, Alpha "450") → Beta 500, Alpha dropped (the split Alpha 400 + Beta 100 saves only 3.2%); N12 (B2, Cell "max 300") → Volt 400 + Ion 400 = 720,000, exactly 10% under Ion alone, Cell dropped; N13 (then Ion "max 350") → Cell returns: Volt 300 + Cell 200 + Ion 300 = 720,000.
+
 ## 7.5 Failure (all-or-nothing)
-Any Leg ends FAILED (reject, round limit → Engine `REJECTED` with `round_limit_exceeded`, timeout, unclear response), or no valid allocation remains →
-- the request is FAILED with a reason and the **Constrained Quantity** (the most the selected suppliers could still supply under their caps);
+No feasible allocation remains after reallocation and re-sourcing (§7.4.1), and the countering supplier (if any) has no rounds left for a counter-back →
+- the request is FAILED with a reason and the **Constrained Quantity** (the most the suppliers of the final allocation attempt, the open Legs plus the Leg whose failure ended it, could still supply under their caps; dropped or merely considered suppliers don't count);
   - computed (confirmed 2026-10-18), counting only quantities deliverable by the required date: the failed Leg's supplier counts the quantity of its last valid (on-time) counter-offer, within its availability and cap, else 0 if it never offered one; every other selected supplier counts its feasible quantity: availability less other requests' holds, limited by its cap, counted only if ≥ its MOQ and it delivers by the required date (agreed date, else today in the configured timezone + lead time); the total is capped at the original shortage. B1 with Cell Works rejecting without an offer → 400 (Volt only); N3 → 700;
 - every other Leg (PENDING or AGREED) is ABORTED (`split_failed`), sent a CANCEL message, its Engine session CANCELLED (also from AGREED) and its hold released;
 - no Leg is committed or counted as a scheduled receipt;
-- no replacement supplier is chosen automatically. The requester decides whether to submit a new request.
+- the failure is final: nothing more is re-sourced, and the requester decides whether to submit a new request.
 
 ## 7.6 Approval
-- The combined outcome is proposed only when every Leg is AGREED (request `AGREEMENT_PROPOSED`).
+- The combined outcome is proposed only when every open Leg is AGREED and together they cover the shortage (request `AGREEMENT_PROPOSED`). FAILED and ABORTED Legs are history, not part of the agreement.
 - A **human** approves or rejects through the Purchasing API. The approver (`decided_by`) is recorded in the APPROVAL audit.
 - Approve → all Legs COMMITTED in one transaction; Engine sessions stay AGREED. A read API exposes committed Legs as scheduled receipts, one per Leg (optionally filtered by item).
 - Reject → `APPROVAL_REJECTED`, all Legs ABORTED (`approval_rejected`), each supplier told and its Engine session CANCELLED (`approval_rejected`), like every other aborted Leg (confirmed 2026-10-18).
-- Approval checks only that the request is still `AGREEMENT_PROPOSED` and every Leg is still AGREED. Supplier-data changes after agreement are disruptions (future scope).
+- Approval checks only that the request is still `AGREEMENT_PROPOSED` and every open Leg is still AGREED. Supplier-data changes after agreement are disruptions (future scope).
 - Cross-agent approval and commit replace this during integration.
 
 # 8. Simulation / Replanning (Future Scope)
@@ -187,7 +202,7 @@ Not implemented now. Later, a supplier event (delay, quantity reduction) will ma
 
 ## Keep these deterministic
 - Contract lookup, validity and overlap checks, Not Registered handling
-- Effective availability, feasibility, combination search, allocation, reallocation, cost and ranking
+- Effective availability, feasibility, combination search, allocation, reallocation, re-sourcing eligibility, cost and ranking
 - MOQ, cap, availability and deadline checks; validation of supplier terms
 - Leg/request state transitions, approval and persistence
 
@@ -229,8 +244,8 @@ Fixture: `dev_docs/purchasing_agent/seed_data.md` (scenario IDs below). Fixed cl
 - **Contracts:** active, inactive, expired, future, boundary dates, missing; overlap rejected on write; seeded overlap excluded at selection (C1, C2).
 - **Selection (pure):** cost with MOQ surplus (A1, A2), unpriced fallback (A3, C1), no feasible supplier (A4, B4), Necessary Split priced (B1) and with an unpriced supplier (D1), Cost-Saving Split (B2), at exactly 10% (F1) and just below (B3, unit), three suppliers (E1), tie-breakers.
 - **Effective availability:** competing requests (E2), holds released on fail/abort, lock prevents double-booking.
-- **Negotiation:** accept (N1), reallocation and reopen counts a round (N2), counter-back and round limit (N3), late date (N4), clarification cap (N5), reject (N6), timeout (N7), approval reject (N8), fallback parser (N9), duplicate message (N10), duplicate request (N11), leg dropped as `no_longer_needed` (unit).
-- **All-or-nothing:** no proposal until all Legs agree; a failed Leg aborts the others; nothing committed or counted as a receipt.
+- **Negotiation:** accept (N1), reallocation and reopen counts a round (N2), counter-back and round limit (N3), late date (N4), clarification cap then re-sourcing (N5), reject then re-sourcing (N6), timeout recorded then re-sourced (N7), approval reject (N8), fallback parser and re-sourcing (N9), duplicate message (N10), duplicate request (N11), re-sourcing with a Cost-Saving Split (N12), a dropped supplier returning (N13), leg dropped as `no_longer_needed` (unit).
+- **All-or-nothing:** no proposal until every open Leg agrees; a request with no feasible allocation aborts the others; nothing committed or counted as a receipt.
 - **Approval:** approve commits all Legs atomically, one receipt per Leg.
 - **LLM:** cannot change selection, quantities, dates or prices; invalid or unsupported output → template/deterministic fallback; tests run without Ollama.
 - **API and persistence** against a test database; test doubles for other agents.

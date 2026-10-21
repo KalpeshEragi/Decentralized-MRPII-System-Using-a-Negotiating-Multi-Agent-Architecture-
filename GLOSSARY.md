@@ -38,7 +38,14 @@ The supplier quantity a Leg reserves while it counts: its allocated quantity whi
 _Avoid_: Reservation (Inventory's term)
 
 **Quantity Cap**:
-The most a supplier will supply for one procurement, set when it counter-offers a different quantity. Reallocation never asks it for more.
+The most a supplier will supply for one procurement, set when it counter-offers a different quantity. Reallocation and Re-sourcing never ask it for more; it is remembered if the supplier returns.
+
+**Reallocation**:
+Redistributing a procurement's quantities among the suppliers already selected for it, after a counteroffer.
+
+**Re-sourcing**:
+Extending a procurement in negotiation to every eligible supplier of the item, because the suppliers already selected can no longer cover the shortage.
+_Avoid_: Reselection (selection is not restarted: open Legs keep their terms and price snapshots), replacement supplier
 
 **Scheduled Receipt**:
 A committed Leg of a committed Procurement Agreement: supplier, item, agreed quantity and agreed delivery date. An agreed but uncommitted Leg is never one.
@@ -55,7 +62,7 @@ _Avoid_: Cancelled agreement, rewritten agreement
 ### Split procurement
 
 **Split Procurement**:
-Covering one Procurement Request with more than one supplier at once, all-or-nothing: either every Leg agrees or the whole procurement fails.
+Covering one Procurement Request with more than one supplier at once, all-or-nothing: nothing is committed until every Leg of the final allocation agrees; if no feasible allocation remains, the whole procurement fails.
 _Avoid_: Multi-sourcing, partial procurement
 
 **Necessary Split**:
@@ -65,5 +72,5 @@ A Split Procurement used because no single supplier can meet the quantity and re
 A Split Procurement of only priced suppliers, chosen because it costs at least 10% (a configurable threshold) less than the cheapest feasible priced single supplier.
 
 **Constrained Quantity**:
-The part of a shortage that could have been covered by the required date when procurement fails, reported so the shortfall is explicit.
+The part of a shortage that the suppliers of the final allocation attempt could have covered by the required date when procurement fails, reported so the shortfall is explicit.
 _Avoid_: Partial agreement

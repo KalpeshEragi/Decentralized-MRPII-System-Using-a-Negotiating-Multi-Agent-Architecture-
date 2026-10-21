@@ -106,21 +106,24 @@ The tester plays the supplier in free text. Purchasing's interpretation is echoe
 |---|---|---|---|
 | N1 | A1 | Alpha: "ok, 500 by 12 Nov works" | Leg AGREED → request AGREEMENT_PROPOSED. Approve → COMMITTED, one scheduled receipt. |
 | N2 | E1 | EchoTech: "we can only do 250" | Cap EchoTech at 250 and reallocate: Sonic 500 + EchoTech 250 + Wave 250 = 315,000. Wave's Leg is reopened with 250 (counts as a round for Wave). No date was stated, so none is assumed: EchoTech gets a revised offer of 250 by the required date 11-12 (a round for EchoTech) and must explicitly accept it. Only when Sonic, Wave and EchoTech have all accepted → AGREEMENT_PROPOSED. (With a stated on-time date, e.g. "250 by 7 Nov", EchoTech is agreed on its own terms at once.) |
-| N3 | B1 | Cell Works: "max 300" (rounds 1–3) | Volt 400 + Cell 300 = 700 < 800, so no valid allocation. Purchasing counters Cell back with 400 while rounds remain. After round 3 the Leg is FAILED (`round_limit_exceeded`); the request is FAILED with Constrained Quantity 700; Volt's Leg is ABORTED (`split_failed`) and adds no scheduled receipt. |
-| N4 | A1 | Alpha: "500 but delivery 25 Nov" | Late date: Purchasing counters with required date 11-20 and never changes the deadline. |
-| N5 | A1 | Alpha: "hmm let me see" ×3 | Two CLARIFICATION_REQUESTs (no round used), then the Leg is FAILED (`unclear_response`) and the request FAILED. |
-| N6 | A1 | Alpha: "no, we can't" | Leg FAILED (`supplier_rejected`), request FAILED. |
-| N7 | A1 | No reply; clock moved past `response_deadline` | On the next read, the session is TIMED_OUT, the Leg FAILED (`timeout`) and the request FAILED. |
+| N3 | B1 | Cell Works: "max 300" (rounds 1–3) | Volt 400 + Cell 300 = 700 < 800, so no valid allocation, and re-sourcing finds none either (Ion arrives 11-14, too late). Purchasing counters Cell back with 400 while rounds remain. After round 3 the Leg is FAILED (`round_limit_exceeded`); the request is FAILED with Constrained Quantity 700; Volt's Leg is ABORTED (`split_failed`) and adds no scheduled receipt. |
+| N4 | A1 | Alpha: "500 but delivery 25 Nov" | Late date: Purchasing counters with required date 11-20 and never changes the deadline (no re-sourcing: the supplier is asked to expedite first). |
+| N5 | A1 | Alpha: "hmm let me see" ×3 | Two CLARIFICATION_REQUESTs (no round used), then the Leg is FAILED (`unclear_response`). Re-sourcing without Alpha: **SINGLE** Beta 500 = 625,000 (new Leg, offer 500 by 11-20); the request stays NEGOTIATING. |
+| N6 | A1 | Alpha: "no, we can't" | Leg FAILED (`supplier_rejected`). Re-sourcing without Alpha: **SINGLE** Beta 500 = 625,000; the request stays NEGOTIATING. |
+| N7 | A1 | No reply; clock moved past `response_deadline` | The next read only records it: session TIMED_OUT, Leg FAILED (`timeout`), request still NEGOTIATING with `re_sourcing_needed: true`, no new Leg. `POST .../re-source` then picks **SINGLE** Beta 500; a second call changes nothing. |
 | N8 | B2 | Both agree, then the human rejects the approval | Request APPROVAL_REJECTED; both Legs ABORTED (`approval_rejected`); holds released. |
-| N9 | A1 | LLM unavailable; supplier types "COUNTER 450 2026-11-12" | Fallback parser reads it (`interpretation_source = FALLBACK_PARSER`). Single Leg capped at 450 can't cover 500, so Purchasing counters back with 500 (as in N3). |
+| N9 | A1 | LLM unavailable; supplier types "COUNTER 450 2026-11-12" | Fallback parser reads it (`interpretation_source = FALLBACK_PARSER`). Alpha capped at 450 can't cover 500 alone, so Purchasing re-sources with the threshold re-checked: the best split Alpha 400 + Beta 100 = 605,000 saves only 3.2% against Beta 500 = 625,000, so **SINGLE** Beta 500 wins. Alpha's Leg is ABORTED `no_longer_needed` (cap 450 remembered); Beta gets a new Leg and offer. |
 | N10 | A1 | The same supplier message is delivered twice (same `message_id`) | The second delivery is ignored; no extra round. |
 | N11 | A1 | The same `request_ref` is submitted twice | The second call returns the existing request; no new Legs. |
+| N12 | B2 | Cell Works: "max 300" | Volt 400 + Cell 300 = 700 < 800: reallocation fails, so Purchasing re-sources (Ion arrives 11-14 ≤ 11-20). Ion alone = 800,000; {Volt 400, Ion 400} = 720,000 and {Volt 300, Cell 200, Ion 300} = 720,000 tie on cost and arrival, fewer suppliers wins. 720,000 is exactly 10% under Ion alone → **COST_SAVING_SPLIT** Volt 400 + Ion 400. Cell's Leg is ABORTED `no_longer_needed` (cap 300, 1 round used); Volt's Leg is unchanged; Ion gets a new Leg priced at its current contract (1,000.00). |
+| N13 | N12 | Then Ion Supply: "max 350" | Volt 400 + Ion 350 = 750 < 800: reallocation fails. Re-sourcing brings Cell back (remembered cap 300 ≥ MOQ 200, 2 rounds left): no single covers; the only feasible combination is **NECESSARY_SPLIT** Volt 300 + Cell 200 + Ion 300 = 720,000. Cell gets a new Leg and Engine session (`max_rounds` 2) with a fresh offer of 200; its old Leg stays ABORTED. Volt gets a revised offer of 300 (a round); Ion is countered with 300 by 11-20. |
 
 ## 7. Pure-logic boundary cases (unit tests, inline data, not seeded)
 
 - Cost-saving split at exactly 10% (qualifies) and at 9.99% (does not).
 - A Leg forced to MOQ creates surplus that is counted in the cost.
 - Tie-breakers: equal cost → earlier (latest) arrival → fewer suppliers → larger total effective availability → supplier names.
+- Re-sourcing: a returning supplier whose remembered cap is below its MOQ, or whose remembered date is after the required date, is unusable; a supplier with no rounds left or that failed in the request is excluded; the threshold is re-checked.
 - A supplier with effective availability < MOQ is unusable.
 - A cost-saving split is never formed with an unpriced supplier.
 - Contract write path rejects an overlapping active contract (T-CON-2); `valid_until < valid_from` is rejected.
