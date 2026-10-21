@@ -148,7 +148,13 @@ def test_n3_no_allocation_fits_so_the_capping_supplier_is_countered_back_until_t
         "COUNTER_OFFER", {"quantity": "400", "delivery_date": "2026-11-12"})
     [reallocation] = audits(client, request, "REALLOCATION")
     assert (reallocation["decision"]["outcome"], reallocation["decision"]["constrained_quantity"]) == ("FAILED", "700")
-    assert reallocation["decision"]["trigger_leg_outcome"] == "COUNTER_OFFER"
+    assert reallocation["decision"]["next_step"] == "RE_SOURCING"
+    # Re-sourcing finds nothing either: Ion Supply arrives 11-14, after the required 11-12.
+    [re_sourcing] = audits(client, request, "RE_SOURCING")
+    assert (re_sourcing["decision"]["outcome"], re_sourcing["decision"]["trigger_leg_outcome"]) == (
+        "FAILED", "COUNTER_OFFER")
+    ion = next(o for o in re_sourcing["context"]["options"] if o["supplier_name"] == "Ion Supply")
+    assert ion["reason"] == "arrives_too_late"
 
     for _ in range(2):  # rounds 2 and 3
         reply(client, cell, "COUNTER 300 2026-11-12")
@@ -174,19 +180,32 @@ def test_accepting_the_counter_back_lifts_the_cap(client):
     assert (cell["status"], cell["agreed_quantity"], cell["quantity_cap"]) == ("AGREED", "400", "400")
 
 
-def test_n9_a_fallback_parsed_counter_below_the_shortage_is_countered_back_with_the_full_quantity(client):
+def test_n9_a_fallback_parsed_counter_below_the_shortage_is_re_sourced_to_a_single_new_supplier(client):
     request = submit(client, "REQ-A1", "DSP-100", 500, "2026-11-20")
     [leg] = request["legs"]
 
     reply(client, leg, "COUNTER 450 2026-11-12")
 
-    [leg] = request_of(client, request)["legs"]
-    assert (leg["status"], leg["quantity_cap"], leg["negotiation"]["round_count"]) == ("PENDING", "450", 2)
-    *_, counter, counter_back = leg["negotiation"]["messages"]
+    after = request_of(client, request)
+    assert (after["status"], after["split_type"]) == ("NEGOTIATING", "SINGLE")
+    now = legs_by_supplier(after)
+    alpha, beta = now["Alpha Displays"], now["Beta Optics"]
+    assert (alpha["status"], alpha["status_reason"], alpha["quantity_cap"]) == ("ABORTED", "no_longer_needed", "450")
+    *_, counter, cancel = alpha["negotiation"]["messages"]
     assert (counter["message_type"], counter["interpretation_source"]) == ("COUNTER_OFFER", "FALLBACK_PARSER")
-    assert (counter_back["message_type"], counter_back["terms"]) == (
-        "COUNTER_OFFER", {"quantity": "500", "delivery_date": "2026-11-20"})
-    assert "Understood: 450 units by 2026-11-12" in counter_back["text"]
+    assert cancel["message_type"] == "CANCEL" and "Understood: 450 units by 2026-11-12" in cancel["text"]
+    assert (beta["status"], beta["allocated_quantity"], beta["unit_price_at_selection"]) == ("PENDING", "500", "1250.00")
+
+    # The threshold is re-checked: Alpha 400 + Beta 100 = 605,000 saves only 3.2% against Beta 500 = 625,000.
+    [re_sourcing] = audits(client, request, "RE_SOURCING")
+    decision = re_sourcing["decision"]
+    assert (decision["outcome"], decision["total_cost"], decision["saving_percent"]) == ("SINGLE", "625000.00", None)
+    assert (decision["dropped_suppliers"], decision["added_suppliers"], decision["trigger_leg_outcome"]) == (
+        ["Alpha Displays"], ["Beta Optics"], "NO_LONGER_NEEDED")
+    assert re_sourcing["context"]["saving_threshold"] == "0.10"
+    combination = next(c for c in re_sourcing["context"]["combinations"]
+                       if c["supplier_names"] == ["Alpha Displays", "Beta Optics"])
+    assert (combination["total_cost"], combination["reason"]) == ("605000.00", "saving_below_threshold")
 
 
 def test_a_split_collapses_to_a_single_supplier_and_the_unneeded_leg_is_dropped(client):

@@ -1,5 +1,5 @@
 """The supplier chat on the test database: a tester replies as the supplier of one Leg, in the strict reply format
-read by the fallback parser (no LLM yet). Fixture scenarios N1, N4, N6, N10 and the round limit.
+read by the fallback parser (no LLM yet). Fixture scenarios N1, N4, N6 (re-sourced, ADR-003), N10 and the round limit.
 
 Fixed clock: 2026-11-02 in Asia/Kolkata, the fixture's selection date.
 """
@@ -130,40 +130,60 @@ def test_a_counter_with_the_full_quantity_and_an_earlier_date_is_agreed_on_those
     assert leg["negotiation"]["round_count"] == 1
 
 
-def test_a_single_supplier_counter_below_the_shortage_is_countered_back_with_the_full_quantity(client):
-    request = submit_a1(client)
+def test_a_single_supplier_counter_below_the_shortage_with_no_other_supplier_is_countered_back(client):
+    # A3: DSP-100, 300 by 2026-11-07 → Gamma Screens alone; Alpha and Beta arrive too late to re-source.
+    request = client.post("/purchasing/procurement-requests", json={
+        "request_ref": "REQ-A3", "item_id": str(ITEM_IDS["DSP-100"]), "shortage_quantity": 300,
+        "required_date": "2026-11-07", "priority": 1, "requested_by": "test"}).json()
     [leg] = request["legs"]
 
-    reply(client, leg["id"], "COUNTER 450 2026-11-12")
+    reply(client, leg["id"], "COUNTER 250 2026-11-06")
 
     [leg] = request_of(client, request)["legs"]
     assert leg["status"] == "PENDING"
     our_counter = leg["negotiation"]["messages"][-1]
     assert (our_counter["message_type"], our_counter["terms"]) == (
-        "COUNTER_OFFER", {"quantity": "500", "delivery_date": "2026-11-20"})
-    assert "Understood: 450 units by 2026-11-12" in our_counter["text"]
+        "COUNTER_OFFER", {"quantity": "300", "delivery_date": "2026-11-07"})
+    assert "Understood: 250 units by 2026-11-06" in our_counter["text"]
 
 
-def test_n6_a_reject_fails_the_leg_and_the_request(client):
+def legs_by_supplier(request: dict) -> dict[str, dict]:
+    return {leg["supplier"]["name"]: leg for leg in request["legs"]}
+
+
+def test_n6_a_reject_fails_the_leg_and_the_request_is_re_sourced(client):
     request = submit_a1(client)
     [leg] = request["legs"]
 
     reply(client, leg["id"], "REJECT")
 
     after = request_of(client, request)
-    assert after["status"] == "FAILED"
-    [leg] = after["legs"]
-    assert (leg["status"], leg["status_reason"]) == ("FAILED", "supplier_rejected")
-    session = leg["negotiation"]
+    assert (after["status"], after["split_type"], after["re_sourcing_needed"]) == ("NEGOTIATING", "SINGLE", False)
+    legs = legs_by_supplier(after)
+    alpha, beta = legs["Alpha Displays"], legs["Beta Optics"]
+    assert (alpha["status"], alpha["status_reason"]) == ("FAILED", "supplier_rejected")
+    session = alpha["negotiation"]
     assert (session["status"], session["status_reason"]) == ("REJECTED", "supplier_rejected")
     assert session["messages"][-1]["message_type"] == "CONFIRMATION"
+    # Beta Optics 500 = 625,000: a new Leg priced at its current contract, with a fresh offer.
+    assert (beta["status"], beta["allocated_quantity"], beta["unit_price_at_selection"]) == ("PENDING", "500", "1250.00")
+    [offer] = beta["negotiation"]["messages"]
+    assert (offer["message_type"], offer["terms"]) == ("OFFER", {"quantity": "500", "delivery_date": "2026-11-20"})
     audit = client.get(f"/purchasing/procurement-requests/{request['id']}/audit").json()
     [validation] = [a for a in audit if a["decision_type"] == "RESPONSE_VALIDATION"]
     assert (validation["decision"]["outcome"], validation["decision"]["reason"]) == ("FAILED", "supplier_rejected")
+    [re_sourcing] = [a for a in audit if a["decision_type"] == "RE_SOURCING"]
+    assert (re_sourcing["context"]["trigger"], re_sourcing["context"]["excluded"]) == (
+        "supplier_rejected", {"Alpha Displays": "failed_in_request"})
+    assert (re_sourcing["decision"]["outcome"], re_sourcing["decision"]["added_suppliers"]) == (
+        "SINGLE", ["Beta Optics"])
 
-    # The negotiation is over: further replies are refused.
-    late = reply(client, leg["id"], "ACCEPT")
+    # Alpha's negotiation is over: further replies are refused.
+    late = reply(client, alpha["id"], "ACCEPT")
     assert late.status_code == 409 and late.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+
+    reply(client, beta["id"], "ACCEPT")
+    assert request_of(client, request)["status"] == "AGREEMENT_PROPOSED"
 
 
 def test_the_round_limit_fails_the_leg_after_three_rounds_without_agreement(client):
@@ -178,9 +198,10 @@ def test_the_round_limit_fails_the_leg_after_three_rounds_without_agreement(clie
     reply(client, leg["id"], "COUNTER 500 2026-11-25")  # the reply that completes round 3
 
     after = request_of(client, request)
-    assert after["status"] == "FAILED"
-    [leg] = after["legs"]
+    assert after["status"] == "NEGOTIATING"  # re-sourced: Beta Optics gets a new Leg
+    leg = legs_by_supplier(after)["Alpha Displays"]
     assert (leg["status"], leg["status_reason"]) == ("FAILED", "round_limit_exceeded")
+    assert legs_by_supplier(after)["Beta Optics"]["status"] == "PENDING"
     session = leg["negotiation"]
     assert (session["status"], session["status_reason"], session["round_count"]) == (
         "REJECTED", "round_limit_exceeded", 3)
@@ -264,8 +285,8 @@ def test_a_past_date_with_no_rounds_left_fails_the_leg(client):
         reply(client, leg["id"], "COUNTER 500 2026-10-30")
 
     after = request_of(client, request)
-    [leg] = after["legs"]
-    assert (after["status"], leg["status"], leg["status_reason"]) == ("FAILED", "FAILED", "round_limit_exceeded")
+    leg = legs_by_supplier(after)["Alpha Displays"]
+    assert (after["status"], leg["status"], leg["status_reason"]) == ("NEGOTIATING", "FAILED", "round_limit_exceeded")
 
 
 def test_a_quantity_counter_with_a_past_date_is_not_agreed_on_reallocation(client):

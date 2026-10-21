@@ -195,9 +195,10 @@ def test_a_reallocation_waiting_for_the_llm_sees_the_holds_of_a_selection_made_m
     assert y.status_code == 201 and legs(y.json()) == {"EchoTech": "200"}
     assert sonic["response"].status_code == 201
     # Without REQ-Y: Sonic 300 + EchoTech 300. With its hold, EchoTech has only 100 left: 300 + 100 < 600, so no
-    # allocation fits and Sonic is countered back with its 500. EchoTech is never booked beyond its 300.
+    # reallocation fits and REQ-R is re-sourced: Sonic 300 + EchoTech 100 + Wave Acoustics 200 = 190,000.
+    # EchoTech is never booked beyond its 300.
     after = request_of(client, r["id"])
-    assert legs(after) == {"Sonic Audio": "500", "EchoTech": "100"}
-    last = leg_of(after, "Sonic Audio")["negotiation"]["messages"][-1]
-    assert (last["message_type"], last["terms"]) == ("COUNTER_OFFER", {"quantity": "500", "delivery_date": "2026-11-12"})
-    assert messages.REPLY_FORMAT in last["text"]
+    assert legs(after) == {"Sonic Audio": "300", "EchoTech": "100", "Wave Acoustics": "200"}
+    assert leg_of(after, "Sonic Audio")["status"] == "AGREED"  # its own counter, on time
+    [offer] = leg_of(after, "Wave Acoustics")["negotiation"]["messages"]  # the new Leg's offer, as the template
+    assert offer["message_type"] == "OFFER" and messages.REPLY_FORMAT in offer["text"]

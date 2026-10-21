@@ -34,7 +34,8 @@ from app.purchasing_agent import messages
 from app.purchasing_agent.availability import Availability, effective_availability
 from app.purchasing_agent.models import (DecisionAudit, LegStatus, ProcurementRequest, PurchaseRequisition,
                                          PurchasingContract, RequestStatus)
-from app.purchasing_agent.selection import Contract, Leg, Selection, SupplierOption, price_state, select_suppliers
+from app.purchasing_agent.selection import (Contract, Leg, PriceState, Selection, SupplierOption, price_state,
+                                            select_suppliers)
 from app.purchasing_agent.wording import PendingWording, apply_explanation, apply_wordings
 from app.purchasing_agent.writer import MessageWriter, selection_facts
 from app.supplier_service import service as supplier_service
@@ -118,7 +119,7 @@ def submit_request(db: Session, new: NewProcurementRequest, now: datetime, setti
         request.constrained_quantity = selection.constrained_quantity
     else:
         for leg in selection.legs:
-            pending.append(_open_leg(db, request, item, leg, now, settings))
+            pending.append(open_leg(db, request, item, leg, now, settings))
         request.status = RequestStatus.NEGOTIATING
         request.split_type = selection.outcome
         request.cost_ranking_available = selection.cost_ranking_available
@@ -131,26 +132,34 @@ def submit_request(db: Session, new: NewProcurementRequest, now: datetime, setti
     return Submitted(request_id, created=True)
 
 
-def _supplier_options(db: Session, item_id: uuid.UUID, availability: list[Availability],
-                      on: date) -> list[SupplierOption]:
+def contract_prices(db: Session, item_id: uuid.UUID, on: date) -> dict[uuid.UUID, PriceState]:
+    """Each supplier's price state for the item on `on`; a supplier without any contract is Not Registered."""
     contracts: dict[uuid.UUID, list[Contract]] = defaultdict(list)
     for c in db.scalars(select(PurchasingContract).where(PurchasingContract.item_id == item_id)):
         contracts[c.supplier_id].append(Contract(c.id, c.unit_price, c.valid_from, c.valid_until, c.is_active))
+    return defaultdict(lambda: PriceState("NOT_REGISTERED"),
+                       {supplier_id: price_state(found, on) for supplier_id, found in contracts.items()})
+
+
+def _supplier_options(db: Session, item_id: uuid.UUID, availability: list[Availability],
+                      on: date) -> list[SupplierOption]:
+    prices = contract_prices(db, item_id, on)
     return [
         SupplierOption(
             supplier_id=a.supplier.supplier_id, supplier_name=a.supplier.supplier_name,
             is_active=a.supplier.supplier_is_active, lead_time_days=a.supplier.lead_time_days,
             min_order_qty=a.supplier.min_order_qty, available_qty=a.effective,
-            price=price_state(contracts[a.supplier.supplier_id], on),
+            price=prices[a.supplier.supplier_id],
         )
         for a in availability
     ]
 
 
-def _open_leg(db: Session, request: ProcurementRequest, item: supplier_service.ItemRecord, leg: Leg, now: datetime,
-              settings: Settings) -> PendingWording:
+def open_leg(db: Session, request: ProcurementRequest, item: supplier_service.ItemRecord, leg: Leg, now: datetime,
+             settings: Settings, max_rounds: int | None = None, quantity_cap: Decimal | None = None) -> PendingWording:
     """One Engine session and one PENDING Leg for the supplier, then Purchasing's offer as the template; the LLM may
-    word it after the commit."""
+    word it after the commit. Re-sourcing (§7.4.1) passes a returning supplier's remaining round budget and remembered
+    cap; otherwise the session gets the configured max rounds."""
     quantity, delivery_date = leg.quantity, request.required_date
     terms = messages.offer_terms(quantity, delivery_date)
     session_id = negotiation_engine.open_session(
@@ -160,14 +169,14 @@ def _open_leg(db: Session, request: ProcurementRequest, item: supplier_service.I
             Participant("AGENT", AGENT_CODE, "INITIATOR"),
             Participant("SUPPLIER", str(leg.supplier_id), "RESPONDENT"),
         ],
-        max_rounds=settings.purchasing_max_rounds,
+        max_rounds=max_rounds if max_rounds is not None else settings.purchasing_max_rounds,
         response_deadline=now + timedelta(hours=settings.purchasing_response_deadline_hours),
         now=now,
     )
     requisition = PurchaseRequisition(
         id=uuid.uuid4(), procurement_request_id=request.id, supplier_id=leg.supplier_id,
         purchasing_contract_id=leg.contract_id, unit_price_at_selection=leg.unit_price, allocated_quantity=quantity,
-        negotiation_session_id=session_id, status=LegStatus.PENDING,
+        quantity_cap=quantity_cap, negotiation_session_id=session_id, status=LegStatus.PENDING,
     )
     db.add(requisition)
     message_id = uuid.uuid4()

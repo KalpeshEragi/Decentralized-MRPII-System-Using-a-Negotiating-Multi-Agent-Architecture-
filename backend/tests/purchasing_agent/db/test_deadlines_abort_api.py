@@ -1,5 +1,6 @@
 """Response deadlines, clarifications and manual abort on the test database. Fixture scenarios N5 and N7 (A1: DSP-100,
-500 by 2026-11-20 → Alpha Displays) and B1 (BAT-200, 800 by 2026-11-12 → Volt Power 400 + Cell Works 400).
+500 by 2026-11-20 → Alpha Displays; re-sourced to Beta Optics, ADR-003) and B1 (BAT-200, 800 by 2026-11-12 → Volt
+Power 400 + Cell Works 400).
 
 The clock starts at 2026-11-02 10:00 Asia/Kolkata, the fixture's selection date, and is moved forward with `at`.
 The working response deadline is 24h; the clarification limit is 2 per pending offer.
@@ -72,8 +73,9 @@ def test_n7_a_silent_supplier_times_out_when_the_request_is_next_read(client):
 
     at(client, NOW + timedelta(hours=24, minutes=1))
     after = request_of(client, request)
-    assert (after["status"], after["status_reason"], after["constrained_quantity"]) == (
-        "FAILED", "a Leg failed: timeout", "0")
+    # A read only records the timeout (ADR-003): no new Leg, no offer.
+    assert (after["status"], after["status_reason"], after["constrained_quantity"], after["re_sourcing_needed"]) == (
+        "NEGOTIATING", None, None, True)
     [leg] = after["legs"]
     assert (leg["status"], leg["status_reason"]) == ("FAILED", "timeout")
     session = leg["negotiation"]
@@ -85,16 +87,31 @@ def test_n7_a_silent_supplier_times_out_when_the_request_is_next_read(client):
     assert timeout["context"]["leg_id"] == leg["id"]
     assert datetime.fromisoformat(timeout["context"]["response_deadline"]) == deadline
     assert timeout["decision"] == {
-        "outcome": "FAILED", "reason": "timeout", "request_status": "FAILED", "constrained_quantity": "0",
-        "aborted_legs": []}
+        "outcome": "FAILED", "reason": "timeout", "request_status": "NEGOTIATING", "re_sourcing_needed": True}
+    assert len(request_of(client, request)["legs"]) == 1  # reading again changes nothing
 
-    # A late reply finds the negotiation closed; reading again changes nothing.
-    late = reply(client, leg, "ACCEPT")
-    assert late.status_code == 409 and late.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
-    assert len(audit_of(client, request, "RESPONSE_DEADLINE")) == 1
+    # Re-sourcing picks Beta Optics 500; a second call changes nothing.
+    first = client.post(f"/purchasing/procurement-requests/{request['id']}/re-source")
+    assert first.status_code == 200
+    re_sourced = first.json()
+    assert (re_sourced["status"], re_sourced["split_type"], re_sourced["re_sourcing_needed"]) == (
+        "NEGOTIATING", "SINGLE", False)
+    beta = legs_by_supplier(re_sourced)["Beta Optics"]
+    assert (beta["status"], beta["allocated_quantity"]) == ("PENDING", "500")
+    [re_sourcing] = audit_of(client, request, "RE_SOURCING")
+    assert re_sourcing["context"]["trigger"] == "timeout"
+    second = client.post(f"/purchasing/procurement-requests/{request['id']}/re-source")
+    assert second.status_code == 200 and second.json()["legs"] == request_of(client, request)["legs"]
+    assert len(second.json()["legs"]) == 2 and len(audit_of(client, request, "RE_SOURCING")) == 1
+    assert len(beta["negotiation"]["messages"]) == len(
+        legs_by_supplier(second.json())["Beta Optics"]["negotiation"]["messages"])  # no second offer
 
 
-def test_a_reply_after_the_deadline_is_refused_and_times_the_leg_out(client):
+def test_re_sourcing_an_unknown_request_is_not_found(client):
+    assert client.post(f"/purchasing/procurement-requests/{uuid.uuid4()}/re-source").status_code == 404
+
+
+def test_a_reply_after_the_deadline_is_refused_but_still_re_sources_its_request(client):
     request = submit_a1(client)
     [leg] = request["legs"]
 
@@ -102,9 +119,12 @@ def test_a_reply_after_the_deadline_is_refused_and_times_the_leg_out(client):
     late = reply(client, leg, "ACCEPT")
     assert late.status_code == 409
 
-    [leg] = request_of(client, request)["legs"]
-    assert (leg["status"], leg["status_reason"]) == ("FAILED", "timeout")
-    assert "ACCEPT" not in [m["message_type"] for m in leg["negotiation"]["messages"]]  # the late reply is not stored
+    after = request_of(client, request)
+    alpha = legs_by_supplier(after)["Alpha Displays"]
+    assert (alpha["status"], alpha["status_reason"]) == ("FAILED", "timeout")
+    assert "ACCEPT" not in [m["message_type"] for m in alpha["negotiation"]["messages"]]  # the late reply is not stored
+    # The reply was the next write for the request: re-sourcing ran first.
+    assert legs_by_supplier(after)["Beta Optics"]["status"] == "PENDING"
 
 
 def test_each_new_offer_moves_the_deadline(client):
@@ -125,15 +145,21 @@ def test_each_new_offer_moves_the_deadline(client):
     assert (leg["status"], leg["status_reason"]) == ("FAILED", "timeout")
 
 
-def test_a_timed_out_leg_fails_the_split_and_aborts_the_agreed_leg(client):
+def test_a_timed_out_leg_that_cannot_be_re_sourced_fails_the_split_and_aborts_the_agreed_leg(client):
     request = submit_b1(client)
     legs = legs_by_supplier(request)
     at(client, NOW + timedelta(hours=1))
     reply(client, legs["Volt Power"], "ACCEPT")
 
     at(client, NOW + timedelta(hours=25))  # Cell Works never replied
-    after = request_of(client, request)
+    recorded = request_of(client, request)
+    assert (recorded["status"], recorded["re_sourcing_needed"]) == ("NEGOTIATING", True)
+    assert legs_by_supplier(recorded)["Volt Power"]["status"] == "AGREED"  # untouched until re-sourcing runs
+
+    # Volt alone can't cover 800 and Ion Supply arrives 11-14, after the required 11-12.
+    after = client.post(f"/purchasing/procurement-requests/{request['id']}/re-source").json()
     assert (after["status"], after["constrained_quantity"]) == ("FAILED", "400")  # Volt's agreed 400 by the date
+    assert after["status_reason"] == "a Leg failed: timeout; no feasible allocation remains"
     legs = legs_by_supplier(after)
     assert (legs["Cell Works"]["status"], legs["Cell Works"]["status_reason"]) == ("FAILED", "timeout")
     assert legs["Cell Works"]["negotiation"]["status"] == "TIMED_OUT"
@@ -157,7 +183,7 @@ def test_reading_the_conversation_list_or_one_conversation_also_checks_the_deadl
 # -- N5: clarifications ----------------------------------------------------------------------------------------------
 
 
-def test_n5_two_clarifications_then_an_unclear_reply_fails_the_leg(client):
+def test_n5_two_clarifications_then_an_unclear_reply_fails_the_leg_and_the_request_is_re_sourced(client):
     request = submit_a1(client)
     [leg] = request["legs"]
 
@@ -171,9 +197,13 @@ def test_n5_two_clarifications_then_an_unclear_reply_fails_the_leg(client):
     reply(client, leg, "hmm let me see")
 
     after = request_of(client, request)
-    assert (after["status"], after["status_reason"]) == ("FAILED", "a Leg failed: unclear_response")
-    [leg] = after["legs"]
+    assert (after["status"], after["split_type"]) == ("NEGOTIATING", "SINGLE")
+    legs = legs_by_supplier(after)
+    leg = legs["Alpha Displays"]
     assert (leg["status"], leg["status_reason"]) == ("FAILED", "unclear_response")
+    beta = legs["Beta Optics"]  # re-sourced without Alpha: Beta Optics 500 = 625,000
+    assert (beta["status"], beta["allocated_quantity"]) == ("PENDING", "500")
+    assert beta["negotiation"]["messages"][0]["terms"] == {"quantity": "500", "delivery_date": "2026-11-20"}
     session = leg["negotiation"]
     assert (session["status"], session["status_reason"], session["round_count"]) == (
         "REJECTED", "unclear_response", 1)
@@ -201,7 +231,7 @@ def test_clarifications_are_counted_per_pending_offer_and_never_change_the_round
 
     reply(client, leg, "COUNTER 500 2026-11-25")  # round 3
     reply(client, leg, "COUNTER 500 2026-11-25")  # completes round 3: the round limit is still 3
-    [leg] = request_of(client, request)["legs"]
+    leg = legs_by_supplier(request_of(client, request))["Alpha Displays"]
     assert (leg["status"], leg["status_reason"]) == ("FAILED", "round_limit_exceeded")
 
 
@@ -271,14 +301,17 @@ def test_a_committed_request_cannot_be_aborted(client):
     assert after["status"] == "COMMITTED" and after["legs"][0]["status"] == "COMMITTED"
 
 
-def test_aborting_after_the_deadline_finds_the_request_already_timed_out(client):
+def test_aborting_after_a_recorded_timeout_aborts_the_request_without_re_sourcing(client):
     request = submit_a1(client)
     at(client, NOW + timedelta(hours=25))
 
-    refused = abort(client, request)
-    assert refused.status_code == 409
-    [leg] = request_of(client, request)["legs"]
+    response = abort(client, request)  # the timeout is recorded first; the request is still NEGOTIATING
+    assert response.status_code == 200
+    after = response.json()
+    assert (after["status"], after["status_reason"]) == ("FAILED", "aborted by tester: the negotiation is stuck")
+    [leg] = after["legs"]  # no replacement supplier: abort is final
     assert (leg["status"], leg["status_reason"]) == ("FAILED", "timeout")
+    assert audit_of(client, request, "RE_SOURCING") == []
 
 
 def test_aborting_an_unknown_request_or_without_a_reason_is_refused(client):

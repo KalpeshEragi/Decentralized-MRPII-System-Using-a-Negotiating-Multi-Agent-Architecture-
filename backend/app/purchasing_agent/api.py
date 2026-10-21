@@ -4,10 +4,11 @@
 The LLM (the shared Ollama client, `get_llm_client`) reads supplier replies and words Purchasing's offers and the
 selection explanation; it is never required: unavailable or invalid output falls back to the parser or templates.
 
-Response deadlines are checked lazily: every route that reads or acts on a negotiating request or its Legs first times
-out any Leg past its deadline (`deadlines.py`). Approve/reject skip it: an AGREEMENT_PROPOSED request has no PENDING Leg.
-Submitting a request and a supplier reply (which may reallocate) also first time out other requests' overdue Legs on
-the same item, so stale holds never reduce availability.
+Response deadlines are checked lazily: every route that reads or acts on a negotiating request or its Legs first records
+any Leg past its deadline as timed out (`deadlines.py`). Approve/reject skip it: an AGREEMENT_PROPOSED request has no
+PENDING Leg. Submitting a request, a supplier reply and re-sourcing (which may reallocate) also first time out other
+requests' overdue Legs on the same item, so stale holds never reduce availability. A read never re-sources (ADR-003):
+a supplier reply re-sources its request first, or `POST .../re-source` does.
 
     POST /purchasing/procurement-requests        submit a Procurement Request (idempotent by request_ref):
                                                  201 new; 200 the existing request for a known request_ref with
@@ -18,7 +19,10 @@ the same item, so stale holds never reduce availability.
     POST /purchasing/procurement-requests/{id}/reject   a human rejects it: APPROVAL_REJECTED, every Leg ABORTED;
                                                         both 409 unless AGREEMENT_PROPOSED with every Leg AGREED
     POST /purchasing/procurement-requests/{id}/abort    a tester stops it: FAILED, every open Leg ABORTED;
-                                                        409 unless NEGOTIATING
+                                                        409 unless NEGOTIATING; never re-sources
+    POST /purchasing/procurement-requests/{id}/re-source   re-source a request whose open Legs no longer cover the
+                                                        shortage (after a recorded timeout); idempotent: 200 and
+                                                        the request always, unchanged when nothing is pending
     GET  /purchasing/scheduled-receipts          one per committed Leg, optionally by item_id
     POST /purchasing/contracts                   register a Purchasing Contract: 201; overlapping active contract 409
     GET  /purchasing/contracts                   list contracts, optionally by supplier_id and/or item_id
@@ -29,7 +33,9 @@ the same item, so stale holds never reduce availability.
     GET  /purchasing/test-channel/conversations/{leg_id}/messages   one conversation and its messages
     POST /purchasing/test-channel/conversations/{leg_id}/messages   a supplier reply: 201 handled; 200 a duplicate
                                                                     message_id, ignored; 409 negotiation closed
-                                                                    (also after its response deadline)
+                                                                    (also after its response deadline), or
+                                                                    `offer: superseded` when re-sourcing first
+                                                                    changed this Leg's offer
 """
 
 import uuid
@@ -97,7 +103,7 @@ def submit_procurement_request(
     clock: Callable[[], datetime] = Depends(get_clock), llm_client: LLMClient = Depends(get_llm_client),
 ):
     now, settings = clock(), get_settings()
-    deadlines.expire_holds_on_item(db, body.item_id, now, settings)  # overdue Legs of other requests release holds
+    deadlines.expire_holds_on_item(db, body.item_id, now)  # overdue Legs of other requests release holds
     submitted = service.submit_request(db, service.NewProcurementRequest(
         request_ref=body.request_ref, item_id=body.item_id, shortage_quantity=body.shortage_quantity,
         required_date=body.required_date, priority=body.priority, requested_by=body.requested_by,
@@ -110,14 +116,14 @@ def submit_procurement_request(
 @router.get("/procurement-requests/{request_id}")
 def get_procurement_request(request_id: uuid.UUID, db: Session = Depends(get_db),
                             clock: Callable[[], datetime] = Depends(get_clock)):
-    deadlines.expire_overdue(db, request_id, clock(), get_settings())
+    deadlines.expire_overdue(db, request_id, clock())
     return views.request_view(db, request_id)
 
 
 @router.get("/procurement-requests/{request_id}/audit")
 def get_procurement_audit(request_id: uuid.UUID, db: Session = Depends(get_db),
                           clock: Callable[[], datetime] = Depends(get_clock)):
-    deadlines.expire_overdue(db, request_id, clock(), get_settings())
+    deadlines.expire_overdue(db, request_id, clock())
     return views.audit_view(db, request_id)
 
 
@@ -148,8 +154,20 @@ class AbortProcurement(BaseModel):
 def abort_procurement(request_id: uuid.UUID, body: AbortProcurement, db: Session = Depends(get_db),
                       clock: Callable[[], datetime] = Depends(get_clock)):
     now = clock()
-    deadlines.expire_overdue(db, request_id, now, get_settings())  # a Leg already timed out has failed the request
+    deadlines.expire_overdue(db, request_id, now)  # recorded only: the request is still NEGOTIATING and is aborted
     abort.abort(db, request_id, body.aborted_by, body.reason, now)
+    return views.request_view(db, request_id)
+
+
+@router.post("/procurement-requests/{request_id}/re-source")
+def re_source_procurement(request_id: uuid.UUID, db: Session = Depends(get_db),
+                          clock: Callable[[], datetime] = Depends(get_clock),
+                          llm_client: LLMClient = Depends(get_llm_client)):
+    now, settings = clock(), get_settings()
+    deadlines.expire_overdue(db, request_id, now)
+    views.request_view(db, request_id)  # 404 for an unknown request
+    deadlines.expire_holds_for_request(db, request_id, now)  # before re-sourcing reads availability
+    negotiation.re_source(db, request_id, now, settings, llm_client)
     return views.request_view(db, request_id)
 
 
@@ -201,14 +219,14 @@ def chat_page():
 
 @router.get("/test-channel/conversations")
 def list_conversations(db: Session = Depends(get_db), clock: Callable[[], datetime] = Depends(get_clock)):
-    deadlines.expire_all_overdue(db, clock(), get_settings())
+    deadlines.expire_all_overdue(db, clock())
     return views.conversations(db)
 
 
 @router.get("/test-channel/conversations/{leg_id}/messages")
 def read_conversation(leg_id: uuid.UUID, db: Session = Depends(get_db),
                       clock: Callable[[], datetime] = Depends(get_clock)):
-    deadlines.expire_overdue_for_leg(db, leg_id, clock(), get_settings())
+    deadlines.expire_overdue_for_leg(db, leg_id, clock())
     return views.conversation(db, leg_id)
 
 
@@ -218,8 +236,9 @@ def post_supplier_message(
     clock: Callable[[], datetime] = Depends(get_clock), llm_client: LLMClient = Depends(get_llm_client),
 ):
     now, settings = clock(), get_settings()
-    deadlines.expire_overdue_for_leg(db, leg_id, now, settings)  # a reply after the deadline finds the Leg closed
-    deadlines.expire_holds_for_leg(db, leg_id, now, settings)  # before a reallocation reads availability
+    deadlines.expire_overdue_for_leg(db, leg_id, now)  # a reply after the deadline finds the Leg closed
+    deadlines.expire_holds_for_leg(db, leg_id, now)  # before a reallocation reads availability
+    negotiation.re_source_before_reply(db, leg_id, now, settings, llm_client)  # pending re-sourcing runs first
     received = negotiation.receive_supplier_message(db, leg_id, body.message_id, body.text, now, settings,
                                                     llm_client)
     if received.duplicate:

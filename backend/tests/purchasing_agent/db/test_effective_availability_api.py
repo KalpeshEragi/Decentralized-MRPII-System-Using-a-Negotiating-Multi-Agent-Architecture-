@@ -172,9 +172,9 @@ def test_a_selection_first_times_out_an_overdue_leg_holding_the_supplier(client)
     e2b = submit(client, "REQ-E2b", 300)  # nothing reads E2a first
 
     assert legs(e2b) == {"Sonic Audio": "300"}  # the hold was released: Sonic 300 = 90,000
-    after = request_of(client, e2a)
-    assert (after["status"], after["legs"][0]["status"], after["legs"][0]["status_reason"]) == (
-        "FAILED", "FAILED", "timeout")
+    after = request_of(client, e2a)  # the timeout is only recorded: E2a waits for re-sourcing
+    assert (after["status"], after["re_sourcing_needed"], after["legs"][0]["status"],
+            after["legs"][0]["status_reason"]) == ("NEGOTIATING", True, "FAILED", "timeout")
     assert "RESPONSE_DEADLINE" in audit_types(client, e2a)
 
 

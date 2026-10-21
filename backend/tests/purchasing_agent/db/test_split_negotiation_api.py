@@ -77,7 +77,7 @@ def test_b1_one_leg_rejecting_fails_the_whole_procurement_and_aborts_the_agreed_
     cell = after["Cell Works"]["negotiation"]
     assert (cell["status"], cell["status_reason"]) == ("REJECTED", "supplier_rejected")
 
-    # No replacement supplier: Ion Supply is not brought in and no new Leg is opened.
+    # Re-sourcing finds no replacement: Ion Supply arrives 11-14, after the required 11-12; no new Leg is opened.
     assert len(failed["legs"]) == 2
     # Nothing is committed or counted as a scheduled receipt; approval is refused.
     approve = client.post(f"/purchasing/procurement-requests/{request['id']}/approve", json={"decided_by": "approver"})

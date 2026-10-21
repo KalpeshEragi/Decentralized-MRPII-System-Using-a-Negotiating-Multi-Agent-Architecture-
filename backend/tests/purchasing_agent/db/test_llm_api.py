@@ -110,13 +110,15 @@ def test_a_counter_with_only_a_quantity_is_never_given_an_invented_date(client):
 
     reply(client, leg["id"], "we can only do 450")
 
-    [leg] = request_of(client, request)["legs"]
-    _, supplier, our_counter = leg["negotiation"]["messages"]
+    legs = {leg["supplier"]["name"]: leg for leg in request_of(client, request)["legs"]}
+    alpha = legs["Alpha Displays"]
+    _, supplier, cancel = alpha["negotiation"]["messages"]
     assert supplier["terms"] == {"quantity": "450", "delivery_date": None}
-    # 450 caps Alpha and can't cover 500 alone, so Purchasing counters back with 500 by the required date (as N9).
-    assert (leg["status"], leg["quantity_cap"]) == ("PENDING", "450")
-    assert our_counter["terms"] == {"quantity": "500", "delivery_date": "2026-11-20"}
-    assert our_counter["text"].startswith("Understood: 450 units, with no delivery date given.")
+    # 450 caps Alpha and can't cover 500 alone: re-sourced to Beta Optics 500 (as N9), Alpha dropped, cap remembered.
+    assert (alpha["status"], alpha["status_reason"], alpha["quantity_cap"]) == ("ABORTED", "no_longer_needed", "450")
+    assert cancel["message_type"] == "CANCEL"
+    assert cancel["text"].startswith("Understood: 450 units, with no delivery date given.")
+    assert legs["Beta Optics"]["allocated_quantity"] == "500"
 
 
 def test_n2_a_natural_quantity_counter_is_reallocated_and_must_be_explicitly_accepted(client):

@@ -139,8 +139,8 @@ class DecisionAudit(PurchasingAgentBase):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     procurement_request_id: Mapped[uuid.UUID | None] = foreign_key("procurement_requests.id")
-    decision_type: Mapped[str] = mapped_column(String)  # SUPPLIER_SELECTION, REALLOCATION, RESPONSE_VALIDATION,
-    # RESPONSE_DEADLINE, APPROVAL, MANUAL_ABORT
+    decision_type: Mapped[str] = mapped_column(String)  # SUPPLIER_SELECTION, REALLOCATION, RE_SOURCING,
+    # RESPONSE_VALIDATION, RESPONSE_DEADLINE, APPROVAL, MANUAL_ABORT
     context: Mapped[dict] = mapped_column(JSONB)  # options considered, prices or Not Registered, exclusions
     decision: Mapped[dict] = mapped_column(JSONB)
     reasoning_summary: Mapped[str] = mapped_column(Text)  # deterministic rationale

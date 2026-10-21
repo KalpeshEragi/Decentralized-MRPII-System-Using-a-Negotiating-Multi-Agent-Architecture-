@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError, ErrorCode
 from app.negotiation_engine import service as negotiation_engine
 from app.purchasing_agent.messages import quantity_text
+from app.purchasing_agent.negotiation import re_sourcing_needed
 from app.purchasing_agent.models import (DecisionAudit, LegStatus, ProcurementRequest, PurchaseRequisition,
                                          RequestStatus)
 from app.supplier_service import service as supplier_service
@@ -41,6 +42,8 @@ def request_view(db: Session, request_id: uuid.UUID) -> dict:
         "split_type": request.split_type,
         "cost_ranking_available": request.cost_ranking_available,
         "constrained_quantity": _number(request.constrained_quantity),
+        # a missed deadline was recorded and the open Legs no longer cover the shortage: POST .../re-source
+        "re_sourcing_needed": re_sourcing_needed(db, request),
         "decided_at": request.decided_at.isoformat() if request.decided_at else None,
         "legs": [_leg_view(db, leg, suppliers.get(leg.supplier_id)) for leg in legs],
         "selection": {

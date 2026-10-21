@@ -4,8 +4,9 @@
 - Approve → every Leg COMMITTED and the request COMMITTED; committed Legs are the scheduled receipts.
 - Reject → request APPROVAL_REJECTED; every supplier is told, every Leg ABORTED `approval_rejected` and its Engine
   session CANCELLED (like every other aborted Leg, §7.4–7.5), which releases its hold.
-Legs dropped on reallocation (`no_longer_needed`) are not part of the agreement and are left as they are.
-Either is allowed only while the request is AGREEMENT_PROPOSED and every Leg is AGREED; otherwise the decision is
+Only the open Legs (PENDING/AGREED) are the agreement: FAILED and ABORTED Legs (failed, dropped `no_longer_needed`,
+replaced by re-sourcing) are history and are left as they are.
+Either is allowed only while the request is AGREEMENT_PROPOSED and every open Leg is AGREED; otherwise the decision is
 refused and nothing changes. On approval the Engine sessions stay AGREED.
 """
 
@@ -50,11 +51,11 @@ def _proposed(db: Session, request_id: uuid.UUID) -> tuple[ProcurementRequest, l
     if request.status != RequestStatus.AGREEMENT_PROPOSED:
         raise AppError(ErrorCode.INVALID_STATE_TRANSITION, f"the request is {request.status}, not AGREEMENT_PROPOSED",
                        [{"field": "status", "issue": f"is {request.status}"}])
-    legs = [leg for leg in db.scalars(select(PurchaseRequisition)
-                                      .where(PurchaseRequisition.procurement_request_id == request.id)
-                                      .order_by(PurchaseRequisition.created_at, PurchaseRequisition.id)
-                                      .with_for_update())
-            if leg.status_reason != LegReason.NO_LONGER_NEEDED]  # dropped on reallocation: not part of the agreement
+    legs = list(db.scalars(select(PurchaseRequisition)
+                           .where(PurchaseRequisition.procurement_request_id == request.id,
+                                  PurchaseRequisition.status.in_(LegStatus.OPEN))  # FAILED/ABORTED: history
+                           .order_by(PurchaseRequisition.created_at, PurchaseRequisition.id)
+                           .with_for_update()))
     if stale := [leg for leg in legs if leg.status != LegStatus.AGREED]:
         raise AppError(ErrorCode.INVALID_STATE_TRANSITION, "not every Leg is AGREED",
                        [{"field": f"legs.{leg.id}.status", "issue": f"is {leg.status}"} for leg in stale])
