@@ -44,21 +44,30 @@ Errors use the C5 body `{"error": {code, message, details}}` (`app/core/errors.p
 
 ### Flow 2: a supplier reply
 1. Duplicate `message_id` → 200, nothing changes (checked before any LLM call).
-2. Deadline check (overdue → Leg FAILED `timeout`, request FAILED).
+2. Deadline check (overdue → Leg FAILED `timeout`, recorded only). If the request now needs re-sourcing, it runs first;
+   if that changed this Leg's offer → 409 `offer: superseded`.
 3. The reply is read by the LLM (or parser) with **no transaction open**.
 4. Lock request and Leg and check again: closed → 409; offer changed meanwhile → 409 `offer: superseded`.
-5. Validate → agree / counter / reallocate / clarify / fail → echo → audit → commit.
+5. Validate → agree / counter / reallocate / re-source / clarify / fail → echo → audit → commit.
 6. The LLM words the new messages afterwards (`wording.py`).
 
-### Flow 3: reallocation (a quantity counter)
-The counter becomes the Leg's cap. `reallocate` re-runs the rules over the selected suppliers. An unneeded Leg →
-ABORTED `no_longer_needed`. A changed Leg → revised offer (a new round; an AGREED Leg is reopened). Nothing fits → the
-supplier is countered back with its current quantity.
+### Flow 3: reallocation and re-sourcing (a quantity counter or a failed Leg)
+A counter becomes the Leg's cap; a failed Leg's supplier is excluded. `_resolve`: `reallocate` over the open Legs →
+nothing fits → re-source: `select_suppliers` (threshold re-checked) over the open Legs plus `re_sourcing.candidates`
+(eligible suppliers, returning ones limited by their remembered cap and date, round budget per request). An unneeded
+Leg → ABORTED `no_longer_needed`. A changed Leg → revised offer (a new round; an AGREED Leg is reopened). A new or
+returning supplier → new Leg, Engine session and offer. A Leg needing a round with none left FAILS and the loop runs
+again. Nothing feasible → the countering supplier is countered back, else the request FAILS.
+
+### Flow 3a: re-source after a timeout
+A read only records a timeout (`re_sourcing_needed: true`). `POST /purchasing/procurement-requests/{id}/re-source`
+(or the next supplier reply on the request) runs `_resolve` for the latest failed Leg. Idempotent.
 
 ### Flow 4: failure, approval, abort
-- Any Leg FAILED → request FAILED + Constrained Quantity; other Legs ABORTED `split_failed`, CANCEL sent, session CANCELLED.
+- Nothing feasible after reallocation and re-sourcing → request FAILED + Constrained Quantity; other Legs ABORTED
+  `split_failed`, CANCEL sent, session CANCELLED. Final.
 - Approve → all Legs + request COMMITTED. Reject → APPROVAL_REJECTED, Legs ABORTED `approval_rejected`.
-- Abort → request FAILED, open Legs ABORTED `manually_aborted`.
+- Abort → request FAILED, open Legs ABORTED `manually_aborted`. Never re-sources.
 
 ### Locks
 A PostgreSQL transaction-scoped advisory lock per supplier-item, taken in key order (no deadlock), held until commit.
@@ -80,9 +89,10 @@ No lock is held while waiting for the LLM.
 | LLM invents a term or a price | Rejected by guardrails | `test_llm_guardrails.py` |
 | Slow LLM, concurrent requests | No lock held; stale results discarded | `db/test_llm_outside_locks_api.py` |
 | Competing requests | Holds reduce availability | E2, `db/test_effective_availability_api.py` |
-| Late / unclear / rejecting supplier | Counter / clarify / fail | N4, N6, `db/test_supplier_chat_api.py`; N5, `db/test_deadlines_abort_api.py` |
-| No reply | Timeout fails the procurement | N7, `db/test_deadlines_abort_api.py` |
-| Split Leg fails | Others aborted, nothing committed | N3, `db/test_split_negotiation_api.py` |
+| Late / unclear / rejecting supplier | Counter / clarify / fail the Leg → re-source | N4, N6, `db/test_supplier_chat_api.py`; N5, `db/test_deadlines_abort_api.py` |
+| No reply | Timeout recorded on read; re-sourced on the next write or `POST .../re-source` | N7, `db/test_deadlines_abort_api.py`, `db/test_re_sourcing_api.py` |
+| Split Leg fails, nothing to re-source | Others aborted, nothing committed | N3, B1, `db/test_split_negotiation_api.py` |
+| Cap reallocation can't absorb | Re-sourcing (threshold re-checked; a dropped supplier may return) | N9, N12, N13, `test_re_sourcing.py`, `db/test_re_sourcing_api.py`, `db/test_reallocation_api.py` |
 | Quantity counter | Reallocation | N2, `db/test_reallocation_api.py` |
 | Approve / reject | All or nothing | N1, N8, `db/test_approval_api.py` |
 | Contract rules | Overlap 409; overlap at selection excluded | C1, C2, `db/test_contracts_api.py` |

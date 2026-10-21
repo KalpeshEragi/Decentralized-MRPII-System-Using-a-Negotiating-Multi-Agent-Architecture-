@@ -35,8 +35,9 @@ Purchasing: "Understood: ..." echo, then one of:
             - COUNTER_OFFER (required date)         → next round
             - CLARIFICATION_REQUEST (no round, max 2 per pending offer)
             - closed (CONFIRMATION)                 → Leg FAILED
-Later, Purchasing may send: a revised offer as COUNTER_OFFER (reallocation, new round), a CANCEL
-(another Leg failed, no longer needed, manual abort, approval rejected) or a CONFIRMATION on timeout.
+Later, Purchasing may send: a revised offer as COUNTER_OFFER (reallocation or re-sourcing, new round), a CANCEL
+(the procurement failed, no longer needed, manual abort, approval rejected) or a CONFIRMATION on timeout. A supplier
+dropped earlier may get a new conversation with a fresh OFFER when the procurement is re-sourced (ADR-003).
 ```
 
 Max 3 rounds (`PURCHASING_MAX_ROUNDS`). Response deadline 24 h after each message awaiting a reply
@@ -55,7 +56,8 @@ Without the LLM (or on invalid output) the strict fallback parser reads it, any 
 | anything else | Unclear → clarification request |
 
 Purchasing then validates: a date later than required or in the past is never agreed; another quantity becomes the
-supplier's Quantity Cap and the procurement is reallocated among the already-selected suppliers.
+supplier's Quantity Cap and the procurement is reallocated among the open Legs, else re-sourced over every eligible
+supplier of the item.
 
 ## 5. What the supplier sees and never sees
 

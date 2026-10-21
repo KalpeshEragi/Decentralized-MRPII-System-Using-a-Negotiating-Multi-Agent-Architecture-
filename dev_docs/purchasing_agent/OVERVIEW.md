@@ -79,7 +79,7 @@ For checking what this branch (`purchasing-agent`) changed. Do §3 and §4 first
 
 | Change | What to check | Expected result |
 | --- | --- | --- |
-| Purchasing Agent, tickets 01–11: selection, splits, negotiation, reallocation, holds, deadlines, abort, approval, LLM reading/wording with guardrails, no locks during LLM calls | Run the scenarios in §7, then look at the results as in §8 | Each scenario ends as its "Expected" column says; the audit explains every decision |
+| Purchasing Agent, tickets 01–12: selection, splits, negotiation, reallocation, re-sourcing, holds, deadlines, abort, approval, LLM reading/wording with guardrails, no locks during LLM calls | Run the scenarios in §7, then look at the results as in §8 | Each scenario ends as its "Expected" column says; the audit explains every decision |
 | Supplier chat (test channel) and its new hint | Open <http://localhost:8000/purchasing/test-channel>; read the hint; reply in normal words, then with Ollama stopped, in strict format | Hint says write naturally; strict format (`ACCEPT` / `COUNTER <qty> <yyyy-mm-dd>` / `REJECT`) only if the AI model is unavailable. Both ways work (natural text only with the model) |
 | Ollama "thinking" off (`reasoning_effort: "none"` in `backend/app/llm/client.py`) | With Ollama running, time a request submit and a chat reply (see below) | Seconds, not minutes: about 18 s to submit, 8–14 s per reply (2026-10-18). Minutes or fallback-only text means something is wrong |
 | Legacy supplier routes removed | <http://localhost:8000/docs>: look for `/supplier-interface/...` and `/negotiations/{id}/supplier-responses`; open <http://localhost:8000/a2a/supplier-interface/.well-known/agent-card.json> | Neither route is listed; the agent card gives **404** (for contrast, `/a2a/purchasing/.well-known/agent-card.json` still answers). The old three-agent demo stops at its first offer (expected) |
@@ -119,7 +119,8 @@ Warnings:
 - [ ] Purchasing tests pass (or only Neon connection errors that pass on rerun)
 - [ ] Chat page opens; hint text as described
 - [ ] A1 + N1 + approve → scheduled receipt
-- [ ] N4 late date countered; N5 unclear ×3 fails; N6 reject fails
+- [ ] N4 late date countered; N5 unclear ×3 and N6 reject re-source to Beta Optics
+- [ ] B2 + N12/N13 re-sourcing (Ion added, Cell returns)
 - [ ] B2 split: both accept → AGREEMENT_PROPOSED; reject → APPROVAL_REJECTED
 - [ ] E1 + N2 reallocation (with the model)
 - [ ] E2 holds: second request picks EchoTech
@@ -183,11 +184,13 @@ In the chat, pick the conversation by supplier name and `request_ref`.
 | A1 + N1 | DSP-100, 500, today+18 (2026-11-05) | Chat as **Alpha Displays**: "ok, that works" (strict: `ACCEPT`) | SINGLE, Alpha 500 = 600,000 INR (cheapest; Gamma is faster but Not Registered). Alpha gets an offer: 500 by 2026-11-05. Reply → echo "Understood: you accept our offer." + "Agreed: 500 units, delivered by 2026-11-05". Request `AGREEMENT_PROPOSED`. |
 | …approve | same request | `POST /purchasing/procurement-requests/{id}/approve` with `{"decided_by": "tester"}` | Request + Leg `COMMITTED`. `GET /purchasing/scheduled-receipts` shows Alpha 500 by 2026-11-05. |
 | N4 | A1 again (new ref) | Alpha: "500 but delivery 25 Nov" (strict: `COUNTER 500 2026-11-25`) | Late date → Purchasing counters: 500 by the required date, "this date cannot change". Round 2/3. Then reply `ACCEPT` → agreed. |
-| N5 | A1 again | Alpha: "hmm let me see", three times | 1st and 2nd: clarification request (no round used). 3rd: Leg `FAILED` `unclear_response`, request `FAILED`. |
-| N6 | A1 again | Alpha: "no, we can't" (strict: `REJECT`) | Leg `FAILED` `supplier_rejected`, request `FAILED`. |
-| Rounds | A1 again | Alpha: a late date three times (e.g. `COUNTER 500 2026-11-25`) | After round 3: Leg `FAILED` `round_limit_exceeded`. |
+| N5 | A1 again | Alpha: "hmm let me see", three times | 1st and 2nd: clarification request (no round used). 3rd: Leg `FAILED` `unclear_response`; re-sourced without Alpha: a new Leg and offer to **Beta Optics** 500 (625,000). Request stays `NEGOTIATING`. |
+| N6 | A1 again | Alpha: "no, we can't" (strict: `REJECT`) | Leg `FAILED` `supplier_rejected`; re-sourced: Beta Optics 500, request `NEGOTIATING`. |
+| Rounds | A1 again | Alpha: a late date three times (e.g. `COUNTER 500 2026-11-25`) | After round 3: Leg `FAILED` `round_limit_exceeded`; re-sourced to Beta Optics. |
+| N9 | A1 again | Alpha: "we can do 450" (strict: `COUNTER 450 <date>`) | Alpha alone can't cover 500: re-sourced with the threshold re-checked. Alpha 400 + Beta 100 saves only 3.2%, so **SINGLE** Beta 500; Alpha `ABORTED` `no_longer_needed` (cap 450 remembered). |
+| N12 / N13 | B2 again | Cell Works: "max 300"; then, in Ion Supply's new chat, "max 350" | N12: Volt 400 + Cell 300 can't cover 800 → re-sourced: COST_SAVING_SPLIT Volt 400 + **Ion** 400 (720,000, exactly 10% under Ion alone); Cell `ABORTED` `no_longer_needed`. N13: Volt 400 + Ion 350 short → **Cell returns** (new chat, 2 of its 3 rounds left, cap 300): NECESSARY_SPLIT Volt 300 + Cell 200 + Ion 300. |
 | B2 + N8 | BAT-200, 800, today+18 (2026-11-05) | Accept in **both** chats (Cell Works 400, Volt Power 400), then `POST .../reject` with `{"decided_by": "tester"}` | COST_SAVING_SPLIT 680,000 vs best single Ion 800,000 (15% saving). After both accept: `AGREEMENT_PROPOSED`. After reject: `APPROVAL_REJECTED`, both Legs `ABORTED` `approval_rejected`, each supplier gets a cancel message. |
-| Split fails | B2 again | Cell Works accepts, Volt Power rejects | Request `FAILED`; Cell Works' Leg `ABORTED` `split_failed` (cancel message) even though it agreed. All or nothing. |
+| Split fails | BAT-200, 800, today+10 (B1: Volt 400 + Cell 400) | Cell Works accepts, Volt Power rejects | Re-sourcing finds nothing (Ion arrives too late) → request `FAILED`, Constrained Quantity 500; Cell Works' Leg `ABORTED` `split_failed` (cancel message) even though it agreed. (On B2 the same rejection re-sources to Ion Supply instead.) |
 | E1 + N2 | SPK-500, 1000, today+10 (2026-10-28) | **Needs the AI model.** EchoTech: "we can only do 250" | Start: NECESSARY_SPLIT Sonic 500 + EchoTech 300 + Wave 200. After the reply: EchoTech capped at 250, reallocated to Sonic 500 + EchoTech 250 + Wave 250. Wave gets a revised offer (250); EchoTech gets 250 by the required date and must accept it. Accept in all three chats → `AGREEMENT_PROPOSED`. Without the model, send `COUNTER 250 2026-10-24` instead: EchoTech is agreed at once, Wave still gets the revised 250. |
 | E2 (holds) | SPK-500, 400, today+10, then **while it is still negotiating** SPK-500, 300, today+10 | Don't reply to the first one | First: SINGLE Sonic 400. Second: SINGLE EchoTech 300, because Sonic has only 100 left after the first request's hold. |
 | A4 | DSP-100, 300, today+3 (2026-10-21) | Nothing | `FAILED` right away: no active supplier arrives in time, Constrained Quantity 0. No chat. |
@@ -202,14 +205,16 @@ saving), D1 (CAM-400, 500, today+8 → Focal 300 + Lumen 200, unpriced).
 
 A reply timeout (N7) needs 24 h of waiting. To shorten it, set `PURCHASING_RESPONSE_DEADLINE_HOURS=1` in `.env`
 (minimum 1) and restart the server; it applies to messages sent after the restart. After 1 h without a reply, the
-next read of the request (or chat) fails the Leg with `timeout` and the request `FAILED`.
+next read of the request (or chat) records it: Leg `FAILED` `timeout`, request still `NEGOTIATING` with
+`re_sourcing_needed: true` and no new Leg. `POST /purchasing/procurement-requests/{id}/re-source` (in `/docs`), or the
+next supplier reply on that request, then re-sources it (A1: Beta Optics 500). A second call changes nothing.
 
 ## 8. What to check
 
 | Where | Look at |
 | --- | --- |
-| `GET /purchasing/procurement-requests/{id}` | `status`, `status_reason`, `split_type`, `cost_ranking_available`, `constrained_quantity`; each Leg's `status`, `status_reason`, `allocated_quantity`, `quantity_cap`, `agreed_*`; `negotiation.messages` (type, round, text, `terms`, `interpretation_source` = `LLM` or `FALLBACK_PARSER`); `selection` (every option and why it won or lost). |
-| `GET /purchasing/procurement-requests/{id}/audit` | Every decision, oldest first: `SUPPLIER_SELECTION`, `RESPONSE_VALIDATION`, `REALLOCATION`, `RESPONSE_DEADLINE`, `APPROVAL`, `MANUAL_ABORT`, with `reasoning_summary` and the AI's `llm_explanation` (may be empty). |
+| `GET /purchasing/procurement-requests/{id}` | `status`, `status_reason`, `split_type`, `cost_ranking_available`, `constrained_quantity`, `re_sourcing_needed`; each Leg's `status`, `status_reason`, `allocated_quantity`, `quantity_cap`, `agreed_*`; `negotiation.messages` (type, round, text, `terms`, `interpretation_source` = `LLM` or `FALLBACK_PARSER`); `selection` (every option and why it won or lost). |
+| `GET /purchasing/procurement-requests/{id}/audit` | Every decision, oldest first: `SUPPLIER_SELECTION`, `RESPONSE_VALIDATION`, `REALLOCATION`, `RE_SOURCING`, `RESPONSE_DEADLINE`, `APPROVAL`, `MANUAL_ABORT`, with `reasoning_summary` and the AI's `llm_explanation` (may be empty). |
 | `GET /purchasing/scheduled-receipts` | Only approved Legs. Agreed-but-not-approved never appear. |
 | Chat page | **No price ever** in the chat. Each Purchasing answer starts with "Understood: …" (how it read your reply). The text box locks when the negotiation is closed. |
 
@@ -240,24 +245,25 @@ Files are in `backend/app/purchasing_agent/` unless stated.
 
 | Rule | What it means | Where |
 | --- | --- | --- |
-| Offer | Each Leg's first offer: its quantity by the **required date**. Never a price. | `service.py` `_open_leg`, `messages.py` |
+| Offer | Each Leg's first offer: its quantity by the **required date**. Never a price. | `service.py` `open_leg`, `messages.py` |
 | On-time date | Agreeable only if today ≤ delivery date ≤ required date. | `negotiation.py` `on_time` |
 | ACCEPT | Leg AGREED on the current offer. | `negotiation.py` `validate` |
 | COUNTER, same quantity, on-time date | Leg AGREED on the supplier's date. | `validate` |
 | COUNTER, same quantity, late or past date | Purchasing counters: same quantity by the required date (new round). No rounds left → FAILED `round_limit_exceeded`. | `validate` |
-| COUNTER, other quantity | Becomes the supplier's **Quantity Cap**; the procurement is reallocated. | `validate`, `_reallocate` |
+| COUNTER, other quantity | Becomes the supplier's **Quantity Cap**; the procurement is resolved again (reallocate → re-source). | `validate`, `_resolve` |
 | COUNTER missing a term | Treated as unclear: asks for both quantity and date. | `validate` |
 | Unclear reply | Clarification request (no round). After 2 for the same offer → FAILED `unclear_response`. | `validate` |
 | REJECT | Leg FAILED `supplier_rejected`. | `validate` |
-| Reallocation | Selection rules re-run over the **already-selected** suppliers only, with caps; threshold not re-checked; no new supplier. Unneeded Leg → ABORTED `no_longer_needed`. Changed Leg → revised offer (an AGREED Leg is reopened). Countering supplier agreed at once if the new quantity equals its counter with an on-time date, else countered. | `negotiation.py` `_reallocate`, `selection.reallocate` |
-| Nothing fits the caps | Countering supplier is countered back with its current quantity; no rounds left → FAILED. | `_reallocate` |
-| Revision without rounds | A Leg that must be revised but has no rounds left fails `round_limit_exceeded`, and the procurement with it. | `_fail_revision` |
-| All or nothing | One Leg FAILED → request FAILED (+ Constrained Quantity); every other PENDING/AGREED Leg ABORTED `split_failed`, told, session CANCELLED. | `negotiation.py` `fail_procurement` |
-| Proposal | Every Leg (except `no_longer_needed`) AGREED → request AGREEMENT_PROPOSED. | `negotiation.py` `_propose_if_all_agreed` |
-| Approve | Only when AGREEMENT_PROPOSED and every Leg AGREED. All Legs + request COMMITTED in one transaction → scheduled receipts. | `approval.py` `approve` |
+| Reallocation | First step after a quantity counter or a failed Leg: selection rules over the **open** Legs only, with caps; threshold not re-checked. Unneeded Leg → ABORTED `no_longer_needed`. Changed Leg → revised offer (an AGREED Leg is reopened). Countering supplier agreed at once if the new quantity equals its counter with an on-time date, else countered. | `negotiation.py` `_resolve`, `selection.reallocate` |
+| Re-sourcing | Reallocation finds nothing → selection rules over the open Legs **plus every eligible supplier** of the item; threshold **re-checked**. Eligible: usable, rounds left in its per-request budget (3, shared across its sessions), never failed in this request. A dropped supplier may return: new Leg and session, its remembered cap and date limit it, fresh offer. New Legs use the current contract price; open Legs keep their snapshot. ADR-003. | `negotiation.py` `_resolve`, `re_sourcing.py` |
+| Nothing fits | Countering supplier is countered back with its current quantity; no rounds left → FAILED. | `_resolve` |
+| Revision without rounds | A Leg that must be revised but has no rounds left fails `round_limit_exceeded`; its supplier is excluded and the request is resolved again. | `_fail_revision`, `_resolve` |
+| Failure | A failed Leg no longer fails the request by itself. Only when reallocation and re-sourcing find nothing (and no counter-back is possible): request FAILED (+ Constrained Quantity); every other PENDING/AGREED Leg ABORTED `split_failed`, told, session CANCELLED. Final. | `negotiation.py` `fail_procurement` |
+| Proposal | Every open Leg AGREED and together they cover the shortage → request AGREEMENT_PROPOSED. FAILED/ABORTED Legs are history. | `negotiation.py` `_propose_if_all_agreed` |
+| Approve | Only when AGREEMENT_PROPOSED and every open Leg AGREED. Those Legs + request COMMITTED in one transaction → scheduled receipts. | `approval.py` `approve` |
 | Reject | Same check. Request APPROVAL_REJECTED; Legs ABORTED `approval_rejected`; suppliers told; sessions CANCELLED. | `approval.py` `reject` |
-| Abort | Only when NEGOTIATING. Request FAILED; open Legs ABORTED `manually_aborted`. | `abort.py` `abort` |
-| Timeout | A PENDING Leg past its deadline: session TIMED_OUT, Leg FAILED `timeout`, request FAILED (all or nothing). | `deadlines.py` `expire_overdue` |
+| Abort | Only when NEGOTIATING. Request FAILED; open Legs ABORTED `manually_aborted`. Never re-sources. | `abort.py` `abort` |
+| Timeout | A PENDING Leg past its deadline: session TIMED_OUT, Leg FAILED `timeout`. A read only records it: request stays NEGOTIATING with `re_sourcing_needed`; the next reply on the request or `POST .../re-source` re-sources it. | `deadlines.py` `expire_overdue`, `negotiation.py` `re_source` |
 | Echo | Every answer starts with how Purchasing read the reply ("Understood: …"). | `messages.py` `understood_text` |
 
 ## 10. Constraints and limits
@@ -289,11 +295,11 @@ Files are in `backend/app/purchasing_agent/` unless stated.
 | State | Meaning | Can change to |
 | --- | --- | --- |
 | `RECEIVED` | Just stored; selection runs in the same transaction (normally not seen from outside). | NEGOTIATING, FAILED |
-| `NEGOTIATING` | Legs open, chats running. | AGREEMENT_PROPOSED, FAILED |
-| `AGREEMENT_PROPOSED` | Every Leg agreed; waiting for a human. Chats are closed for replies. | COMMITTED, APPROVAL_REJECTED |
+| `NEGOTIATING` | Legs open, chats running. May also hold FAILED/ABORTED Legs (history) and wait for re-sourcing after a timeout. | AGREEMENT_PROPOSED, FAILED |
+| `AGREEMENT_PROPOSED` | Every open Leg agreed; waiting for a human. Chats are closed for replies. | COMMITTED, APPROVAL_REJECTED |
 | `COMMITTED` | Approved; Legs are scheduled receipts. | — (final) |
 | `APPROVAL_REJECTED` | Human rejected. | — (final) |
-| `FAILED` | No feasible option, a Leg failed, timeout, or manual abort. | — (final) |
+| `FAILED` | No feasible option (at selection, or after reallocation and re-sourcing), or manual abort. | — (final) |
 
 ### b) Leg (`LegStatus`, `LegReason`)
 
@@ -302,7 +308,7 @@ Files are in `backend/app/purchasing_agent/` unless stated.
 | `PENDING` | Offer sent; waiting for the supplier. Holds allocated qty. | AGREED, FAILED, ABORTED |
 | `AGREED` | Supplier agreed. Holds agreed qty. Not a receipt yet. | COMMITTED, ABORTED, PENDING (reopened by reallocation), FAILED (revision without rounds) |
 | `COMMITTED` | Approved; a scheduled receipt. | — (final) |
-| `FAILED` | This Leg failed; fails the request. | — (final) |
+| `FAILED` | This Leg failed; its supplier is excluded for the rest of the request, which is resolved again. | — (final) |
 | `ABORTED` | Cancelled because of something else. | — (final) |
 
 | Reason | Status | Meaning |
@@ -312,7 +318,7 @@ Files are in `backend/app/purchasing_agent/` unless stated.
 | `timeout` | FAILED | No reply by the response deadline. |
 | `unclear_response` | FAILED | Still unreadable after 2 clarifications. |
 | `split_failed` | ABORTED | Another Leg failed the procurement. |
-| `no_longer_needed` | ABORTED | Dropped by reallocation. |
+| `no_longer_needed` | ABORTED | Dropped by reallocation or re-sourcing (may return later on a new Leg). |
 | `manually_aborted` | ABORTED | Tester aborted the request. |
 | `approval_rejected` | ABORTED | Human rejected the agreement. |
 
@@ -344,14 +350,15 @@ Files are in `backend/app/purchasing_agent/` unless stated.
 | --- | --- | --- | --- |
 | Request | RECEIVED → NEGOTIATING | Selection found suppliers | One Leg + session + OFFER per supplier. |
 | Request | RECEIVED → FAILED | No feasible option | Constrained Quantity set; no chat. |
-| Request | NEGOTIATING → AGREEMENT_PROPOSED | Last open Leg agreed | `no_longer_needed` Legs ignored. |
-| Request | NEGOTIATING → FAILED | A Leg FAILED (reject, rounds, unclear, timeout) or manual abort | Other Legs ABORTED. |
+| Request | NEGOTIATING → AGREEMENT_PROPOSED | Every open Leg agreed and they cover the shortage | FAILED/ABORTED Legs ignored. |
+| Request | NEGOTIATING → FAILED | Nothing feasible after a Leg failed or a counter (reallocate → re-source → counter back), or manual abort | Other Legs ABORTED. |
 | Request | AGREEMENT_PROPOSED → COMMITTED / APPROVAL_REJECTED | Human approve / reject | One transaction. |
 | Leg | PENDING → AGREED | ACCEPT or on-time COUNTER | Session → AGREED. |
 | Leg | PENDING → PENDING | Counter, clarification or revised offer | Round count rises except for clarifications. |
 | Leg | PENDING → FAILED | Reject / round limit / unclear / timeout | Session → REJECTED (TIMED_OUT for timeout). |
 | Leg | AGREED → PENDING | Reallocation changes its quantity | Session AGREED → OPEN; revised COUNTER_OFFER. |
 | Leg | PENDING/AGREED → ABORTED | Split failed, no longer needed, abort, approval rejected | Session → CANCELLED; CANCEL message. |
+| Leg | (new) → PENDING | Re-sourcing adds or brings back a supplier | New session (a returning supplier's `max_rounds` = its remaining budget) + OFFER. |
 | Leg | AGREED → COMMITTED | Approval | Session stays AGREED. |
 | Session | OPEN → AGREED / REJECTED / TIMED_OUT | Purchasing closes it | Engine only records; Purchasing decides. |
 | Session | OPEN or AGREED → CANCELLED | Purchasing cancels | Ended sessions never reopen, except AGREED → OPEN. |

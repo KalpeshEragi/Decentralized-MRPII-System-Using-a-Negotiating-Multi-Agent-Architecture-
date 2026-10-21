@@ -52,6 +52,7 @@
 | Procurement Request | RECEIVED → NEGOTIATING → AGREEMENT_PROPOSED → COMMITTED or APPROVAL_REJECTED; FAILED |
 | Leg | PENDING, AGREED, FAILED, ABORTED, COMMITTED |
 | Leg reason | `supplier_rejected`, `round_limit_exceeded`, `timeout`, `unclear_response`, `split_failed`, `no_longer_needed`, `manually_aborted`, `approval_rejected` |
+| Audit decision type | `SUPPLIER_SELECTION`, `REALLOCATION`, `RE_SOURCING`, `RESPONSE_VALIDATION`, `RESPONSE_DEADLINE`, `APPROVAL`, `MANUAL_ABORT` |
 | Engine session | OPEN, AGREED, REJECTED, TIMED_OUT, CANCELLED (AGREED → OPEN only on an explicit reopen) |
 | Message (Purchasing) | OFFER, COUNTER_OFFER, CLARIFICATION_REQUEST, CANCEL, CONFIRMATION |
 | Message (supplier) | ACCEPT, COUNTER_OFFER, REJECT, UNCLEAR |

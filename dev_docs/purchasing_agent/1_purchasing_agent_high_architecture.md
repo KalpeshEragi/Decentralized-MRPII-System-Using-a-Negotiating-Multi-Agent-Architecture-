@@ -19,7 +19,7 @@ each one in a chat, and proposes a combined **Procurement Agreement** that a hum
 3. Supplier selection: single supplier, Cost-Saving Split or Necessary Split (deterministic).
 4. Legs (requisitions): one per selected supplier, with its quantity, cap, price snapshot and status.
 5. Holds on supplier quantity (effective availability), so two requests never double-book a supplier.
-6. Reading and validating supplier replies; counter-offers and reallocation.
+6. Reading and validating supplier replies; counter-offers, reallocation and re-sourcing.
 7. All-or-nothing failure with the Constrained Quantity.
 8. Approval handling and scheduled receipts.
 9. Decision audit.
@@ -69,8 +69,8 @@ An agreed Leg is never a scheduled receipt until the whole agreement is approved
 2. Price is used for selection only. It is never negotiated, never sent to a supplier, never shown in the chat.
 3. A supplier without a valid contract is **Not Registered**: price unknown, never zero.
 4. The requester's required date is never changed. A late or past delivery date is never agreed.
-5. All or nothing: either every Leg agrees or the whole procurement fails.
-6. New suppliers are never added during negotiation.
+5. All or nothing: either every open Leg agrees and covers the shortage, or the whole procurement fails.
+6. A failed or short Leg is re-sourced over every eligible supplier of the item before the request fails (ADR-003).
 7. Purchasing never writes supplier master data or another module's tables.
 8. Request priority affects processing order only, never supplier ranking.
 

@@ -342,7 +342,7 @@ Purchasing's own decision audit (same shape as `audit.decision_audit`, no cross-
 |---|---|---|---|
 | `id` | UUID | PK | Audit ID |
 | `procurement_request_id` | UUID | FK → `purchasing_agent.procurement_requests.id`, NULL allowed | Related request |
-| `decision_type` | VARCHAR | NOT NULL | e.g. `SUPPLIER_SELECTION`, `REALLOCATION`, `RESPONSE_VALIDATION`, `RESPONSE_DEADLINE`, `APPROVAL`, `MANUAL_ABORT` |
+| `decision_type` | VARCHAR | NOT NULL | e.g. `SUPPLIER_SELECTION`, `REALLOCATION`, `RE_SOURCING`, `RESPONSE_VALIDATION`, `RESPONSE_DEADLINE`, `APPROVAL`, `MANUAL_ABORT` |
 | `context` | JSONB | NOT NULL | Options/combinations considered, prices or `Not Registered`, exclusions |
 | `decision` | JSONB | NOT NULL | Deterministic decision |
 | `reasoning_summary` | TEXT | NOT NULL | Deterministic rationale |

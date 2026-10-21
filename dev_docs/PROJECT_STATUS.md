@@ -30,11 +30,11 @@ Rules: `purchasing_agent/purchasing_agent_architecture.md`. Routes and files: `b
 | Supplier selection | Pure, deterministic code. Options: priced single, Cost-Saving Split (≥ 10% cheaper, configurable), Necessary Split, unpriced fallbacks ("cost ranking unavailable"), or FAILED with the Constrained Quantity. Every option and combination is audited. Price is never negotiated (ADR-002). |
 | Effective availability | Supplier quantity minus other requests' holds. Advisory lock per supplier-item, so two requests can't double-book a supplier. Other requests' overdue Legs are timed out before availability is calculated. |
 | Supplier chat | Test-channel page with one conversation per Leg. Free text, read by the LLM or a strict fallback parser. Purchasing echoes how it read each reply, then agrees, counters, asks for clarification (max 2) or fails the Leg. Max 3 rounds. A past or late delivery date is never agreed. Duplicate `message_id` is ignored. |
-| Splits and reallocation | All or nothing: one failed Leg fails the request and cancels the other Legs. A quantity counter-offer caps that supplier, and the quantity is reallocated among the already-selected suppliers. No new supplier is ever added. |
-| Deadlines and abort | 24h response deadline, checked lazily (no scheduler). A Leg past it fails with `timeout`. A tester can abort a request while it is NEGOTIATING. |
+| Splits, reallocation and re-sourcing | A quantity counter-offer caps that supplier and is reallocated among the open Legs; a failed Leg excludes its supplier. If nothing fits, the request is re-sourced over every eligible supplier (threshold re-checked; a dropped supplier may return within its per-request round budget; ADR-003, ticket 12). Only if nothing is feasible does the request fail and cancel the other Legs. |
+| Deadlines and abort | 24h response deadline, checked lazily (no scheduler). A Leg past it fails with `timeout`; a read only records it, re-sourcing runs on the next reply or `POST .../re-source`. A tester can abort a request while it is NEGOTIATING (never re-sourced). |
 | Approval | A human approves (all Legs COMMITTED in one transaction → scheduled receipts) or rejects (all Legs ABORTED, suppliers told). |
 | LLM (shared Ollama client, never required) | Reads supplier replies, rewrites the offer text, explains the selection. Guardrails fall back to the parser, the template or no explanation. **No lock is held during LLM calls** (`wording.py`). A reply to an offer that changed meanwhile → 409 `offer: superseded`. |
-| Audit | `decision_audit`: selection, response validation, reallocation, deadline, approval, manual abort. The LLM explanation is stored apart from the deterministic rationale. |
+| Audit | `decision_audit`: selection, response validation, reallocation, re-sourcing, deadline, approval, manual abort. The LLM explanation is stored apart from the deterministic rationale. |
 
 ## 3. Legacy / provisional code
 

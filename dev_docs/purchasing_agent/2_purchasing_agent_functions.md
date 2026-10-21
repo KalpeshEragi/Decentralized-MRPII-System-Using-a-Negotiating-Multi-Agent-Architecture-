@@ -20,7 +20,8 @@ entirely by deterministic code. The LLM is a helper for language only.
 - Never agree a late or past delivery date. Never change the requester's required date.
 - Echo how each reply was read ("Understood: …") before acting on it.
 - Ask for clarification when a reply is unclear (max 2 per pending offer). Never guess.
-- Never add a new supplier after selection.
+- Add or bring back a supplier only by re-sourcing (ADR-003): the selection rules over every eligible supplier, when
+  the open Legs can no longer cover the shortage.
 
 ## 3. Methods (what the agent does)
 
@@ -29,8 +30,9 @@ entirely by deterministic code. The LLM is a helper for language only.
 3. Compute effective availability under a per supplier-item lock.
 4. Select: priced single vs Cost-Saving Split, else unpriced fallback, else Necessary Split, else FAILED.
 5. Open one Leg + one Engine session per selected supplier and send an offer.
-6. For each supplier reply: interpret → validate → agree / counter / reallocate / clarify / fail.
-7. When every Leg is AGREED, propose the agreement. When any Leg fails, fail the request and cancel the other Legs.
+6. For each supplier reply: interpret → validate → agree / counter / reallocate / re-source / clarify / fail.
+7. When every open Leg is AGREED and they cover the shortage, propose the agreement. When a Leg fails, reallocate,
+   then re-source; only if nothing is feasible fail the request and cancel the other Legs.
 8. Apply a human's approval or rejection.
 
 ## 4. Tools / services
@@ -45,13 +47,15 @@ All are plain code. The LLM requests no tools.
 | 4 | `effective_availability` | `availability.py` | Read + lock | Available quantity minus other requests' holds |
 | 5 | `select_suppliers` | `selection.py` | Pure | Singles, every combination, MOQ-first allocation, ranking, reasons |
 | 6 | `reallocate` | `selection.py` | Pure | Same rules over the selected suppliers with their caps |
+| 6a | `candidates`, `candidate_option` | `re_sourcing.py` | Read / Pure | Suppliers without an open Leg, eligible or excluded with a reason |
+| 6b | `re_source` | `negotiation.py` | Write | Re-source a request after a recorded timeout (idempotent) |
 | 7 | `receive_supplier_message` | `negotiation.py` | Write | One supplier reply, end to end |
 | 8 | `interpret` | `interpretation.py` | LLM + parser | Reply text → action and terms |
 | 9 | `validate` | `negotiation.py` | Pure | Reply + offer + required date → decision |
-| 10 | `fail_procurement`, `cancel_leg` | `negotiation.py` | Write | All-or-nothing failure; cancel one Leg |
+| 10 | `fail_procurement`, `cancel_leg` | `negotiation.py` | Write | Final failure once nothing is feasible; cancel one Leg |
 | 11 | `approve`, `reject` | `approval.py` | Write | Human decision |
 | 12 | `abort` | `abort.py` | Write | Tester's manual stop |
-| 13 | `expire_overdue`, `expire_holds_on_item` | `deadlines.py` | Write | Lazy deadline check; release stale holds |
+| 13 | `expire_overdue`, `expire_holds_on_item` | `deadlines.py` | Write | Lazy deadline check (records only); release stale holds |
 | 14 | `register`, `list_contracts` | `contracts.py` | Write / Read | Purchasing Contracts |
 | 15 | `MessageWriter`, `explain_selection` | `writer.py` | LLM | Message wording and selection explanation, with guardrails |
 | 16 | `apply_wordings`, `apply_explanation` | `wording.py` | Write | Apply LLM text after the commit, only while still valid |
@@ -77,7 +81,8 @@ All are plain code. The LLM requests no tools.
 - Let the LLM change suppliers, quantities, dates, prices or allocations.
 - Write supplier master data or another module's tables.
 - Commit anything without a human approval of the whole agreement.
-- Restart supplier selection or add a replacement supplier after a failure.
+- Restart supplier selection from scratch (agreed Legs are only dropped when re-sourcing must replace them), or
+  re-source after the request FAILED or was aborted.
 
 ## 8. Guardrails (summary)
 

@@ -20,18 +20,19 @@ lists every option and combination. Purchasing Contracts can be registered and l
 Supplier chat: the tester replies as the supplier on the test-channel page (`dev_docs/supplier/2_supplier_interface.md`).
 The LLM reads the reply, else the strict-format fallback parser; Purchasing validates it, echoes its reading, then agrees (Leg + Engine AGREED; request
 AGREEMENT_PROPOSED once every Leg agreed), counters with the Leg quantity by the required date, asks for the format
-again (unclear, no round), or fails the Leg (`supplier_rejected`, `round_limit_exceeded`). All or nothing: a failed
-Leg fails the request with the Constrained Quantity; every other Leg is ABORTED `split_failed` (CANCEL message, Engine
-session CANCELLED, even if AGREED). At most 2 clarification requests per pending offer; the next unclear reply fails
+again (unclear, no round), or fails the Leg (`supplier_rejected`, `round_limit_exceeded`). A failed Leg is re-sourced
+(below); only when nothing is feasible does the request fail with the Constrained Quantity, every other Leg ABORTED
+`split_failed` (CANCEL message, Engine session CANCELLED, even if AGREED). At most 2 clarification requests per pending offer; the next unclear reply fails
 the Leg (`unclear_response`).
 
 LLM (ticket 10, shared `OllamaClient`, never required): it reads supplier replies into terms (a term must be written in the reply; otherwise the fallback parser reads it), words offers, counter-offers and clarifications behind guardrails (template on failure), and explains the selection (`llm_explanation`, separate from the deterministic `reasoning_summary`). Every call runs with thinking off (`reasoning_effort: "none"`, `test_llm_no_thinking.py`; measured ~4–9 s per call). No lock is held while the LLM runs (ticket 11, `wording.py`): the decision is committed with template texts first, and the wording or explanation is applied afterwards only while still valid.
 
 Deadlines and abort (ticket 09): every message awaiting a reply moves the Leg's response deadline to now + 24h. Every
 route that reads or acts on a request or Leg first checks it (`deadlines.py`, no scheduler): a PENDING Leg past it is
-told, its Engine session TIMED_OUT and the Leg FAILED `timeout`, failing the procurement. A tester can abort a
+told, its Engine session TIMED_OUT and the Leg FAILED `timeout`; the read only records it (request NEGOTIATING,
+`re_sourcing_needed`), re-sourcing runs on the next reply for the request or `POST .../re-source`. A tester can abort a
 NEGOTIATING request (`abort.py`; a proposed agreement is rejected through approval instead): FAILED with the reason; every open Leg ABORTED
-`manually_aborted`, told, Engine session CANCELLED.
+`manually_aborted`, told, Engine session CANCELLED. Abort never re-sources.
 
 Effective availability (ticket 08, `availability.py`): selection, reallocation and the Constrained Quantity use the
 Supplier Service quantity less other requests' holds (PENDING: allocated; AGREED/COMMITTED: agreed; FAILED/ABORTED
@@ -42,9 +43,16 @@ re-runs the selection rules over only the still-selected suppliers (caps applied
 re-check). An unneeded supplier's Leg is ABORTED `no_longer_needed` (CANCEL, Engine CANCELLED); a Leg whose quantity
 changes gets a revised offer (an AGREED one is reopened, Engine AGREED → OPEN), a new round; the countering supplier is
 agreed when the new allocation is its counter by an on-time date, else countered. A revision with no rounds left fails
-the procurement. No allocation fits → the countering supplier is countered back with its current quantity; accepting
-lifts its cap. REALLOCATION audit: allocation before/after, caps, every option/combination, actual saving against the
-original best priced single.
+that Leg, and the request is resolved again. REALLOCATION audit: allocation before/after, caps, every
+option/combination, actual saving against the latest best priced single.
+
+Re-sourcing (ticket 12, ADR-003, `re_sourcing.py`): when reallocation finds nothing, the selection rules (threshold
+re-checked) run over the open Legs plus every eligible supplier of the item: usable, rounds left in its per-request
+budget (3, shared across its sessions), not failed in this request. A supplier dropped `no_longer_needed` may return
+on a new Leg and Engine session (`max_rounds` = its remaining budget), limited by its remembered cap and date. New Legs
+use the current contract price. Only if that finds nothing either is the countering supplier countered back (accepting
+lifts its cap), else the request FAILS. RE_SOURCING audit: candidates with both prices, exclusions, options,
+combinations, outcome and the Legs dropped, revised, added and returning.
 
 Approval: a human approves (every Leg and the request COMMITTED in one transaction) or rejects (APPROVAL_REJECTED,
 every Leg ABORTED `approval_rejected`, each supplier told and its Engine session CANCELLED) a proposed agreement. Committed Legs are the scheduled receipts, one per Leg.
@@ -56,10 +64,11 @@ every Leg ABORTED `approval_rejected`, each supplier told and its Engine session
 | `service.py` | Orchestration (the selection in one transaction; LLM wording after it): idempotent intake, Supplier Service and contract reads, selection, one Leg + Engine session + offer per selected supplier, audit. |
 | `interpretation.py` | Supplier reply text → action and terms: LLM extraction checked against the text, else the strict-format fallback parser. |
 | `writer.py` | LLM-written message text and selection explanation, with guardrails; template / NULL on failure. |
-| `negotiation.py` | One supplier reply: interpret (outside any lock), then in one locked transaction re-check, validate (pure `validate`), agree / counter / reallocate / clarify / fail, echo, audit; `cancel_leg` for every cancelled Leg. |
+| `negotiation.py` | One supplier reply: interpret (outside any lock), then in one locked transaction re-check, validate (pure `validate`), agree / counter / clarify / fail, resolve (`_resolve`: reallocate → re-source → counter back → fail), echo, audit; `re_source` after a recorded timeout; `cancel_leg` for every cancelled Leg. |
+| `re_sourcing.py` | Re-sourcing candidates: every supplier without an open Leg, eligible or excluded (`failed_in_request`, `no_rounds_left`), with its round budget, remembered cap/date and current price; the RE_SOURCING audit. |
 | `wording.py` | LLM wording of committed messages and the selection explanation, applied only while still valid (Leg PENDING, message unanswered). |
-| `approval.py` | A human's approve / reject in one transaction: only while AGREEMENT_PROPOSED with every Leg AGREED; audit. |
-| `deadlines.py` | Lazy response-deadline check: time out an overdue Leg and fail the procurement, in one transaction; audit. Also other requests' overdue Legs on an item before a selection or reply (stale holds). |
+| `approval.py` | A human's approve / reject in one transaction: only while AGREEMENT_PROPOSED with every open Leg AGREED; audit. |
+| `deadlines.py` | Lazy response-deadline check: record every overdue Leg as timed out (no re-sourcing), in one transaction; audit. Also other requests' overdue Legs on an item before a selection, reply or re-source (stale holds). |
 | `abort.py` | A tester's manual abort in one transaction: only while NEGOTIATING; audit. |
 | `messages.py` | Template text (offer, echo, counter, confirmation, clarification) and offer terms. Never a price. |
 | `test_channel/supplier_chat.html` | The WhatsApp-like supplier chat page. |
@@ -73,11 +82,12 @@ every Leg ABORTED `approval_rejected`, each supplier told and its Engine session
 | Route | What it does |
 | --- | --- |
 | `POST /purchasing/procurement-requests` | `request_ref`, `item_id`, `shortage_quantity`, `required_date`, `priority`, `requested_by`. `201` new; `200` + the existing request for a known `request_ref` with the same item, quantity, date and priority; `409 CONFLICT` for a known `request_ref` with different data. Quantity in whole units (`500.0` ok, `500.5` refused). Unknown item / bad input: `422 VALIDATION_ERROR`. |
-| `GET /purchasing/procurement-requests/{id}` | (Like every route below that reads or acts on a request or Leg, first times out a Leg past its response deadline.) Status, split type, Legs with their negotiation (participants, messages), selection audit. |
-| `GET /purchasing/procurement-requests/{id}/audit` | Every decision recorded for the request (selection, response validations, reallocations, approval), oldest first. |
-| `POST /purchasing/procurement-requests/{id}/approve` | `decided_by` (the human approver). Every Leg (except those dropped `no_longer_needed`) and the request COMMITTED; `decided_at` set; audited. `409 INVALID_STATE_TRANSITION` unless the request is AGREEMENT_PROPOSED and every Leg AGREED (nothing changes); `404` unknown request. |
+| `GET /purchasing/procurement-requests/{id}` | (Like every route below that reads or acts on a request or Leg, first times out a Leg past its response deadline.) Status, split type, `re_sourcing_needed`, Legs with their negotiation (participants, messages), selection audit. |
+| `GET /purchasing/procurement-requests/{id}/audit` | Every decision recorded for the request (selection, response validations, reallocations, re-sourcing, deadlines, approval, abort), oldest first. |
+| `POST /purchasing/procurement-requests/{id}/approve` | `decided_by` (the human approver). Every open Leg (FAILED/ABORTED ones are history) and the request COMMITTED; `decided_at` set; audited. `409 INVALID_STATE_TRANSITION` unless the request is AGREEMENT_PROPOSED and every open Leg AGREED (nothing changes); `404` unknown request. |
 | `POST /purchasing/procurement-requests/{id}/reject` | `decided_by`. Request APPROVAL_REJECTED, every Leg ABORTED `approval_rejected`, a CANCEL message to each supplier and its Engine session CANCELLED; same refusals as approve. |
-| `POST /purchasing/procurement-requests/{id}/abort` | `aborted_by`, `reason`. Request FAILED (`aborted by <who>: <reason>`); every PENDING/AGREED Leg ABORTED `manually_aborted`, a CANCEL message to its supplier and its Engine session CANCELLED; audited. `409 INVALID_STATE_TRANSITION` unless NEGOTIATING (use reject for a proposed agreement; a repeated abort is also 409); `404` unknown request. |
+| `POST /purchasing/procurement-requests/{id}/abort` | `aborted_by`, `reason`. Request FAILED (`aborted by <who>: <reason>`); every PENDING/AGREED Leg ABORTED `manually_aborted`, a CANCEL message to its supplier and its Engine session CANCELLED; audited. `409 INVALID_STATE_TRANSITION` unless NEGOTIATING (use reject for a proposed agreement; a repeated abort is also 409); `404` unknown request. Never re-sources. |
+| `POST /purchasing/procurement-requests/{id}/re-source` | Re-source a request whose open Legs no longer cover the shortage (after a recorded timeout). Idempotent: `200` + the request, unchanged when nothing is pending; `404` unknown request. |
 | `GET /purchasing/scheduled-receipts` | One per committed Leg (supplier, item, agreed quantity, agreed delivery date), earliest delivery first; optional `item_id`. AGREED Legs never appear. |
 | `GET /purchasing/test-channel` | The supplier chat page. |
 | `GET /purchasing/test-channel/conversations` | One conversation per Leg, newest first: supplier, item, quantity, required date, rounds, Leg and Engine status. Never a price. |
