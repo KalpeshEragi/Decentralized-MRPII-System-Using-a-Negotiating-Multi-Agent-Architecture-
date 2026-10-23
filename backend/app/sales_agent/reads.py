@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.sales_agent.models import Inquiry, Order, Product
+from app.sales_agent.models import Inquiry, Message, Option, Order, Product
 
 
 def product_sku(db: Session, product_id: str) -> str | None:
@@ -29,6 +29,31 @@ def inquiry_status(db: Session, inquiry_id: str) -> dict | None:
     return {"inquiry_id": str(inquiry.id), "stage": inquiry.stage,
             "order_number": order.order_number if order else None, "order_status": order.status if order else None,
             "order_quantity": str(order.quantity) if order else None}
+
+
+def customer_conversation(db: Session, inquiry_id: str) -> dict | None:
+    """One inquiry's customer side for the demo panel: what was asked, the options offered, and the chat messages
+    (chat-mode customers only; structured simulated customers have none)."""
+    try:
+        inquiry = db.get(Inquiry, uuid.UUID(str(inquiry_id)))
+    except ValueError:
+        return None
+    if inquiry is None:
+        return None
+    messages = db.scalars(select(Message).where(Message.conversation_id == inquiry.conversation_id)
+                          .order_by(Message.created_at)).all()
+    options = db.scalars(select(Option).where(Option.inquiry_id == inquiry.id).order_by(Option.created_at)).all()
+    return {
+        "inquiry_id": str(inquiry.id), "stage": inquiry.stage, "closed_reason": inquiry.closed_reason,
+        "quantity": str(inquiry.quantity) if inquiry.quantity is not None else None,
+        "requested_date": inquiry.requested_date.isoformat() if inquiry.requested_date else None,
+        "created_at": inquiry.created_at.isoformat(),
+        "confirmed_at": inquiry.confirmed_at.isoformat() if inquiry.confirmed_at else None,
+        "options": [{"kind": o.kind, "quantity": str(o.quantity), "delivery_date": o.delivery_date.isoformat(),
+                     "status": o.status, "reason_code": o.reason_code, "created_at": o.created_at.isoformat()}
+                    for o in options],
+        "messages": [{"direction": m.direction, "text": m.text, "time": m.created_at.isoformat()} for m in messages],
+    }
 
 
 def active_products(db: Session) -> list[dict]:

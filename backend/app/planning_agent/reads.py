@@ -85,7 +85,8 @@ def open_demand_count(db: DbSession) -> int:
 
 def cases_for(db: DbSession, demand_id: str) -> list[dict]:
     """The cases Planning opened for a demand (each holds its negotiation sessions)."""
-    return [{"case_id": c.id, "kind": c.kind, "status": c.status, "sessions": c.sessions}
+    return [{"case_id": c.id, "kind": c.kind, "status": c.status, "sessions": c.sessions, "depth": c.depth,
+             "created_at": c.created_at.isoformat() if c.created_at else None}
             for c in db.scalars(select(Case).where(Case.demand_id == uuid.UUID(demand_id)).order_by(Case.created_at))]
 
 

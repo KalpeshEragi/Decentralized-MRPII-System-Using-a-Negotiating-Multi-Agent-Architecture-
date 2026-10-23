@@ -76,6 +76,16 @@ def test_one_normal_order_goes_from_request_to_shipment(session_factory, pump, f
     assert {n["owner"] for n in story["negotiations"]} == {"INVENTORY", "HR", "WAREHOUSE"}
     assert {n["status"] for n in story["negotiations"]} == {"COMMITTED"}
     assert "ShipmentDispatched" in [e["type"] for e in story["events"]]
+    # the per-order chat: the customer side and every id that picks this order's lines out of the timeline
+    assert story["customer"] is None  # this test drives Planning directly, without a Sales inquiry
+    assert {n["session_id"] for n in story["negotiations"]} <= set(story["refs"])
+    # the order story's plan tree: rounds, and each negotiation says what was asked and for which order, in words
+    assert [c["kind"] for c in story["cases"]] == ["NEW_REQUEST"]
+    assert all(n["asked"]["quantity"] and n["order_label"] and n["resource_label"] for n in story["negotiations"])
+    shipped = next(e for e in story["events"] if e["type"] == "ShipmentDispatched")
+    assert shipped["subscribers"]  # who the channel delivered it to, for the publish/subscribe animation
+    talks = [i for i in client.get("/observer/timeline").json()["items"] if i["source"] == "negotiation"]
+    assert all(i["order_label"] for i in talks if i["type"] == "REQUEST") and talks  # each thread names its order
     state = client.get("/observer/factory-state").json()
     assert {s["sku"]: s["on_hand"] for s in state["stock"]}["S1-CHIP"] == "800"
     sources = {item["source"] for item in client.get("/observer/timeline").json()["items"]}

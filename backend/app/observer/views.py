@@ -4,11 +4,13 @@ nothing; it only composes what already exists, through the agents' read modules 
 
 import uuid
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core import work_runner
+from app.events.channel import CATALOGUE
 from app.events.models import Event
 from app.hr_agent import reads as hr
 from app.inventory_agent import reads as inventory
@@ -55,19 +57,40 @@ def order_story(db: Session, order_ref: str) -> dict | None:
         if session_ids else []
     events = db.scalars(select(Event).where(or_(Event.correlation_id.in_(refs), Event.entity_id.in_(refs)))
                         .order_by(Event.seq)).all()
+    first = {}  # each session's opening request: what was asked, for which production order or demand
+    if session_ids:
+        for m in db.scalars(select(Message).where(Message.session_id.in_(session_ids)).order_by(Message.created_at)):
+            first.setdefault(str(m.session_id), m)
+    labels = _labels(db)
+    plan = {**plan, "label": labels.get(demand_id), "sku": labels.get(str(plan["item_id"])),
+            "production_orders": [{**o, "label": labels.get(o["id"]), "sku": labels.get(str(o["item_id"]))}
+                                  for o in plan["production_orders"]]}
     return {
         "plan": plan,
         "sales": sales.inquiry_status(db, plan["sales_inquiry_id"]),
+        "customer": sales.customer_conversation(db, plan["sales_inquiry_id"]),
+        # every id this order is known by, so the panel can pick its lines out of the timeline
+        "refs": sorted(refs | {str(s) for s in session_ids}),
         "owners": {
             "inventory": [r for ref in [demand_id, *orders_] for r in inventory.reservations_for(db, ref)],
             "hr": [{**c, "production_order_id": ref} for ref in orders_ for c in hr.commitments_for(db, ref)],
             "warehouse": warehouse.commitments_for(db, demand_id),
         },
-        "negotiations": [{"session_id": str(s.id), "case_id": s.case_id, "starter": s.starter, "owner": s.owner,
-                          "resource_type": s.resource_type, "resource_ref": s.resource_ref, "status": s.status,
-                          "agreed_terms": s.agreed_terms, "last_reason_code": s.last_reason_code} for s in sessions],
+        "cases": [{k: c[k] for k in ("case_id", "kind", "status", "depth", "created_at")} for c in cases],
+        "negotiations": [_negotiation(s, first.get(str(s.id)), labels) for s in sessions],
         "events": [_event(e) for e in events],
     }
+
+
+def _negotiation(s: NegotiationSession, opening: Message | None, labels: dict[str, str]) -> dict:
+    """One negotiation of an order, with what was asked and readable names (the order story's plan tree)."""
+    asked = (opening.envelope.get("terms") if opening else None) or {}
+    return {"session_id": str(s.id), "case_id": s.case_id, "starter": s.starter, "owner": s.owner,
+            "resource_type": s.resource_type, "resource_ref": s.resource_ref,
+            "resource_label": labels.get(str(s.resource_ref), s.resource_ref), "status": s.status,
+            "asked": asked, "order_id": asked.get("order_id"), "order_label": labels.get(str(asked.get("order_id"))),
+            "started_at": opening.created_at.isoformat() if opening else None,
+            "agreed_terms": s.agreed_terms, "last_reason_code": s.last_reason_code}
 
 
 # -- timeline -------------------------------------------------------------------------------------------------------------
@@ -89,6 +112,22 @@ def timeline(db: Session, after: datetime | None = None, case_id: str | None = N
     return {"items": items, "next": items[-1]["time"] if items else (after.isoformat() if after else None)}
 
 
+def _labels(db: Session) -> dict[str, str]:
+    """Readable names for the ids negotiation terms carry: items by SKU, production orders as "PO <SKU>×<qty>",
+    customer demands by their Sales order number (or "order <SKU>×<qty>" before confirmation)."""
+    skus = {str(i.id): i.sku for i in db.scalars(select(Item))}
+    labels = dict(skus)
+    for o in planning.production_orders(db):
+        labels[o["id"]] = f"PO {skus.get(str(o['item_id']), '?')}×{_qty(o['quantity'])}"
+    for d in planning.demands(db):
+        labels[d["demand_id"]] = d["order_number"] or f"order {skus.get(str(d['item_id']), '?')}×{_qty(d['quantity'])}"
+    return labels
+
+
+def _qty(text: str) -> str:
+    return format(Decimal(text).normalize(), "f")
+
+
 def _timeline_rows(db: Session, case_id: str | None, after: datetime | None = None, at: datetime | None = None,
                    limit: int | None = None) -> list[dict]:
     """The timeline's rows of every source: later than `after` (up to `limit` per source), or exactly at `at`."""
@@ -102,16 +141,19 @@ def _timeline_rows(db: Session, case_id: str | None, after: datetime | None = No
     query = window(select(Event).order_by(Event.published_at, Event.seq), Event.published_at)
     if case_id:
         query = query.where(Event.correlation_id == case_id)
-    items += [{"time": e.published_at, "source": "event", **_event(e)} for e in db.scalars(query)]
+    items += [{"source": "event", **_event(e), "time": e.published_at} for e in db.scalars(query)]
 
-    for m in db.scalars(window(select(Message).order_by(Message.created_at), Message.created_at)):
-        envelope = m.envelope
-        if case_id and envelope.get("case_id") != case_id:
-            continue
+    messages = [m for m in db.scalars(window(select(Message).order_by(Message.created_at), Message.created_at))
+                if not case_id or m.envelope.get("case_id") == case_id]
+    labels = _labels(db) if messages else {}
+    for m in messages:
+        envelope, terms = m.envelope, m.envelope.get("terms") or {}
         items.append({"time": m.created_at, "source": "negotiation", "type": envelope.get("message_type"),
                       "from": m.sender, "to": m.receiver, "case_id": envelope.get("case_id"),
                       "session_id": str(m.session_id), "terms": envelope.get("terms"),
-                      "reason_code": envelope.get("reason_code"), "text": envelope.get("text")})
+                      "reason_code": envelope.get("reason_code"), "text": envelope.get("text"),
+                      "order_label": labels.get(str(terms.get("order_id"))),
+                      "resource_label": labels.get(str(terms.get("resource_ref")), terms.get("resource_ref"))})
     if not case_id:
         query = window(select(TriggerLog).order_by(TriggerLog.created_at), TriggerLog.created_at)
         items += [{"time": t.created_at, "source": "trigger", "type": t.kind, "params": t.params,
@@ -147,8 +189,10 @@ def _failed_work(db: Session, after: datetime | None, at: datetime | None = None
 
 
 def _event(e: Event) -> dict:
+    subscribers = CATALOGUE.get(e.event_type, (None, ()))[1]  # who the channel delivers it to (static catalogue)
     return {"event_id": str(e.event_id), "type": e.event_type, "publisher": e.publisher,
-            "entity": f"{e.entity_type}:{e.entity_id}", "correlation_id": e.correlation_id, "payload": e.payload}
+            "entity": f"{e.entity_type}:{e.entity_id}", "correlation_id": e.correlation_id, "payload": e.payload,
+            "subscribers": sorted(subscribers), "time": e.published_at.isoformat()}
 
 
 # -- factory state ------------------------------------------------------------------------------------------------------
