@@ -7,7 +7,7 @@ import uuid
 
 import httpx
 
-from app.core.config import get_settings
+from app.core.http_doors import shared_client
 
 HEADERS = {"A2A-Version": "1.0"}
 TIMEOUT = 30.0  # the endpoint only stores and acknowledges; no agent work happens inside the request
@@ -32,14 +32,10 @@ def send(receiver: str, envelope: dict) -> dict:
         "method": "SendMessage",
         "params": {"message": {"messageId": str(uuid.uuid4()), "role": "ROLE_USER", "parts": [{"data": envelope}]}},
     }
-    client = _http_client or httpx.Client(base_url=get_settings().a2a_base_url, timeout=TIMEOUT)
-    try:
-        response = client.post(path_for(receiver), json=rpc, headers=HEADERS)
-        response.raise_for_status()
-        body = response.json()
-        if "error" in body:  # JSON-RPC error: the endpoint failed (not a protocol refusal) -> retried by the outbox
-            raise RuntimeError(f"A2A endpoint {path_for(receiver)} failed: {body['error']}")
-        return body["result"]["message"]["parts"][0]["data"]
-    finally:
-        if client is not _http_client:
-            client.close()
+    client = _http_client or shared_client()  # one reused client: a new one per message cost ~0.5 s
+    response = client.post(path_for(receiver), json=rpc, headers=HEADERS, timeout=TIMEOUT)
+    response.raise_for_status()
+    body = response.json()
+    if "error" in body:  # JSON-RPC error: the endpoint failed (not a protocol refusal) -> retried by the outbox
+        raise RuntimeError(f"A2A endpoint {path_for(receiver)} failed: {body['error']}")
+    return body["result"]["message"]["parts"][0]["data"]
