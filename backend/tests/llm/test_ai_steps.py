@@ -33,6 +33,8 @@ def test_wording_keeps_the_terms_or_falls_back_to_the_template():
     assert wording.word(log, ENVELOPE, wrong) == ENVELOPE["text"] and len(wrong.calls) == 2
     assert wording.word(log, ENVELOPE, FakeLLMClient([])) == ENVELOPE["text"]  # model down
     assert [r.outcome for r in log.rows] == ["OK", "FALLBACK_USED", "ERROR"]
+    invented = FakeLLMClient(["We offer 200 units by 2026-11-03 at a rate of 200 per hour."])  # right numbers, made-up rate
+    assert wording.word(log, ENVELOPE, invented) == ENVELOPE["text"]
 
 
 def alternative(key: str, days_moved: int, room: bool = True) -> Alternative:

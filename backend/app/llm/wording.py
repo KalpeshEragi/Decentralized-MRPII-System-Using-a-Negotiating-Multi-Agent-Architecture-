@@ -22,6 +22,8 @@ from app.observability.models import LlmCall
 DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 NUMBER = re.compile(r"\d+(?:\.\d+)?")
 MAX_CHARS = 300
+# words that invent facts the terms never carry (a price or rate, an id, a question back): the sentence is refused
+INVENTED = re.compile(r"\b(rate|price|cost|per hour|questions?)\b|[0-9a-f]{8}-[0-9a-f]{4}|[$€₹]", re.IGNORECASE)
 
 
 def llm_client() -> LLMClient:
@@ -53,7 +55,7 @@ def allowed(terms: dict | None) -> tuple[set[str], set[Decimal]]:
 
 def check(sentence: str, terms: dict | None) -> bool:
     """True when the sentence is short and every date and number in it comes from the terms."""
-    if not sentence or len(sentence) > MAX_CHARS:
+    if not sentence or len(sentence) > MAX_CHARS or INVENTED.search(sentence):
         return False
     dates, numbers = allowed(terms)
     if any(d not in dates for d in DATE.findall(sentence)):
@@ -73,9 +75,10 @@ def _prompt(agent: str, envelope: dict) -> list[dict[str, str]]:
     return [
         {"role": "system", "content": (
             f"You write the text of one negotiation message sent by the {agent.title()} agent of a factory. "
-            "Write one or two short, polite sentences in plain English. Use only the facts given. Do not add, round "
-            "or change any number or date; write dates exactly as YYYY-MM-DD. Do not mention prices. Reply with the "
-            "sentences only.")},
+            "Write one short, plain sentence (two at most) saying what this message asks, offers, accepts or refuses. "
+            "Use only the facts given. Do not add, round or change any number or date; write dates exactly as "
+            "YYYY-MM-DD. Never mention prices, rates, costs, ids or deadlines that are not in the facts; do not ask "
+            "questions or invite replies. Reply with the sentences only.")},
         {"role": "user", "content": json.dumps(facts)},
     ]
 
