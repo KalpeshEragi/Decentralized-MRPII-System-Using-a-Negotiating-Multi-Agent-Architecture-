@@ -117,3 +117,25 @@ def test_fixed_ranking_filters_orders_and_breaks_ties():
                         "g-fewer-pieces": "LESS_THAN_TARGET_QUANTITY"}
     assert check_ai_choice("b-late", alternatives).key == "b-late"                 # a valid AI choice is kept
     assert check_ai_choice("f-touches-released", alternatives).key == "a-overtime"  # an invalid one is overruled
+
+
+def test_a_request_never_plans_work_for_other_orders_promises():
+    """MRP also plans an order that only covers other orders' reservations (source "promises"). It has no parent in
+    this request, so it and its children are left out; before, it became a production order with an unknown parent and
+    Planning crashed on every message of that case (KeyError 'promises')."""
+    from app.mrpii.multilevel import run_mrp
+    from app.planning_agent.plan import DEMAND, for_this_request
+
+    items = {
+        "PHONE": ItemData("PHONE", MAKE, on_hand=D(0)),
+        # 100 boards in stock, but 150 are already promised to other orders on day 2: a 50 shortfall not ours
+        "MB": ItemData("MB", MAKE, on_hand=D(100), promises=(Dated(day(2), D(150)),)),
+        "CHIP": ItemData("CHIP", BUY, on_hand=D(0)),
+    }
+    bom = [BomLine("PHONE", "MB", D(1)), BomLine("MB", "CHIP", D(2))]
+    result = run_mrp([Demand("PHONE", D(10), day(9), DEMAND)], items, bom, lambda item, qty, need: need)
+    assert any(o.source == "promises" for o in result.planned_orders)  # MRP did plan the others' shortfall
+
+    kept = for_this_request(result.planned_orders)
+    assert all(o.source == DEMAND or o.source.startswith("planned:") for o in kept)
+    assert sorted((o.item_id, o.quantity) for o in kept) == [("CHIP", D(20)), ("MB", D(10)), ("PHONE", D(10))]

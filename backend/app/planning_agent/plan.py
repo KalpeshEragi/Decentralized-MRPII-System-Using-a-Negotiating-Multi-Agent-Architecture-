@@ -23,7 +23,7 @@ from app.inventory_agent import reads as inventory
 from app.models.core import Bom, BomItem, Item, Routing
 from app.mrpii.atp import Dated
 from app.mrpii.hours import RoutingStep, round_hours_up as round_hours, schedule_backward
-from app.mrpii.multilevel import BUY, MAKE, BomLine, Demand, ItemData, run_mrp
+from app.mrpii.multilevel import BUY, MAKE, BomLine, Demand, ItemData, PlannedOrder, run_mrp
 from app.planning_agent.models import WorkCenter, WorkCenterDay
 from app.purchasing_agent import reads as purchasing
 from app.simulation.clock import today
@@ -155,9 +155,8 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
     data = {i: _item_data(db, items[i]) for i in items}
     result = run_mrp([Demand(item_id, quantity, due_day, DEMAND)], data, bom, production_start)
     spec = PlanSpec(True, item_id, quantity, due_day)
-    for order in (o for o in result.planned_orders if o.sourcing == BUY):
-        if not order.source.startswith("planned:"):
-            continue  # a refill to safety stock, not needed by this request (Planning refills on its own, RD-6)
+    needed = for_this_request(result.planned_orders)
+    for order in (o for o in needed if o.sourcing == BUY):
         lead = purchasing.supply_lead_time_days(db, order.item_id, order.quantity)
         latest = order.need_day - timedelta(days=1)
         if lead is None or today(db) + timedelta(days=lead) > latest:
@@ -178,7 +177,7 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
     children = defaultdict(list)
     for line in bom:
         children[line.parent_id].append(line)
-    made = [o for o in result.planned_orders if o.sourcing == MAKE]
+    made = [o for o in needed if o.sourcing == MAKE]
     for order in made:
         key = f"{order.item_id}@{order.need_day.isoformat()}"
         for_key = DEMAND if order.source == DEMAND else order.source.removeprefix("planned:").replace(":", "@")
@@ -195,6 +194,19 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
             if gross - produced > 0:
                 spec.stock.append(StockNeed(line.child_id, gross - produced, production.start_day, production.key))
     return spec
+
+
+def for_this_request(planned: list[PlannedOrder]) -> list[PlannedOrder]:
+    """The planned orders this request needs: those for its own demand, and the children of those. MRP also plans
+    orders that cover other orders' promises or refill safety stock (no parent here); those are not this request's
+    work (Planning refills on its own, RD-6) and must not become production or purchases with an unknown parent."""
+    kept, keys = [], set()
+    for order in sorted(planned, key=lambda o: o.level):  # parents (lower level) before their children
+        parent = order.source.removeprefix("planned:").replace(":", "@")
+        if order.source == DEMAND or (order.source.startswith("planned:") and parent in keys):
+            kept.append(order)
+            keys.add(f"{order.item_id}@{order.need_day.isoformat()}")
+    return kept
 
 
 def options(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> list[tuple[str, PlanSpec]]:
