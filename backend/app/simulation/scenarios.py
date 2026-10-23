@@ -26,6 +26,8 @@ TABLETS = {"product_sku": "TABLET-T"}
 
 # name: description, settings, [(day, trigger kind, params)] — day 1 = the first simulated day of the run
 SCENARIOS: dict[str, tuple[str, dict, list[tuple[int, str, dict]]]] = {
+    "MANUAL": ("Manual demo: an empty factory on day 1; you add each order yourself (no simulated customers)",
+               {"customer_orders_per_day": 0}, []),
     "S1": ("One normal order: request -> options -> confirmation -> commitment -> production -> shipment", {},
            [(1, "NEW_ORDER", {**PHONES, "quantity": 100, "lead_days": 7})]),
     "S2": ("Supplier delay: a big order needs chips bought; the supplier then delivers 3 days late", {},

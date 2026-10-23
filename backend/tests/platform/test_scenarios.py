@@ -48,3 +48,28 @@ def test_scenario_s1_runs_on_factory_a_from_start_to_report(session_factory, pum
     assert measured["negotiations"]["seconds_open_to_closed"]["count"] > 0
     assert all(q["failed"] == 0 for q in measured["queues"].values())
     assert client.get("/simulation/runs").json()[0]["status"] == "FINISHED"
+
+
+def test_manual_scenario_starts_empty_and_plans_orders_added_while_paused(session_factory, pump, factory):
+    """The manual demo: an empty factory on day 1, no simulated customers; each order added by hand is planned by the
+    agents at once, while the clock stays paused on the same day."""
+    client = factory["client"]
+    started = client.post("/simulation/scenarios/MANUAL/start", json={"seed": 1}, headers=HEADERS)
+    assert started.status_code == 201, started.text
+    assert started.json()["scheduled_triggers"] == 0
+    day = client.get("/simulation/clock").json()["current_day"]
+    with session_factory() as db:
+        assert plans.demands(db) == []
+
+    for quantity in (60, 40):
+        fired = client.post("/simulation/triggers", headers=HEADERS, json={
+            "kind": "NEW_ORDER", "params": {"product_sku": "PHONE-P", "quantity": quantity, "lead_days": 10}})
+        assert fired.status_code in (200, 201) and fired.json()["status"] == "DONE", fired.text
+    pump()
+
+    clock = client.get("/simulation/clock").json()
+    assert (clock["status"], clock["current_day"]) == ("PAUSED", day)
+    with session_factory() as db:
+        demands = plans.demands(db)
+    assert sorted(float(d["quantity"]) for d in demands) == [40, 60]
+    assert all(d["status"] not in ("PLANNING", "NEW") for d in demands)  # Planning answered both while paused
