@@ -5,12 +5,12 @@
 import { useEffect, useState } from "react";
 import { api, Live, Scenario } from "@/lib/api";
 
-export function TopBar({ live, onChanged, onError, onDisruptions, onCustomers, onReport }: {
+export function TopBar({ live, onChanged, onError, onDisruptions, onCustomers, onNewOrder, onReport }: {
   live: Live | null; onChanged: (reset?: boolean) => void; onError: (message: string) => void;
-  onDisruptions: () => void; onCustomers: () => void; onReport: (runId: number | null) => void;
+  onDisruptions: () => void; onCustomers: () => void; onNewOrder: () => void; onReport: (runId: number | null) => void;
 }) {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
-  const [chosen, setChosen] = useState("S1");
+  const [chosen, setChosen] = useState("MANUAL");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -36,6 +36,11 @@ export function TopBar({ live, onChanged, onError, onDisruptions, onCustomers, o
   const reason = !playing && live?.clock.pause_reason;
   async function finishRun(runId: number) {
     if (await act(`/simulation/runs/${runId}/finish`)) onReport(runId);
+  }
+  /** A fresh start: finish the run still open (its report is kept), then restore the scenario's starting state. */
+  async function startScenario() {
+    if (live?.run && !(await act(`/simulation/runs/${live.run.id}/finish`))) return;
+    await act(`/simulation/scenarios/${chosen}/start`, { seed: 1 }, true);
   }
   return (
     <header className="topbar">
@@ -63,7 +68,10 @@ export function TopBar({ live, onChanged, onError, onDisruptions, onCustomers, o
         {scenarios.map((s) => <option key={s.name} value={s.name}>{s.name} — {s.description.split(":")[0]}</option>)}
       </select>
       <button className="btn" disabled={busy || playing}
-              onClick={() => act(`/simulation/scenarios/${chosen}/start`, { seed: 1 }, true)}>Start scenario</button>
+              title="Clears every order, event and negotiation and starts again on day 1"
+              onClick={startScenario}>{live?.run ? "Restart" : "Start"} scenario</button>
+      <button className="btn primary" disabled={!live} onClick={onNewOrder}
+              title="Add one customer order by hand: product, quantity, deadline">＋ New order</button>
       <button className="btn" onClick={onCustomers} title="Simulated customers: how many, structured or chat">👥 Customers</button>
       <button className="btn" onClick={onDisruptions} title="Fire a simulator trigger">⚡ Disruption</button>
       {live?.run

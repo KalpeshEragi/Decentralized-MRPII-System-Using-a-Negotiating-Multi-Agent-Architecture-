@@ -23,7 +23,7 @@ const RESOURCE: Record<string, string> = {
 
 /** Replace item ids (uuids) in a text by the item names the panel knows. */
 export function readable(text: string, names: Record<string, string>): string {
-  return text.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (id) => names[id] ?? "item");
+  return text.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (id) => names[id] ?? `#${id.slice(0, 6)}`);
 }
 
 /** "200 CHIP stock · by 2026-11-04" from negotiation terms. */

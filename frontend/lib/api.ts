@@ -72,6 +72,7 @@ export type TimelineItem = {
   source: "event" | "negotiation" | "trigger" | "ai_call" | "failed_work";
   type?: string;
   publisher?: string;
+  subscribers?: string[];
   payload?: Record<string, unknown>;
   correlation_id?: string;
   from?: string;
@@ -81,6 +82,8 @@ export type TimelineItem = {
   terms?: Record<string, unknown> | null;
   reason_code?: string | null;
   text?: string | null;
+  order_label?: string | null;     // what the negotiation is for: "PO MB×90", "SO-1001"
+  resource_label?: string | null;  // the resource in words: an item's SKU, a skill, a zone
   params?: Record<string, unknown>;
   status?: string;
   scheduled_day?: string | null;
@@ -93,15 +96,43 @@ export type TimelineItem = {
 
 export type Scenario = { name: string; description: string; triggers: { day: number; kind: string; params: Record<string, unknown> }[] };
 
+export type ProductionOrderRow = {
+  id: string; item_id: string; quantity: string; status: string; start_day: string; end_day: string;
+  for_kind: string; for_ref: string; label: string | null; sku: string | null; work_centers: string[];
+};
+
+export type StoryNegotiation = {
+  session_id: string; case_id: string; starter: string; owner: string; resource_type: string; resource_ref: string;
+  resource_label: string | null; status: string; asked: Record<string, unknown>; order_id: string | null;
+  order_label: string | null; started_at: string | null; agreed_terms: Record<string, unknown> | null;
+  last_reason_code: string | null;
+};
+
+export type StoryEvent = {
+  event_id: string; type: string; publisher: string; entity: string; correlation_id: string | null;
+  payload: Record<string, unknown>; subscribers: string[]; time: string;
+};
+
 export type OrderStory = {
   plan: {
     demand_id: string; request_ref: string; order_number: string | null; status: string; quantity: string;
+    item_id: string; sku: string | null; label: string | null;
     requested_day: string; committed_quantity: string | null; committed_day: string | null;
-    production_orders: { id: string; item_id: string; quantity: string; status: string; start_day: string; end_day: string }[];
+    production_orders: ProductionOrderRow[];
   };
   sales: { stage: string; order_number: string | null } | null;
-  negotiations: { session_id: string; case_id: string; owner: string; resource_type: string; status: string }[];
-  events: { type: string; publisher: string; payload: Record<string, unknown> }[];
+  customer: CustomerConversation | null;
+  refs: string[];  // every id this order is known by: picks its lines out of the timeline
+  cases: { case_id: string; kind: string; status: string; depth: number; created_at: string | null }[];
+  negotiations: StoryNegotiation[];
+  events: StoryEvent[];
+};
+
+export type CustomerConversation = {
+  inquiry_id: string; stage: string; closed_reason: string | null; quantity: string | null;
+  requested_date: string | null; created_at: string; confirmed_at: string | null;
+  options: { kind: string; quantity: string; delivery_date: string; status: string; reason_code: string | null; created_at: string }[];
+  messages: { direction: "IN" | "OUT"; text: string; time: string }[];
 };
 
 export type TriggerResult = { id: number; kind: string; status: string; result: Record<string, unknown> | null };

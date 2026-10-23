@@ -125,8 +125,8 @@ export function OrderTracker({ live, onFocusCase }: { live: Live | null; onFocus
           <span>Requested by {order.requested_day}</span>
           <span>Promised {order.committed_day ?? "–"}</span>
           {story && story.negotiations.length > 0 && (
-            <a href="#" onClick={(e) => { e.preventDefault(); onFocusCase(story.negotiations[0].case_id); }}>
-              show its {story.negotiations.length} negotiations in the conversation
+            <a href="#" onClick={(e) => { e.preventDefault(); onFocusCase(order.demand_id); }}>
+              📖 open its story ({story.negotiations.length} negotiations)
             </a>
           )}
         </div>
