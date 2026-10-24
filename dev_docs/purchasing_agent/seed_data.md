@@ -15,14 +15,16 @@
 
 ## 2. Items
 
-| SKU | Name | Purpose |
-|---|---|---|
-| DSP-100 | Display Panel | Cheapest single, MOQ surplus, unpriced fallback, no feasible supplier |
-| BAT-200 | Battery Pack | Necessary split, cost-saving split, split below threshold |
-| MBD-300 | Main Board | Contract edge cases (expired, future, inactive, overlap) |
-| CAM-400 | Camera Module | Necessary split that needs an unpriced supplier |
-| SPK-500 | Speaker | Three-supplier split, competing requests (effective availability) |
-| CHP-600 | Charging Port | Cost-saving split at exactly 10% |
+| SKU | Name | Item ID (`item_id`) | Purpose |
+|---|---|---|---|
+| DSP-100 | Display Panel | `17b19502-e17e-5721-b38a-43fb4e5d88ed` | Cheapest single, MOQ surplus, unpriced fallback, no feasible supplier |
+| BAT-200 | Battery Pack | `fb71680e-878c-5c03-8a91-10a9d1f1d971` | Necessary split, cost-saving split, split below threshold |
+| MBD-300 | Main Board | `31962a4b-ab45-59ce-9ff6-a3aae8d97680` | Contract edge cases (expired, future, inactive, overlap) |
+| CAM-400 | Camera Module | `b3877720-e627-53a8-9a99-df159635c17d` | Necessary split that needs an unpriced supplier |
+| SPK-500 | Speaker | `dfab372b-9607-5d77-a80e-14551a1a2b23` | Three-supplier split, competing requests (effective availability) |
+| CHP-600 | Charging Port | `d30e6edf-6e2a-5d0a-a95b-436b0c2f6ac2` | Cost-saving split at exactly 10% |
+
+IDs are UUIDv5 values (`uuid5(namespace, "item:<SKU>")` in `app/supplier_service/seed.py`), so they stay the same after every reset.
 
 ## 3. Supplier Service data (`supplier_service`)
 
