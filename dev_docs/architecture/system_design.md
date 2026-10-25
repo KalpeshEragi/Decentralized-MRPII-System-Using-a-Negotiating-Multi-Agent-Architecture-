@@ -21,16 +21,24 @@ other docs and adds the runtime rules that connect them.
 
 ## 3. Programs
 
-```
-                    ┌─────────────────────── one backend program (FastAPI) ───────────────────────┐
-Browser (Next.js) ─▶│ API doors (async)            Background work runner (threads, SD-1)        │
-Simulator UI       │  - agents' doors, A2A,         - event dispatcher          - negotiation inbox │
-Ollama ◀──────────▶│    view doors, simulator       - negotiation outbox         - HTTP outboxes    │
-                    │  - fast: store + acknowledge   - agent work queues (Sales, Planning, Inventory, │
-                    │                                  Warehouse, HR)          - simulator clock      │
-                    └───────────────────────────────────────────┬──────────────────────────────────┘
-                                                                ▼
-                                             PostgreSQL on Neon (one database, many schemas)
+```mermaid
+flowchart TD
+    Browser["Browser (Next.js)"]
+    SimulatorUI["Simulator UI"]
+    Ollama["Ollama"]
+
+    subgraph Backend ["one backend program (FastAPI)"]
+        direction LR
+        APIDoors["<b>API doors (async)</b><br/>• agents' doors, A2A, view doors, simulator<br/>• fast: store + acknowledge"]
+        WorkRunner["<b>Background work runner (threads, SD-1)</b><br/>• event dispatcher<br/>• negotiation inbox<br/>• negotiation outbox<br/>• HTTP outboxes<br/>• agent work queues (Sales, Planning, Inventory, Warehouse, HR)<br/>• simulator clock"]
+    end
+
+    DB[("PostgreSQL on Neon<br/>(one database, many schemas)")]
+
+    Browser --> APIDoors
+    SimulatorUI --> APIDoors
+    WorkRunner <--> Ollama
+    Backend --> DB
 ```
 
 - **API doors never wait for the AI model.** They validate, store and answer at once ("received"). All slow work
