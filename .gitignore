@@ -11,6 +11,7 @@ venv/
 .agents/
 .claude/
 dev_docs/agents
+3D world (Frontend Inspiration).mp4
 
 # Operational setup for skills
 docs/agents/
