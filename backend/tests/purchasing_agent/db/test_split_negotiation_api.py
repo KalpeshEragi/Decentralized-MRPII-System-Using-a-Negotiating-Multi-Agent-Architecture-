@@ -81,7 +81,7 @@ def test_b1_one_leg_rejecting_fails_the_whole_procurement_and_aborts_the_agreed_
     assert len(failed["legs"]) == 2
     # Nothing is committed or counted as a scheduled receipt; approval is refused.
     approve = client.post(f"/purchasing/procurement-requests/{request['id']}/approve", json={"decided_by": "approver"})
-    assert approve.status_code == 409 and approve.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert approve.status_code == 409 and approve.json()["code"] == "INVALID_STATE_TRANSITION"
     assert receipts(client) == []
 
     audit = client.get(f"/purchasing/procurement-requests/{request['id']}/audit").json()
@@ -106,7 +106,7 @@ def test_b1_a_leg_still_pending_is_aborted_and_its_negotiation_closed(client):
 
     # Cell's reply now arrives too late: refused, and nothing changes.
     late = reply(client, cell, "ACCEPT")
-    assert late.status_code == 409 and late.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert late.status_code == 409 and late.json()["code"] == "INVALID_STATE_TRANSITION"
     assert request_of(client, request) == failed
 
 

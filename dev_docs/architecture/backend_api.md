@@ -87,6 +87,7 @@ Meaning of each door: the agent's note 3. Key column: **K** = `X-Door-Key` requi
 | 3 Planning result | `POST /sales/planning/results` | K |
 | 4–6 Views | `GET /sales/conversations/{id}`, `/sales/inquiries/{id}`, `/sales/customers[/{id}]` | |
 | 8 Test reset | `POST /sales/test-channel/reset` | |
+| 9 Simulated customers, structured (DM-7) | `POST /sales/simulated-customers/requests`, `GET .../inquiries/{id}`, `POST .../inquiries/{id}/accept`, `.../decline`, `POST .../orders/{number}/cancel`, `.../change` | K |
 | 9 Sweep | `POST /sales/maintenance/sweep` | |
 
 ### Planning (`planning_agent/3_…`)

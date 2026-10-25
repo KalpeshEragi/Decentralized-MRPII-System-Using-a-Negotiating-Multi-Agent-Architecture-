@@ -18,13 +18,23 @@ class Settings(BaseSettings):
     # A separate Neon database/branch for DB tests (P0-03, Phase 2). Tests never use DATABASE_URL.
     test_database_url: str | None = None
     # Public base URL written into the A2A agent cards (the three A2A endpoints live in this same app).
-    a2a_base_url: str = "http://localhost:8000"
+    a2a_base_url: str = "http://127.0.0.1:8000"  # not "localhost": on Windows it tries IPv6 first (~2 s per connection)
     # Local Ollama, OpenAI-compatible endpoint.
-    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_base_url: str = "http://127.0.0.1:11434/v1"
     ollama_model: str = "qwen3.5:4b"
     # Shared secret for the Sales Agent door where Planning sends its answers (header X-Planning-Key). Unset = the door
     # refuses everyone.
     sales_planning_key: str | None = None
+    # Background work runner (system_design.md §4, SD-1). Tests switch it off and run work items directly.
+    background_workers: bool = True
+    worker_poll_seconds: float = 0.5
+    event_dispatcher_workers: int = 4
+    # X-Door-Key of the simulator's write doors (settings). Unset = those doors refuse everyone.
+    simulation_door_key: str | None = None
+    # X-Door-Key of Planning's door 1 (requests from Sales). Unset = refuses everyone.
+    planning_door_key: str | None = None
+    # How Sales reaches Planning: "fake" (the built-in FakePlanning) or "real" (Planning door 1 over HTTP).
+    planning_connector: str = "fake"
     # Purchasing Agent working values (dev_docs/purchasing_agent/purchasing_agent_architecture.md). The selection date
     # is today's date in this timezone.
     purchasing_timezone: str = "Asia/Kolkata"

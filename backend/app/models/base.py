@@ -1,4 +1,4 @@
-"""ORM base and column helpers. Tables follow the earlier 25% schema design (C2 subset)."""
+"""ORM base of the shared reference schema `core`, and column helpers."""
 
 import uuid
 from datetime import datetime

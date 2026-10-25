@@ -133,7 +133,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 
 | ID | Decision |
 | --- | --- |
-| WH-1 | Future integration: Purchasing negotiates a receiving slot + material space with Warehouse before committing a supplier date. **Not built:** Purchasing has no Warehouse step yet. |
+| WH-1 | Future integration: Purchasing negotiates a receiving slot + material space with Warehouse before committing a supplier date. **Built 2026-10-20 (step 8):** details under "Step 8" below. |
 | WH-2 | Two storage zones by item type: MATERIALS and FINISHED_GOODS; space per piece from `core.items.space_per_unit`. |
 | WH-3 | Receiving and shipping capacity per day are configured numbers; Warehouse does not use HR workers. |
 | WH-4 | Warehouse ships on the committed delivery date when the order's finished goods are stored and reserved. |
@@ -175,7 +175,7 @@ Claude must not silently make or change a decision listed here. Record each new 
 
 | ID | Decision |
 | --- | --- |
-| API-1 | Future target: RFC 9457 Problem Details with our fixed codes as `code`, field problems as `errors`, plus `correlation_id`; replaces the old body everywhere (incl. Sales) during integration. **Today:** Sales and Purchasing return the C5 body `{"error": {code, message, details}}`. |
+| API-1 | RFC 9457 Problem Details with our fixed codes as `code`, field problems as `errors`, plus `correlation_id`; replaces the old body everywhere. **Built (step 1) for every route of the app, Sales and Purchasing included;** Purchasing's tests were moved to it on 2026-10-20. |
 | API-2 | The frontend sees changes by cursor polling. |
 | API-3 | Cross-agent views come from a read-only observer API that decides and writes nothing. |
 | API-4 | Old routes keep running until the Phase 2 review, then are removed with the old agents. |
@@ -191,15 +191,54 @@ Claude must not silently make or change a decision listed here. Record each new 
 | DM-4 | On reset a run report is saved, then all run data is cleared or restored. |
 | DM-5 | Every simulated day is a working day unless HR's calendar says otherwise for a worker. |
 | DM-6 | Randomness is optional, only for outside-world facts, and seeded per run. |
+| DM-7 | The customer driver has two modes, chosen by a setting (decided 2026-10-20): **structured** (default; product, quantity and date reach Sales as data through a simulated-customer door, so only the language-reading step is skipped and everything after is Sales' normal code; for large runs such as 100 orders, no Ollama needed) and **chat** (simulated customers type messages that Sales reads with the model; for showing one or two orders live). Refines DM-3. |
 
 ### Implementation plan (2026-10-17, see `ROADMAP.md`)
 
 | ID | Decision |
 | --- | --- |
 | IMP-1 | Implementation in 8 steps (S1 end to end at step 5); the separate code-review phase is folded into the steps: each step reviews, reuses or retires the old code it replaces. |
-| IMP-2 | Deterministic first: owners use template wording and Planning the fixed ranking until S1 works; then the AI steps are switched on. |
-| IMP-3 | Purchasing is designed and built by another contributor. Status 2026-10-18: built standalone on branch `purchasing-agent` (`purchasing_agent/`); integration with the negotiation contract is future work. |
+| IMP-2 | Deterministic first: owners use template wording and Planning the fixed ranking until S1 works; then the AI steps are switched on. **Done in step 7 (2026-10-20):** a factory setting `ai_enabled` (default 0) switches on the negotiation wording (all agents, reworded in the outbox outside any lock) and Planning's AI ranking (PL-4, first used in the S5 repair). Tests and large runs keep it off; the demo turns it on. |
+| IMP-3 | Purchasing is designed and built by another contributor. Status 2026-10-18: built standalone, merged; connected to the negotiation contract in step 6 (PI-1 to PI-6) instead of a FAKE stub. |
 | IMP-4 | About 14 high-value tests in total. After each step: tests pass → small commits → `master` fast-forwarded locally; the developer pushes. |
+
+### Purchasing integration (2026-10-18, approved by the developer)
+
+The real Purchasing Agent (another contributor) is connected in step 6 instead of a FAKE stub; S2/S3 run on it.
+
+| ID | Decision |
+| --- | --- |
+| PI-1 | Suppliers answer automatically: a **simulated supplier** replies in Purchasing's strict chat format by seeded rules (accept on time; a later date for a delay scenario). The human supplier chat keeps working for manual tests. Continuous simulation is the default; manual input is supported, not required. |
+| PI-2 | Planning's COMMIT is the approval of a procurement (NG-4 execution policy), recorded as `decided_by = PLANNING`; the human approve/reject stays for manual tests. |
+| PI-3 | A thin adapter (`purchasing_agent/a2a.py`) gives Purchasing an inbox on the negotiation layer and calls Purchasing's own functions; it notices Purchasing's state changes by a hook after a supplier reply and a check at every simulated day start (no polling loop). Purchasing's own logic is not changed. |
+| PI-4 | Deliveries: Warehouse's daily routine receives committed deliveries that are due (from Purchasing's read data) and publishes `MaterialReceived`; Inventory raises stock. |
+| PI-5 | WH-1 (Purchasing negotiates a receiving slot with Warehouse before committing a supplier date) is deferred to step 8. **Built in step 8 (see WH-1 below).** |
+| PI-6 | Planning plans bought items: if a bought item is short, the earliest supplier date (Purchasing read data) decides feasibility, and the case gets a SUPPLY negotiation with Purchasing. Purchasing runs on the simulated clock; items map by SKU between `core.items` and `supplier_service.items`. |
+
+### Control panel (2026-10-20, approved by the developer)
+
+| ID | Decision |
+| --- | --- |
+| FE-1 | The control panel is a living 3D view of the factory in the browser: Three.js through React Three Fiber and drei, inside the existing Next.js + React frontend (new libraries, approved). |
+| FE-2 | 3D models are built in code from simple shapes (low-poly, soft blue and white); no downloaded model packs. |
+| FE-3 | Everything that moves in the scene is driven by a real event or fact (a truck arrives because `MaterialReceived` happened, a line is busy because `ProductionStarted` happened); nothing is animated for show. |
+| FE-4 | A collapsible "agent conversation" sidebar shows every negotiation message as a chat between agents and every published event as a notice, filterable by order; it can be widened into a side panel or minimised. |
+| FE-5 | Working product name "Decentra" on the screens (to be confirmed); the repository and docs keep their names until then. |
+| FE-6 | The panel reads only the observer and simulation doors and polls one `GET /observer/live` door plus the timeline cursor (API-2, API-3). |
+
+### Local databases (2026-10-20, approved by the developer)
+
+| ID | Decision |
+| --- | --- |
+| DB-1 | Tests and the demo run on a local PostgreSQL 17 (portable binaries, no installer or service, outside the repository and outside OneDrive, port 5433), with separate databases `decentra_test` and `decentra_demo`. Reason: the remote Neon database made every end-to-end test take 10–20 minutes and the panel refresh about 6 s, and a demo sharing the test database is wiped by every test run. Neon stays the shared, real database; nothing in the code depends on which one is used (`DATABASE_URL`, `TEST_DATABASE_URL`). |
+
+### Step 8: competing orders and receiving slots (2026-10-20, approved by the developer)
+
+| ID | Decision |
+| --- | --- |
+| S8-1 | When every option of a new request fails to be secured (the facts changed meanwhile, typically a competing order took the resources first), Planning replans **once** from today's facts and secures the best new option (usually a later date). If nothing fits, the order ends `NOT_FEASIBLE` and the customer is told; a demand never stays open without an answer. |
+| WH-1 (built) | Purchasing asks Warehouse for a `RECEIVING_SLOT` per agreed delivery before it offers supply to Planning. Warehouse offers the day or counter-offers a later one; Purchasing takes a later day only if Planning's need date holds (the simulated supplier can always deliver later: no new supplier round), else declines and tells Planning `NO_RECEIVING_CAPACITY`. A slot whose day filled up before the hold (`STALE`) is asked for again, at most twice. On Planning's COMMIT: suppliers approved → slots committed → the deliveries take their slot days → `ProcurementCommitted`. Warehouse turns the committed slot into the delivery record (no second booking). Planning reads Warehouse's free receiving when it plans bought deliveries and plans a delivery earlier when the dock is full (within the supplier's lead time). |
+| WH-6 | Warehouse capacities change only through Warehouse's own input (`change_capacity`, simulator trigger `WAREHOUSE_CAPACITY`, S4); commitments already made stay; `StorageCapacityChanged` is published. |
 
 ## Open
 

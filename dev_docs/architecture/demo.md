@@ -21,6 +21,7 @@ did and why. It is **infrastructure, not an agent**: it changes conditions; agen
 | DM-4 | On reset, a **run report** is saved, then all run data is cleared or restored (§12). |
 | DM-5 | Every simulated day is a working day unless HR's calendar says otherwise for a worker (resolves HR-O2 / HB-O2). |
 | DM-6 | Randomness is optional, only for outside-world facts, and always seeded per run (§10). |
+| DM-7 | The customer driver has two modes, chosen by a setting (decided 2026-10-20): **structured** (default; product, quantity and date reach Sales as data through a simulated-customer door, so only the language-reading step is skipped and everything after is Sales' normal code; for large runs such as 100 orders, no Ollama needed) and **chat** (simulated customers type messages that Sales reads with the model; for showing one or two orders live). Refines DM-3. |
 
 ## 3. Parts of the simulator
 
@@ -91,12 +92,16 @@ Settings: defaults from the agent docs. All values are starting values to tune a
 | Control | Effect |
 | --- | --- |
 | Next day | Advance one simulated day now: publish `SimulatedDayStarted(date)` |
-| Play | Advance automatically, but only when the factory is quiet |
+| Play | Advance automatically, but only when the factory is quiet; pauses by itself when nothing is left to do |
 | Pause | Stop advancing; work already queued finishes |
 
 **Quiet** = no PENDING or RUNNING item in any queue (FAILED items do not count), no outbox waiting, and no
 negotiation waiting on an agent. A day that does not become quiet within a limit (setting, default 5 minutes real
 time) pauses the run and shows what is still waiting.
+
+**Nothing left to do** = no open customer demand (all completed, cancelled, expired or failed), no scheduled trigger,
+and no simulated customers placing orders (`customer_orders_per_day` = 0). Play then pauses by itself with that
+reason (shown on the panel) instead of moving the clock through empty days. Next day still works by hand.
 
 Real-time limits (negotiation response timeouts, NG-O2; leases; retries) only protect against stuck work. Because
 Play waits for quiet, no business step is ever cut off by a day change; business deadlines (holds, offers) are counted
@@ -131,16 +136,18 @@ A scenario = a starting state + a list of (simulated day, trigger) + customer-dr
 | S1 | One normal order | Full flow: request → options → confirmation → commitment → production → shipment |
 | S2 | Supplier delay | Negotiation, AT_RISK, recovery with overtime / later date |
 | S3 | Material shortage | Procurement started by Planning, holds, options |
-| S4 | Storage limit | Warehouse counter-offer, date change with Purchasing |
+| S4 | Receiving limit (dock 600 pieces a day) | Planning plans a delivery earlier; Purchasing gets every receiving slot from Warehouse before offering (WH-1); a slot taken meanwhile is asked for again and may be counter-offered later |
 | S5 | Worker absence | HR cover (reassign, move, overtime) or AT_RISK |
 | S6 | Cancellation | Releases, compensation, PO cancel request |
 | S7 | Order change | Delta handling (QA-3) |
-| S8 | Competing orders | Priority rule (NG-3), no double booking |
+| S8 | Competing orders | No double booking; the first order wins, a loser is replanned once (S8-1, usually a later date) or ends NOT_FEASIBLE |
 | S9 | Load | 10, 20, then 100 orders; measurements (Phase 6) |
 
 ## 9. Customer driver (DM-3)
 
 - Simulated customers (fictional phone numbers) send requests through Sales door 1 — the same path as a real chat.
+- Two modes (DM-7): **structured** (default, for large runs: the request reaches Sales as data) and **chat**
+  (messages read by the model, for showing one or two orders live).
 - Rules (configurable, seeded): orders per simulated day, product mix, quantities, requested dates.
 - Answering options: it reads the inquiry's options from Sales' view door (structured data, not the chat text) and
   replies with a short fixed message by a rule (default: accept REQUESTED; else LATER_DATE if ≤ 10 days later; else

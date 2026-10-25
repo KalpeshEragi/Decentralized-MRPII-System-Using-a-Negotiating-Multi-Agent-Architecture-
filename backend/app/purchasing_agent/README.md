@@ -9,6 +9,19 @@ Works with two sibling modules, each with its own schema and declarative base:
 - `app/supplier_service/`: read-only supplier master data (items, suppliers, supplier items).
 - `app/negotiation_engine/`: sessions, participants, messages, rounds, deadlines. No business decisions.
 
+## Connection to the six-agent platform (PI-1 to PI-6, step 6)
+
+Added next to Purchasing's own code; Purchasing's rules and tables are unchanged.
+
+| File | What it does |
+| --- | --- |
+| `a2a.py` | The adapter: Purchasing's inbox on the negotiation layer. Planning's `REQUEST SUPPLY` becomes a Procurement Request (on the simulated clock; `core.items` matched to Supplier Service items by SKU). When the request reaches AGREEMENT_PROPOSED it asks Warehouse for a receiving slot per agreed Leg (WH-1: a later day only if Planning's need still holds; a slot that filled up before the hold is asked for again, at most twice; otherwise it declines, rejects the supplier agreement and tells Planning `NO_RECEIVING_CAPACITY`), and once every slot is held it OFFERs to Planning; Planning's ACCEPT gets AGREEMENT_PROPOSED (the hold is the AGREED Legs); Planning's COMMIT is the approval (`decided_by = PLANNING`) → the slots are committed → the Legs take their slot days → ACCEPT + `ProcurementCommitted`; ABORT rejects / aborts the request. Purchasing's functions commit on their own, so they run as queued long-mode jobs (`SUBMIT`, `CHECK`, `COMMIT`, `ABORT`), never in the inbox transaction. It follows a request after a supplier reply (hook in `api.py`) and every simulated morning. |
+| `link_models.py` | Schema `purchasing_link` (migration `011`): links between Planning's sessions and Procurement Requests, the adapter's work queue, event versions; `receiving_slots` (migration `018`): the slot negotiations with Warehouse. |
+| `reads.py` | Read module for Planning (IB-2): the Supplier Service item of a factory item, and an estimate of the supply lead time. |
+
+Simulated suppliers answer automatically (`app/simulation/suppliers.py`); the supplier chat page still works for a person.
+Supplier delays after commitment (S2) are entered with `record_supplier_delay` (simulator trigger `SUPPLIER_DELAY`).
+
 ## Built so far (tickets 01–11)
 
 A Procurement Request picks a single supplier, a Cost-Saving Split (fully priced, saves ≥ 10%) or a Necessary Split

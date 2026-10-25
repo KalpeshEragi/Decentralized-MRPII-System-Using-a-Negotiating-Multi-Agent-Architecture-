@@ -670,7 +670,7 @@ def test_a_customer_with_many_accepted_delays_gets_exactly_the_same_request_and_
     for phone in ("+300", "+400"):  # +400 has no history at all
         model, planning, _ = reach_options(db, engine, phone=phone)
         db.expire_all()
-        inquiry = next(i for i in all_rows(db, models.Inquiry) if i.planning_request["customer"]["phone"] == phone)
+        inquiry = next(i for i in all_rows(db, models.Inquiry) if i.planning_request and i.planning_request["customer"]["phone"] == phone)
         seen[phone] = (
             {k: v for k, v in inquiry.planning_request["order"].items()},
             options_of(db, inquiry),
@@ -678,7 +678,7 @@ def test_a_customer_with_many_accepted_delays_gets_exactly_the_same_request_and_
             audit_events(db, "OPTIONS_PRESENTED")[-1].details["options"],
         )
     assert seen["+300"] == seen["+400"]  # same order block, same keys, same options, same explanation
-    request = next(i for i in all_rows(db, models.Inquiry) if i.planning_request["customer"]["phone"] == "+300").planning_request
+    request = next(i for i in all_rows(db, models.Inquiry) if i.planning_request and i.planning_request["customer"]["phone"] == "+300").planning_request
     assert request["customer_context"]["is_known_customer"] is True  # the history is passed on, for information only
     assert "priority" not in json.dumps(request).lower() and "tolerat" not in json.dumps(request).lower()
 

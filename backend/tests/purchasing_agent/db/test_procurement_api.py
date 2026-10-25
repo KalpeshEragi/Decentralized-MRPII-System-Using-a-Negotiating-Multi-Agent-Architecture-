@@ -71,7 +71,7 @@ def test_reusing_a_request_ref_with_different_data_is_a_conflict(client):
 
     for changed in ({"quantity": 600}, {"required_date": "2026-11-19"}, {"item": "BAT-200"}):
         response = submit(client, ref="REQ-DUP", **changed)
-        assert response.status_code == 409 and response.json()["error"]["code"] == "CONFLICT", changed
+        assert response.status_code == 409 and response.json()["code"] == "CONFLICT", changed
     other_priority = client.post("/purchasing/procurement-requests", json={
         "request_ref": "REQ-DUP", "item_id": str(ITEM_IDS["DSP-100"]), "shortage_quantity": 500,
         "required_date": "2026-11-20", "priority": 2, "requested_by": "test"})
@@ -87,15 +87,15 @@ def test_unknown_items_and_invalid_input_are_refused_in_the_standard_error_forma
         "request_ref": "REQ-X", "item_id": "00000000-0000-0000-0000-000000000000", "shortage_quantity": 10,
         "required_date": "2026-11-20", "priority": 1, "requested_by": "test"})
     assert unknown.status_code == 422
-    assert unknown.json()["error"]["code"] == "VALIDATION_ERROR"
-    assert unknown.json()["error"]["details"] == [{"field": "item_id", "issue": "unknown item"}]
+    assert unknown.json()["code"] == "VALIDATION_ERROR"
+    assert unknown.json()["errors"] == [{"field": "item_id", "issue": "unknown item"}]
 
     for bad in ({"shortage_quantity": 0}, {"shortage_quantity": -5}, {"shortage_quantity": 10.5},
                 {"shortage_quantity": True}, {"required_date": None}, {"request_ref": "  "}):
         body = {"request_ref": "REQ-X", "item_id": str(ITEM_IDS["DSP-100"]), "shortage_quantity": 10,
                 "required_date": "2026-11-20", "priority": 1, "requested_by": "test"} | bad
         response = client.post("/purchasing/procurement-requests", json=body)
-        assert response.status_code == 422 and response.json()["error"]["code"] == "VALIDATION_ERROR", bad
+        assert response.status_code == 422 and response.json()["code"] == "VALIDATION_ERROR", bad
 
     # Nothing was saved for the refused requests: the reference is still free.
     assert submit(client, ref="REQ-X").status_code == 201

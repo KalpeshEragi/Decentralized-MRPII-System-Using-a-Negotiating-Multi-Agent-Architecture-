@@ -1,4 +1,4 @@
-"""The Purchasing Agent tables (schema `purchasing_agent`, dev_docs/OVERALL_DATABASE_SCHEMA.md §5.2). They match migration 004.
+"""The Purchasing Agent tables (schema `purchasing_agent`, dev_docs/OVERALL_DATABASE_SCHEMA.md §5.2). They match migration 009 (004 before the merge).
 
 Own declarative base, like the Sales Agent. References to the Supplier Service and the Negotiation Engine are logical
 (UUIDs without a database foreign key), checked through those modules' interfaces. Allowed status values are enforced

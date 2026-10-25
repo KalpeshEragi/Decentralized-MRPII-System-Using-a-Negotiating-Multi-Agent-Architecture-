@@ -1,6 +1,21 @@
 # backend/app/mrpii
 
-Pure deterministic MRPII core (Phase 1). No database, LLM, clock or network access; "today" is passed in.
+Pure deterministic MRPII core. No database, LLM, clock or network access; "today" is passed in.
+
+## Six-agent design (step 2)
+
+| File | Purpose |
+| --- | --- |
+| `multilevel.py` | Multi-level MRP (RD-1, quantity_accounting.md §6): `low_level_codes` (rejects BOM loops), `apply_lot_rule` (lot-for-lot, multiple, minimum), `run_mrp` (level by level, PAB with safety stock, lead-time offset for bought items, capacity-based start for made items through a `production_start` callback) → planned orders + per-item records. |
+| `hours.py` | Hours per day (RD-2, QA-5): rounding (0.25 h up, space up), `machine_hours` / `worker_hours` of a routing step, `fits_every_day` (the owners' capacity rule), `schedule_backward` (steps placed backward using the smaller of free machine-hours and free worker-hours / crew). |
+| `atp.py` | Available-to-promise (QA-4): `available_now`, `atp` (min over later days), `earliest_full_date` (IF-1), `uncovered_promises` (due-day walk, §5.3). |
+| `ranking.py` | Planning's fixed ranking (PL-6): `Alternative`, `rank` (filters + ordered keys + tie by key), `check_ai_choice`. |
+
+**Tests:** `backend/tests/mrpii/test_planning_calculations.py` (research phone example exact, ATP with a supplier delay, ranking).
+
+## Old 25% modules (retired with the old agents in step 5)
+
+The files below are the old single-level core, still used by the old agents and services.
 
 | File | Purpose |
 | --- | --- |

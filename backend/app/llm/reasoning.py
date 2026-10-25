@@ -6,12 +6,11 @@ validation (constraints, feasibility) on a proposal before acting on it.
 
 import json
 import re
-from typing import Literal, TypeVar
+from typing import TypeVar
 
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import BaseModel, ValidationError
 
 from app.llm.client import LLMClient
-from app.schemas.negotiation import OfferTerms
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -21,22 +20,6 @@ _FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.S)
 
 class StructuredOutputError(Exception):
     """The model output is not valid JSON or does not match the expected schema."""
-
-
-class NegotiationProposal(BaseModel):
-    """What the LLM may propose for one negotiation step. No cost/price field; unknown fields are rejected."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    action: Literal["ACCEPT", "COUNTER_OFFER", "REJECT"]
-    terms: OfferTerms | None = None
-    rationale: str
-
-    @model_validator(mode="after")
-    def _counter_needs_terms(self) -> "NegotiationProposal":
-        if self.action == "COUNTER_OFFER" and self.terms is None:
-            raise ValueError("COUNTER_OFFER requires terms")
-        return self
 
 
 def parse_structured(raw: str, model: type[T]) -> T:

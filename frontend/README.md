@@ -1,19 +1,33 @@
 # frontend
 
-Next.js 15 + React 19 demo console for the SmartPhone X1 simulation (Phase 5). One page; the FastAPI backend is the
-source of truth, and the UI only displays and forwards the tester's actions.
+**Decentra** (working name, FE-5): the live control panel of the six-agent factory simulation. Next.js 15 + React 19,
+with a 3D view in Three.js through React Three Fiber and drei (FE-1). The backend is the source of truth: the panel
+only reads the observer doors and calls the simulation doors (FE-6); it decides nothing.
 
 | Path | Purpose |
 | --- | --- |
-| `app/page.tsx` | The simulation page: controls, workflow stages, live activity, order/plan/MRP, supplier options, negotiations with the supplier response form, human approval, attempts, decision log, technical details. |
-| `components/panels.tsx` | The page sections. |
-| `lib/api.ts` | Typed client for the backend routes (C5 errors → friendly messages, timeouts). |
-| `lib/useSimulation.ts` | State: loads everything from the backend; `run` executes one action at a time and polls the real decision log and negotiation status while it runs. |
-| `lib/workflow.ts` | Labels for decision records and the workflow stage derived from backend state. |
+| `app/page.tsx` | The page: top bar, the 3D factory with floating cards, the agent conversation sidebar. |
+| `components/TopBar.tsx` | Simulated day, Quiet / Working, why Play paused, the AI on/off switch (`ai_enabled`), Next day, Play / Pause, scenario picker and start, Customers, Disruption, finish run (opens its report) or Reports. |
+| `components/NegotiationThread.tsx` | One negotiation as one card: the two agents, what and for which order (`order_label`), its status chip, and each step written by code from the message type and terms; the AI's sentence only under "AI wording". |
+| `components/NewOrderPanel.tsx` | **＋ New order** (manual demo): product, quantity and deadline, sent as one `NEW_ORDER` trigger; the agents plan it at once, even while the clock is paused. |
+| `components/CustomersPanel.tsx` | The simulated customers (`POST /simulation/settings`): new requests per day, structured or chat mode, quantity and lead-day ranges. |
+| `components/Disruptions.tsx` | Fire a simulator trigger now (`POST /simulation/triggers`): worker absent, supplier delay, customer cancels or changes quantity, new customer request. The agents decide how to react. |
+| `components/RunReport.tsx` | A finished run's report: orders, completed, on time, plans at risk, orders by status, triggers, AI calls, events published. |
+| `components/scene/FactoryScene.tsx` | The living factory: materials warehouse, production hall (SMT and assembly lines with HR's workers; an absent worker is a faded red figure with a pin), finished-goods building, stock yards, docks (a red pin while a supplier delivery is late). Stock stacks follow stock on hand; lines glow while an order there has started; trucks and forklifts move only when the matching event arrives (FE-3). Click anything for its detail. |
+| `components/scene/parts.tsx` | Low-poly models built from simple shapes (FE-2): building, truck, forklift, pallet, machine, worker, tree, map pin. |
+| `components/AgentChat.tsx` | The agent conversation (FE-4), one window per order: an **All** tab (the whole factory feed) and a tab per order with its own **Customer ↔ Sales** chat and its own **Agent negotiation** channel (that order's negotiation messages and events, matched by the `refs` of `GET /observer/orders/{ref}`); filter (all / negotiations / events); minimise or widen. |
+| `components/Overlays.tsx` | KPI cards, the detail card of what was clicked, disruptions and reactions (the last triggers and risk / repair events), order tracking (request → shipped), docks / lines / open negotiations. |
+| `lib/api.ts` | Client for the backend (through `/backend`, forwarded by `next.config.mjs`) and the shapes it reads. |
+| `lib/useLive.ts` | Polls `GET /observer/live` and the timeline cursor, one poll at a time. |
+| `lib/agents.ts` | The six agents' names and colours; plain-words lines for messages and events. |
 
 ## Run
 
-Backend (from `backend/`, `DATABASE_URL` set): `uvicorn app.main:app` (port 8000; CORS allows `localhost:3000`).
-Frontend: `npm install` once, then `npm run dev` → http://localhost:3000. Another backend URL: set `NEXT_PUBLIC_API_URL`.
+From the repository root in Git Bash: `bash scripts/demo_backend.sh` (local demo database, port 8000), then
+`bash scripts/demo_frontend.sh` → http://localhost:3005 (see `scripts/README.md`). By hand: backend with
+`DATABASE_URL` and `SIMULATION_DOOR_KEY` set (`uvicorn app.main:app`), frontend with
+`NEXT_PUBLIC_SIMULATION_DOOR_KEY=<the same key> npm run dev`; another backend address: `BACKEND_URL=http://host:port`.
+In the panel: pick a scenario, **Start scenario**, then **Next day** or **Play**. For a hand-made demo pick **MANUAL** (empty factory on day 1, no simulated customers), **Start scenario**, add each order with **＋ New order**, open its **📖 Story**, then **Play**.
 
-No price/cost anywhere; the supplier is the Supplier Interface (the tester), not an agent.
+With the database far away (Neon, another continent) a refresh takes a few seconds; the panel waits for one answer
+before asking again.

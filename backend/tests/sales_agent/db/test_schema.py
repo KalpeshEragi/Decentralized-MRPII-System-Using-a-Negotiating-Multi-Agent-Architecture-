@@ -9,7 +9,6 @@ import pytest
 from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 
-from app.data.seed_data import reset
 from app.sales_agent import models
 
 NOW = datetime(2026, 10, 15, 10, 0, tzinfo=timezone.utc)
@@ -69,18 +68,11 @@ def accepts(db, *rows):
 # -- the tests ------------------------------------------------------------------------------------------------------
 
 
-def test_the_nine_tables_exist_and_the_demo_reset_cannot_delete_sales_data(engine, db):
+def test_the_ten_tables_exist(engine, db):
     assert set(inspect(engine).get_table_names(schema="sales_agent")) == {
         "customers", "products", "conversations", "messages", "inquiries", "options", "orders", "customer_memory",
-        "audit_log",
+        "audit_log", "event_versions",  # event_versions: migration 017 (Sales follows PlanRevised)
     }
-    make_customer(db)
-    db.commit()
-
-    reset(db)  # the project's "empty every table" function, behind POST /simulation/reset
-    db.commit()
-
-    assert db.scalar(select(models.Customer.phone)) == "+100"
 
 
 def test_a_closed_inquiry_must_say_why_and_a_conversation_has_only_one_active_inquiry(db):

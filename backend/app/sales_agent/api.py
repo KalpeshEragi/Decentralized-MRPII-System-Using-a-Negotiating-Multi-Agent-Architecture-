@@ -22,6 +22,7 @@ import logging
 import uuid
 from collections.abc import Callable
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
 
@@ -34,8 +35,10 @@ from app.core.config import get_settings
 from app.core.database import get_db, new_session
 from app.core.errors import AppError, ErrorCode
 from app.llm.client import LLMClient, OllamaClient
-from app.sales_agent import manager, views
-from app.sales_agent.planning import FakePlanning, PlanningConnector, PlanningResult
+from app.core.doors import require_door_key
+from app.sales_agent import data_access, manager, structured, views
+from app.simulation.clock import today as simulated_today
+from app.sales_agent.planning import FakePlanning, PlanningConnector, PlanningResult, RealPlanning
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +76,10 @@ def get_session_factory() -> Callable[[], Session]:
 def get_planning(
     session_factory: Callable[[], Session] = Depends(get_session_factory), llm_client: LLMClient = Depends(get_llm_client)
 ) -> PlanningConnector:
-    """The connection to Planning. For now a FAKE Planning that answers after a short delay, by the same path the real
-    Planning will use. Replace this with the real connector when Planning exists."""
+    """The connection to Planning: the real Planning Agent when the setting `planning_connector` is "real", else a FAKE
+    Planning that answers after a short delay by the same path (door 3) the real Planning uses."""
+    if get_settings().planning_connector == "real":
+        return RealPlanning(session_factory)
     planning = FakePlanning(delay_seconds=FAKE_PLANNING_DELAY_SECONDS)
     planning.deliver = functools.partial(deliver_planning_result, session_factory, llm_client, planning)
     return planning
@@ -95,7 +100,7 @@ def answer_in_background(
 ) -> None:
     try:
         with session_factory() as db:
-            manager.process_conversation(db, conversation_id, llm_client, date.today(), planning)
+            manager.process_conversation(db, conversation_id, llm_client, simulated_today(db), planning)
     except Exception:  # a failure here must not stop the server; the customer's message stays saved
         logger.exception("could not answer conversation %s", conversation_id)
 
@@ -175,7 +180,8 @@ def planning_result_arrives(
     """Planning's answer to a request. `received`: stored, and the customer is told next. `duplicate`: we already had
     the final answer. `ignored`: the customer changed or dropped the request meanwhile."""
     receipt = manager.handle_planning_result(db, result)
-    if receipt.status == "received":
+    conversation = data_access.get_conversation(db, receipt.conversation_id)
+    if receipt.status == "received" and conversation.channel != structured.CHANNEL:  # simulated: read as data (DM-7)
         background_tasks.add_task(answer_in_background, session_factory, receipt.conversation_id, llm_client, planning)
     return {"status": receipt.status}
 
@@ -224,3 +230,63 @@ def get_customer_by_phone(phone: Phone, db: Session = Depends(get_db)):
 @router.get("/customers/{customer_id}")
 def get_customer(customer_id: uuid.UUID, db: Session = Depends(get_db)):
     return views.customer_view(db, customer_id)
+
+
+# -- simulated customers, structured (DM-7; simulator key) -----------------------------------------------------------
+
+
+class SimulatedRequest(BaseModel):
+    phone: str
+    product_id: str
+    quantity: Decimal
+    requested_date: date
+
+
+class SimulatedAcceptance(BaseModel):
+    option_id: str
+
+
+SIMULATOR = [Depends(require_door_key("simulation_door_key"))]
+
+
+@router.post("/simulated-customers/requests", status_code=201, dependencies=SIMULATOR)
+def simulated_request(body: SimulatedRequest, db: Session = Depends(get_db),
+                      planning: PlanningConnector = Depends(get_planning)) -> dict:
+    """A simulated customer's request as data: a new inquiry, sent to Planning (the simulated day is "today")."""
+    return structured.request(db, body.phone, body.product_id, body.quantity, body.requested_date,
+                              simulated_today(db), planning)
+
+
+@router.get("/simulated-customers/inquiries/{inquiry_id}", dependencies=SIMULATOR)
+def simulated_inquiry(inquiry_id: str, db: Session = Depends(get_db)) -> dict:
+    return structured.options(db, inquiry_id)
+
+
+@router.post("/simulated-customers/inquiries/{inquiry_id}/accept", dependencies=SIMULATOR)
+def simulated_accept(inquiry_id: str, body: SimulatedAcceptance, db: Session = Depends(get_db),
+                     planning: PlanningConnector = Depends(get_planning)) -> dict:
+    return structured.accept(db, inquiry_id, body.option_id, planning)
+
+
+@router.post("/simulated-customers/inquiries/{inquiry_id}/decline", dependencies=SIMULATOR)
+def simulated_decline(inquiry_id: str, db: Session = Depends(get_db)) -> dict:
+    return structured.decline(db, inquiry_id)
+
+
+
+class SimulatedChange(BaseModel):
+    quantity: Decimal
+
+
+@router.post("/simulated-customers/orders/{order_number}/cancel", dependencies=SIMULATOR)
+def simulated_cancel(order_number: str, db: Session = Depends(get_db),
+                     planning: PlanningConnector = Depends(get_planning)) -> dict:
+    """A simulated customer cancels a confirmed order (S6): Sales records it and tells Planning (OrderCancelled)."""
+    return structured.cancel(db, order_number, planning)
+
+
+@router.post("/simulated-customers/orders/{order_number}/change", dependencies=SIMULATOR)
+def simulated_change(order_number: str, body: SimulatedChange, db: Session = Depends(get_db),
+                     planning: PlanningConnector = Depends(get_planning)) -> dict:
+    """A simulated customer asks for another quantity (S7): Sales tells Planning (OrderChangeRequested)."""
+    return structured.change_quantity(db, order_number, body.quantity, planning)

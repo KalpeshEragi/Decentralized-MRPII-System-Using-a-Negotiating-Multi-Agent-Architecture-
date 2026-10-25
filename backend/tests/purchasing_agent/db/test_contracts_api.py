@@ -20,7 +20,7 @@ def contracts_of(client, supplier, item):
 
 
 def error(response) -> tuple[int, str]:
-    return response.status_code, response.json()["error"]["code"]
+    return response.status_code, response.json()["code"]
 
 
 def test_a_registered_contract_is_listed_with_its_supplier_item_price_and_validity(client):
@@ -72,7 +72,7 @@ def test_the_supplier_must_supply_the_item_in_the_supplier_service(client):
 
     not_supplied = register(client, supplier="Beta Optics", item="BAT-200")  # Beta does not sell batteries
     assert error(not_supplied) == (422, "VALIDATION_ERROR")
-    assert not_supplied.json()["error"]["details"] == [{"field": "item_id", "issue": "not supplied by this supplier"}]
+    assert not_supplied.json()["errors"] == [{"field": "item_id", "issue": "not supplied by this supplier"}]
 
 
 def test_t_con_2_an_active_contract_overlapping_another_active_one_for_the_pair_is_rejected(client):

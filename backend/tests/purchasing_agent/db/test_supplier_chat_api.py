@@ -180,7 +180,7 @@ def test_n6_a_reject_fails_the_leg_and_the_request_is_re_sourced(client):
 
     # Alpha's negotiation is over: further replies are refused.
     late = reply(client, alpha["id"], "ACCEPT")
-    assert late.status_code == 409 and late.json()["error"]["code"] == "INVALID_STATE_TRANSITION"
+    assert late.status_code == 409 and late.json()["code"] == "INVALID_STATE_TRANSITION"
 
     reply(client, beta["id"], "ACCEPT")
     assert request_of(client, request)["status"] == "AGREEMENT_PROPOSED"
@@ -236,7 +236,7 @@ def test_reusing_a_message_id_on_another_leg_is_a_conflict(client):
     reply(client, first["id"], "COUNTER 500 2026-11-25", message_id)
 
     reused = reply(client, second["id"], "ACCEPT", message_id)
-    assert reused.status_code == 409 and reused.json()["error"]["code"] == "CONFLICT"
+    assert reused.status_code == 409 and reused.json()["code"] == "CONFLICT"
     conversation = client.get(f"/purchasing/test-channel/conversations/{second['id']}/messages").json()
     assert [m["message_type"] for m in conversation["messages"]] == ["OFFER"]  # nothing stored on the second Leg
 
@@ -259,7 +259,7 @@ def test_replies_to_unknown_legs_and_empty_replies_are_refused(client):
     assert reply(client, str(uuid.uuid4()), "ACCEPT").status_code == 404
     [leg] = submit_a1(client)["legs"]
     empty = reply(client, leg["id"], "   ")
-    assert empty.status_code == 422 and empty.json()["error"]["code"] == "VALIDATION_ERROR"
+    assert empty.status_code == 422 and empty.json()["code"] == "VALIDATION_ERROR"
 
 
 # A delivery date before today (2026-11-02) is never agreed (confirmed 2026-10-18, code review).

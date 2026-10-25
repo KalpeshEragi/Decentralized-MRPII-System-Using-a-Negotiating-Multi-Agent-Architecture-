@@ -3,7 +3,33 @@
 import pytest
 
 from app.llm.client import FakeLLMClient
-from app.llm.reasoning import NegotiationProposal, StructuredOutputError, parse_structured, propose
+from datetime import date
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, model_validator
+
+from app.llm.reasoning import StructuredOutputError, parse_structured, propose
+
+
+class Terms(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    quantity: int
+    delivery_date: date
+
+
+class NegotiationProposal(BaseModel):
+    """A small example schema: unknown fields (e.g. price) are rejected; a counter-offer needs terms."""
+
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["ACCEPT", "COUNTER_OFFER", "REJECT"]
+    terms: Terms | None = None
+    rationale: str
+
+    @model_validator(mode="after")
+    def _counter_needs_terms(self) -> "NegotiationProposal":
+        if self.action == "COUNTER_OFFER" and self.terms is None:
+            raise ValueError("COUNTER_OFFER requires terms")
+        return self
 
 GOOD = '{"action": "COUNTER_OFFER", "terms": {"quantity": 400, "delivery_date": "2026-10-20"}, "rationale": "x"}'
 

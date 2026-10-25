@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Decentralized MRPII — Simulation",
-  description: "SmartPhone X1: planning, autonomous agent negotiation and human approval",
+  title: "Decentra — a factory run by six negotiating agents",
+  description: "Live control panel of the decentralised MRPII simulation: the factory, the agents' conversation, the orders.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

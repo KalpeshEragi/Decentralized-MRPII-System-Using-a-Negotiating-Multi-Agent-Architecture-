@@ -181,7 +181,7 @@ def test_a_reply_whose_offer_re_sourcing_changed_is_refused_as_superseded(client
 
     # Sonic 500 + EchoTech 300 < 1000 and no other supplier: the request failed, so EchoTech's offer no longer stands.
     assert late_accept.status_code == 409
-    assert late_accept.json()["error"]["details"] == [{"field": "offer", "issue": "superseded"}]
+    assert late_accept.json()["errors"] == [{"field": "offer", "issue": "superseded"}]
     after = request_of(client, request)
     assert (after["status"], after["constrained_quantity"]) == ("FAILED", "800")
     assert after["status_reason"] == "a Leg failed: timeout; no feasible allocation remains"

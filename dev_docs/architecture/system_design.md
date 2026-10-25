@@ -56,7 +56,7 @@ change.
 ### 4.2 Standard queue shape
 
 Every queue table (event deliveries, negotiation inbox and outbox, agent work items, HTTP outboxes) has these
-columns: `id`, `scope_key`, `kind`, `payload`, `status` (PENDING, RUNNING, DONE, FAILED), `attempts`,
+columns: `id`, `seq` (strict order, added in step 1), `scope_key`, `kind`, `payload`, `status` (PENDING, RUNNING, DONE, FAILED; event deliveries also IGNORED_STALE), `attempts`,
 `next_attempt_at`, `locked_by`, `locked_until`, `last_error`, `created_at`, `done_at`.
 
 `scope_key` is the "one at a time" unit: an order (Planning), an item (Inventory), the constant `warehouse` / `hr`

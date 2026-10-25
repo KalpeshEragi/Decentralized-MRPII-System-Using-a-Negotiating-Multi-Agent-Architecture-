@@ -45,14 +45,19 @@ Starter REQUEST ──> NEGOTIATING
   Owner OFFER | COUNTER_OFFER | REJECT
   Starter ACCEPT | COUNTER_OFFER | REJECT          (one round = one owner proposal + starter answer; max 3 rounds)
   after ACCEPT: Owner places hold, sends AGREEMENT_PROPOSED(hold id, expires_at) ──> AGREEMENT_PROPOSED
-  Starter COMMIT ──> owner re-checks and commits atomically ──> COMMITTED  (owner publishes the event)
+  Starter COMMIT ──> owner re-checks and commits atomically, then answers ACCEPT ──> COMMITTED  (owner publishes the event)
   Starter ABORT  ──> hold released ──> ABORTED
-  hold expires, or no answer within the response timeout ──> EXPIRED
+  hold expires (owner sends REJECT with HOLD_EXPIRED), or no answer within the response timeout ──> EXPIRED
   REJECT by either side ──> REJECTED;  3 rounds without agreement ──> FAILED
 ```
 
 If the owner's re-check at `COMMIT` fails (facts changed, hold gone), it answers `REJECT` with reason `STALE` or
 `UNAVAILABLE`; the session ends `REJECTED` and the starter replans or opens a new negotiation.
+
+**Implementation details (step 3, 2026-10-17):** the owner confirms a commit with `ACCEPT` and reports an expired hold
+with `REJECT` + `HOLD_EXPIRED`, so no new message types are needed. Sequence numbers are assigned by the receiving side
+when it stores a message (the outbox keeps one session's messages in order), so a sender never has to guess the next
+number. A session starts directly in `NEGOTIATING` when the REQUEST is stored.
 
 ## 5. Terms (multi-factor, no price)
 
@@ -91,7 +96,9 @@ Every REJECT and COUNTER_OFFER carries exactly one of these. Purchasing may add 
 | `INVALID_REQUEST` | The request itself is not valid (missing or wrong terms) |
 
 **One at a time (NG-5):** a starter keeps at most one open negotiation per need and resource; if it fails, it opens
-the next one. No alternative offers are held "just in case".
+the next one. No alternative offers are held "just in case". The need is what the resource is for (`terms.order_id`:
+a customer demand or a production order), so one case may ask for the same item or skill for two production orders.
+Enforced by a partial unique index on (case, resource type, resource, need, starter, owner) over open sessions.
 
 ## 6. How an agent decides inside a negotiation
 

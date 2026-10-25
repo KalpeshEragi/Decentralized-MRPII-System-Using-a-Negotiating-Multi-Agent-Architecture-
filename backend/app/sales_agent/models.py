@@ -16,6 +16,8 @@ from sqlalchemy import Boolean, Date, DateTime, ForeignKey, MetaData, Numeric, S
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from app.events.models import EventVersionMixin
+
 SCHEMA = "sales_agent"
 
 
@@ -68,7 +70,7 @@ class Conversation(SalesAgentBase):
 
     id: Mapped[uuid.UUID] = uuid_pk()
     customer_id: Mapped[uuid.UUID | None] = foreign_key("customers.id")  # empty for an unknown number
-    channel: Mapped[str] = mapped_column(String)  # TEST, WHATSAPP
+    channel: Mapped[str] = mapped_column(String)  # TEST, WHATSAPP, SIMULATED (structured simulated customers, DM-7)
     sender_ref: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="OPEN")  # OPEN, IDLE, CLOSED
     current_inquiry_id: Mapped[uuid.UUID | None] = foreign_key("inquiries.id", circular_name="fk_conversations_current_inquiry")
@@ -180,3 +182,9 @@ class AuditLog(SalesAgentBase):
     inquiry_id: Mapped[uuid.UUID | None] = foreign_key("inquiries.id")
     details: Mapped[dict] = mapped_column(JSONB, default=dict)  # rules checked, reasons, the AI's structured answer
     created_at: Mapped[datetime] = created_at()
+
+
+class EventVersion(EventVersionMixin, SalesAgentBase):
+    """The last applied version of each entity Sales follows through events (stale check; migration 017)."""
+
+    __tablename__ = "event_versions"

@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import NamedTuple
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.sales_agent.models import (
@@ -354,3 +354,13 @@ def save_options(db: Session, inquiry_id: uuid.UUID, options: list[dict]) -> lis
 def release_options(db: Session, inquiry_id: uuid.UUID) -> None:
     """The customer will not take these options (the request changed or was dropped)."""
     db.execute(update(Option).where(Option.inquiry_id == inquiry_id, Option.status == "OFFERED").values(status="RELEASED"))
+
+
+def find_order_by_number_any(db: Session, order_number: str) -> Order | None:
+    """The order with this number, whoever it belongs to (simulated customers' changes and cancellations)."""
+    return db.scalar(select(Order).where(Order.order_number == order_number))
+
+
+def count_audit_notes(db: Session, inquiry_id: uuid.UUID, event_types: tuple[str, ...]) -> int:
+    return db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.inquiry_id == inquiry_id,
+                                                                      AuditLog.event_type.in_(event_types))) or 0

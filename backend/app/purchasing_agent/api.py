@@ -53,7 +53,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.llm.client import LLMClient, OllamaClient
-from app.purchasing_agent import abort, approval, contracts, deadlines, negotiation, service, views
+from app.purchasing_agent import a2a, abort, approval, contracts, deadlines, negotiation, service, views
 
 CHAT_PAGE = Path(__file__).parent / "test_channel" / "supplier_chat.html"
 
@@ -243,4 +243,7 @@ def post_supplier_message(
                                                     llm_client)
     if received.duplicate:
         response.status_code = 200
+    else:
+        a2a.after_supplier_reply(db, leg_id)  # Planning's adapter follows this request (PI-3)
+        db.commit()
     return {"status": "duplicate" if received.duplicate else "received", "conversation": views.conversation(db, leg_id)}
