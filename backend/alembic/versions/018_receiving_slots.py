@@ -5,7 +5,6 @@
   (moved with the delivery when a supplier is late).
 """
 
-import sqlalchemy as sa
 from alembic import op
 
 from app.purchasing_agent.link_models import ReceivingSlotLink
@@ -18,8 +17,8 @@ depends_on = None
 
 def upgrade() -> None:
     ReceivingSlotLink.__table__.create(op.get_bind())
-    op.add_column("space_commitments", sa.Column("receiving_units", sa.Numeric(), nullable=False, server_default="0"),
-                  schema="warehouse")
+    # IF NOT EXISTS: 007 creates the table from the current model, which already has this column on a new database
+    op.execute("ALTER TABLE warehouse.space_commitments ADD COLUMN IF NOT EXISTS receiving_units NUMERIC NOT NULL DEFAULT 0")
 
 
 def downgrade() -> None:
