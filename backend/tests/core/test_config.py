@@ -8,7 +8,7 @@ def test_defaults_without_env(monkeypatch):
     settings = Settings(_env_file=None)
 
     assert settings.database_url is None
-    assert settings.ollama_base_url == "http://localhost:11434/v1"
+    assert settings.ollama_base_url == "http://127.0.0.1:11434/v1"
     assert settings.ollama_model == "qwen3.5:4b"
 
 
