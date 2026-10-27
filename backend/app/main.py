@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.errors import install_correlation_id, install_error_handlers
 from app.core.workers import start_workers, stop_workers
 from app.events import api as events
+from app.rules import api as rules
 from app.hr_agent import api as hr
 from app.inventory_agent import api as inventory
 from app.planning_agent import api as planning
@@ -51,6 +52,7 @@ app.include_router(hr.router)
 app.include_router(warehouse.router)
 app.include_router(observer.router)
 app.include_router(events.router)
+app.include_router(rules.router)
 negotiation_endpoints.install(app)  # A2A endpoints, store and acknowledge (NG-1)
 
 
