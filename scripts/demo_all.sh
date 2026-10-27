@@ -9,7 +9,17 @@ PG_DIR="$(dirname "${DECENTRA_ENV:-$HOME/decentra-postgres/local.env}")"
 LOG="$HOME/decentra-backend.log"
 
 echo "1/3 database"
-bash "$PG_DIR/start.sh"
+READY="$PG_DIR/pgsql/bin/pg_isready.exe"
+if [ -x "$READY" ] && "$READY" -h 127.0.0.1 -p 5433 -q; then
+  echo "    already running"
+else
+  bash "$PG_DIR/start.sh" || true
+  if [ -x "$READY" ] && ! "$READY" -h 127.0.0.1 -p 5433 -q; then
+    echo "the database does not answer on port 5433. If a stuck postgres holds the port, stop it (Task Manager →"
+    echo "postgres.exe), delete $PG_DIR/data/postmaster.pid and run this script again."
+    exit 1
+  fi
+fi
 
 if curl -s -o /dev/null --max-time 2 http://localhost:8000/health; then
   echo "a backend is already running on port 8000: stop it first (one backend at a time)"; exit 1
