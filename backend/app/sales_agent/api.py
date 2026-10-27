@@ -14,6 +14,7 @@ Door numbers follow dev_docs/sales_agent/3_sales_agent_backend.md. Door 7 (healt
        GET    /sales/test-channel                   the test chat page
        GET    /sales/test-channel/history/{phone}   the open conversation of a test phone number (for the page)
        DELETE /sales/test-channel/history/{phone}   clear one test chat
+       GET    /sales/dashboard/...                  read-only views for the frontend's Sales page
 """
 
 import functools
@@ -36,7 +37,7 @@ from app.core.database import get_db, new_session
 from app.core.errors import AppError, ErrorCode
 from app.llm.client import LLMClient, OllamaClient
 from app.core.doors import require_door_key
-from app.sales_agent import data_access, manager, structured, views
+from app.sales_agent import dashboard, data_access, manager, structured, views
 from app.simulation.clock import today as simulated_today
 from app.sales_agent.planning import FakePlanning, PlanningConnector, PlanningResult, RealPlanning
 
@@ -230,6 +231,45 @@ def get_customer_by_phone(phone: Phone, db: Session = Depends(get_db)):
 @router.get("/customers/{customer_id}")
 def get_customer(customer_id: uuid.UUID, db: Session = Depends(get_db)):
     return views.customer_view(db, customer_id)
+
+
+# -- the frontend's Sales page (read-only) --------------------------------------------------------------------------
+
+
+@router.get("/dashboard/overview")
+def dashboard_overview(db: Session = Depends(get_db)) -> dict:
+    return dashboard.overview(db)
+
+
+@router.get("/dashboard/orders")
+def dashboard_orders(db: Session = Depends(get_db)) -> list[dict]:
+    return dashboard.orders(db)
+
+
+@router.get("/dashboard/inquiries")
+def dashboard_inquiries(db: Session = Depends(get_db)) -> list[dict]:
+    return dashboard.inquiries(db)
+
+
+@router.get("/dashboard/customers")
+def dashboard_customers(db: Session = Depends(get_db)) -> list[dict]:
+    return dashboard.customers(db)
+
+
+@router.get("/dashboard/customers/{customer_id}/memories")
+def dashboard_memories(customer_id: uuid.UUID, db: Session = Depends(get_db)) -> list[dict]:
+    return dashboard.memories(db, customer_id)
+
+
+@router.get("/dashboard/audit")
+def dashboard_audit(event_type: str | None = None, inquiry_id: uuid.UUID | None = None,
+                    db: Session = Depends(get_db)) -> list[dict]:
+    return dashboard.audit(db, event_type, str(inquiry_id) if inquiry_id else None)
+
+
+@router.get("/dashboard/rules")
+def dashboard_rules() -> dict:
+    return dashboard.rule_book()
 
 
 # -- simulated customers, structured (DM-7; simulator key) -----------------------------------------------------------
