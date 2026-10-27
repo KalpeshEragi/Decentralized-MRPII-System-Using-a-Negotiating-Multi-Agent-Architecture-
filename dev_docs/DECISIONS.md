@@ -240,6 +240,22 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | WH-1 (built) | Purchasing asks Warehouse for a `RECEIVING_SLOT` per agreed delivery before it offers supply to Planning. Warehouse offers the day or counter-offers a later one; Purchasing takes a later day only if Planning's need date holds (the simulated supplier can always deliver later: no new supplier round), else declines and tells Planning `NO_RECEIVING_CAPACITY`. A slot whose day filled up before the hold (`STALE`) is asked for again, at most twice. On Planning's COMMIT: suppliers approved → slots committed → the deliveries take their slot days → `ProcurementCommitted`. Warehouse turns the committed slot into the delivery record (no second booking). Planning reads Warehouse's free receiving when it plans bought deliveries and plans a delivery earlier when the dock is full (within the supplier's lead time). |
 | WH-6 | Warehouse capacities change only through Warehouse's own input (`change_capacity`, simulator trigger `WAREHOUSE_CAPACITY`, S4); commitments already made stay; `StorageCapacityChanged` is published. |
 
+### Quotes and agent decisions (2026-10-26, approved by the developer, see `architecture/quotes_and_agent_decisions.md`)
+
+| ID | Decision |
+| --- | --- |
+| QD-1 | New message types `QUOTE_REQUEST` / `QUOTE` (non-binding, no hold), separate from the binding lifecycle. |
+| QD-2 | Planning keeps its own machine-hours; no seventh agent. |
+| QD-3 | Each decision is recorded in the deciding agent's own `audit_log` (`event_type = DECISION`). |
+| QD-4 | Inventory may ask Purchasing directly for a replenishment quote; Purchasing decides the purchase. |
+| QD-5 | AI decisions only for small runs: setting `ai_decision_max_orders` (default 10); load runs use the fallbacks. |
+| QD-6 | On `STALE` Planning re-asks the same owner (at most 2 times per need) before S8-1's replan once. |
+| QD-7 | At a decision point the agent thinks: reads the situation, its goals and facts, proposes its own action and parameters; code only validates (one revision allowed); the menu is a hint and the fallback. |
+| QD-8 | Start with `qwen3.5:4b`; move to a larger model only if S9 shows too many refused proposals. |
+| QD-9 | The agent's thinking text is shown in the UI, collapsed under its thinking card. |
+| QD-10 | Local `qwen3.5:4b` for now. Measured 2026-10-26: the model's hidden thinking mode did not finish a decision in 300 s on this laptop (Ollama runs it on CPU), so the agent writes its reasoning into its JSON answer (`thinking`, shown in the UI) with the hidden mode off; ~50 s per decision call on CPU, ~34 s with the RTX 2050 (model split about 50/50 GPU/CPU), timeout 90 s. |
+| QD-11 | About one model call per decision (facts in the prompt, at most one extra lookup round); one agent may decide several of its own requests in one call, never two agents in one call. A provider fallback chain (free cloud tiers) is optional and later. |
+
 ## Open
 
 | ID | Question | Notes |
@@ -248,3 +264,4 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | O-7 | Reuse of existing code | Old Planning/Inventory/Purchasing code and the old human-approval workflow are still in `backend/`. Review one agent at a time (roadmap Phase 2). |
 | O-8 | Purchasing design incl. price/cost | Resolved 2026-10-17: `adr/ADR-002-price-in-supplier-selection.md`; design in `purchasing_agent/`. |
 | O-9 | Agent roster: separate Production agent? | Resolved 2026-10-18 (developer): no separate Production agent; the roster is the six agents of `adr/ADR-001.md` §2. Legacy `production` items (schema section in `OVERALL_DATABASE_SCHEMA.md` §6, empty `app/models/production.py`) are legacy only. |
+| O-10 | Quote-based feasibility and agent decisions | Resolved 2026-10-26: QD-1 to QD-11 approved (section above). Build in the order of the design doc §12. |
