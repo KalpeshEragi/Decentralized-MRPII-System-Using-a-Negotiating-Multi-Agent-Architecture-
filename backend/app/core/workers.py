@@ -37,6 +37,9 @@ def start_workers() -> bool:
     if not get_settings().background_workers:
         return False
     register_all()
+    from app.events.manager import log_report
+
+    log_report()  # EM-1: wiring problems between the event catalogue and the handlers show up at start
     runner.start()
     return True
 
