@@ -57,8 +57,12 @@ WORKERS = [{"code": "S1", "name": "Sana", "primary_skill": "SMT"}, {"code": "S2"
            {"code": "A3", "name": "Mira", "primary_skill": "ASSEMBLY", "secondary_skills": ["SMT"]}]
 
 
-def build(db: Session) -> dict[str, str]:
-    """Create Factory A in an empty run (caller commits). Returns {sku: item id}."""
+def build(db: Session, finished_stock: dict[str, int] | None = None, finished_space: int = 1000) -> dict[str, str]:
+    """Create Factory A in an empty run (caller commits). Returns {sku: item id}.
+
+    `finished_stock` replaces the starting stock of finished products (load scenarios start with more, see
+    scenarios.LOAD_COVER); `finished_space` is then the FINISHED_GOODS zone capacity in space units."""
+    on_hand = {sku: (finished_stock or {}).get(sku, row[4]) for sku, row in ITEMS.items()}
     ids = {}
     for sku, (name, kind, sourcing, space, _, _) in ITEMS.items():
         item = Item(sku=sku, name=name, item_type=kind, unit="pcs", sourcing=sourcing, space_per_unit=D(space))
@@ -86,15 +90,15 @@ def build(db: Session) -> dict[str, str]:
         db.add(SupplierTerms(supplier_id=suppliers[supplier_name].id, item_id=supplier_item.id, lead_time_days=lead,
                              min_order_qty=D(minimum), available_qty=D(10000)))
     db.flush()
-    inventory.setup(db, [{"item_id": ids[sku], "on_hand": on_hand, "safety_stock": safety}
-                         for sku, (_, _, _, _, on_hand, safety) in ITEMS.items()])
+    inventory.setup(db, [{"item_id": ids[sku], "on_hand": on_hand[sku], "safety_stock": safety}
+                         for sku, (_, _, _, _, _, safety) in ITEMS.items()])
     planning.setup(db, {"SMT": 8, "ASM": 16})
     hr.setup(db, WORKERS)
     occupied = {"MATERIALS": D(0), "FINISHED_GOODS": D(0)}
-    for sku, (_, kind, _, space, on_hand, _) in ITEMS.items():
-        occupied["FINISHED_GOODS" if kind == FINISHED else "MATERIALS"] += D(space) * on_hand
+    for sku, (_, kind, _, space, _, _) in ITEMS.items():
+        occupied["FINISHED_GOODS" if kind == FINISHED else "MATERIALS"] += D(space) * on_hand[sku]
     warehouse.setup(db, {"zones": {"MATERIALS": {"capacity_units": 2000, "occupied_now": occupied["MATERIALS"]},
-                                   "FINISHED_GOODS": {"capacity_units": 1000,
+                                   "FINISHED_GOODS": {"capacity_units": finished_space,
                                                       "occupied_now": occupied["FINISHED_GOODS"]}},
                          "receiving_units_per_day": 1500, "shipping_units_per_day": 1000})
     return ids

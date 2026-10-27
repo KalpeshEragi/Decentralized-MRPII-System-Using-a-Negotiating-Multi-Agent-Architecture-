@@ -8,6 +8,7 @@ factory state and the timeline), which is kept when the run is later reset.
 The numbers are starting values (DM-O3): tune them after watching the runs.
 """
 
+import math
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
@@ -63,6 +64,45 @@ SCENARIOS: dict[str, tuple[str, dict, list[tuple[int, str, dict]]]] = {
 }
 
 
+# Load runs start with enough finished phones and tablets for about LOAD_COVER of the expected orders, so most orders
+# can be promised from stock and the rest go through production, purchasing or a later-date option. Expected demand
+# = orders x the customers' mean quantity (settings: 50..200 -> 125), split evenly over the two products. Space for
+# finished goods is that stock plus half again. The default state "factory-a" (S1-S8, MANUAL) is unchanged.
+LOAD_COVER = 0.75
+LOAD_ORDERS = {"LOAD-10": 10, "LOAD-20": 20, "LOAD-100": 100}
+MEAN_ORDER_QUANTITY = 125
+
+
+def load_stock(orders: int) -> tuple[dict[str, int], int]:
+    """Starting finished-goods stock per product and FINISHED_GOODS capacity for a load run of `orders` orders."""
+    each = math.ceil(orders * MEAN_ORDER_QUANTITY / 2 * LOAD_COVER)
+    stock = {"PHONE-P": each, "TABLET-T": each}
+    space = sum(int(factory_a.ITEMS[sku][3]) * n for sku, n in stock.items())  # phone 1, tablet 2 space units
+    return stock, math.ceil(space * 1.5 / 100) * 100
+
+
+def _state_for(name: str) -> tuple[str, str]:
+    if name in LOAD_ORDERS:
+        stock = load_stock(LOAD_ORDERS[name])[0]
+        return f"factory-a-{name.lower()}", (f"Factory A with {stock['PHONE-P']} phones and {stock['TABLET-T']} tablets "
+                                             f"in stock (~{int(LOAD_COVER * 100)}% of {name}'s expected orders)")
+    return "factory-a", "Default demo factory (demo.md §4.1)"
+
+
+def _ensure_state(db: Session, state: str, description: str, name: str) -> None:
+    """Build and save a starting state the first time it is used (configuring, never triggering)."""
+    if db.get(Snapshot, state) is not None:
+        return
+    states.clear(db)
+    if name in LOAD_ORDERS:
+        stock, space = load_stock(LOAD_ORDERS[name])
+        factory_a.build(db, finished_stock=stock, finished_space=space)
+    else:
+        factory_a.build(db)
+    db.flush()
+    states.save(db, state, description)
+
+
 def listing() -> list[dict]:
     return [{"name": name, "description": description, "settings": settings,
              "triggers": [{"day": day, "kind": kind, "params": params} for day, kind, params in plan]}
@@ -76,17 +116,14 @@ def start(db: Session, name: str, seed: int = 1) -> dict:
     if db.scalar(select(Run.id).where(Run.status == "RUNNING")) is not None:
         raise AppError(ErrorCode.CONFLICT, "a run is still running: finish it first")
     description, settings, plan = SCENARIOS[name]
-    if db.get(Snapshot, "factory-a") is None:  # first use: configure the default factory once
-        states.clear(db)
-        factory_a.build(db)
-        db.flush()
-        states.save(db, "factory-a", "Default demo factory (demo.md §4.1)")
-    restored = states.restore(db, "factory-a")
+    state, state_description = _state_for(name)
+    _ensure_state(db, state, state_description, name)
+    restored = states.restore(db, state)
     update_settings(db, {**settings, "customer_seed": seed})
     first_day = today(db) + timedelta(days=1)
     for day, kind, params in plan:
         triggers.add(db, kind, params, first_day + timedelta(days=day - 1))
-    run = Run(scenario=name, seed=seed, state="factory-a", start_day=today(db), status="RUNNING")
+    run = Run(scenario=name, seed=seed, state=state, start_day=today(db), status="RUNNING")
     db.add(run)
     db.flush()
     return {"run_id": run.id, "scenario": name, "description": description, "start_day": run.start_day.isoformat(),
