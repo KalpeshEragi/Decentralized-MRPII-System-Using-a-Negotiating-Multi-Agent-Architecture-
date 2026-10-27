@@ -79,7 +79,26 @@ def _say(db: DbSession, link: PlanningLink, kind: M, **fields) -> None:
 # -- inbox (short: only records and queues) -------------------------------------------------------------------------------
 
 
+def quote(db: DbSession, asked: Terms) -> list[Terms]:
+    """QD-1: Purchasing's supplier options for this item — one per active supplier with stock, fastest first:
+    how much it has and how many days until it can arrive. Purchasing still chooses suppliers in a binding request."""
+    from app.purchasing_agent import reads as purchasing_reads
+    from app.supplier_service import service as supplier_service
+
+    found = purchasing_reads.supplier_item_id(db, asked.resource_ref)
+    offers = sorted((s for s in supplier_service.supplier_items_for(db, found) if s.supplier_is_active
+                     and s.available_qty > 0), key=lambda s: s.lead_time_days) if found is not None else []
+    return [Terms(resource_type=ResourceType.SUPPLY, resource_ref=asked.resource_ref, quantity=offer.available_qty,
+                  order_id=asked.order_id, extra={"kind": "SUPPLIER_OPTION", "lead_time_days": offer.lead_time_days,
+                                                  "minimum": str(offer.min_order_qty),
+                                                  "supplier": offer.supplier_name}) for offer in offers]
+
+
 def handle_message(db: DbSession, message: Envelope, session: Session) -> None:
+    if message.message_type == M.QUOTE_REQUEST:
+        layer.send(db, layer.reply_to(message, M.QUOTE, options=quote(db, message.terms),
+                                      text=f"quote: supplier options for {message.terms.resource_ref}"))
+        return
     slot = db.get(ReceivingSlotLink, str(session.id), with_for_update=True)
     if slot is not None:  # Warehouse answers about a receiving slot (WH-1)
         _on_warehouse(db, slot, message)

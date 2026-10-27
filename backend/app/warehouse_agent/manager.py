@@ -148,8 +148,20 @@ def _zone_change(ledger: LedgerWriter, zone: Zone, delta: Decimal, reason: str, 
 # -- inbox -----------------------------------------------------------------------------------------------------------------------
 
 
+def quote(db: DbSession, asked: Terms) -> list[Terms]:
+    """QD-1: pieces the receiving dock can still take on each day of the window. Steps: one option per change."""
+    from app.negotiation.quoting import quote_window, steps
+
+    start, end = quote_window(asked, today(db))
+    return steps(asked, start, end, lambda day: free_receiving(db, day), "FREE_RECEIVING")
+
+
 def handle_message(db: DbSession, message: Envelope, session: Session) -> None:
     kind = message.message_type
+    if kind == M.QUOTE_REQUEST:
+        layer.send(db, layer.reply_to(message, M.QUOTE, options=quote(db, message.terms),
+                                      text="quote: free receiving capacity"))
+        return
     if kind in (M.REQUEST, M.COUNTER_OFFER):
         reply_kind, terms, reason = answer(db, message.terms)
         _reply(db, message, reply_kind, terms, reason)

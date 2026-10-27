@@ -200,8 +200,21 @@ def _change(ledger: LedgerWriter, row: PoolDay, column: str, delta: Decimal, rea
 # -- inbox ----------------------------------------------------------------------------------------------------------------------
 
 
+def quote(db: DbSession, asked: Terms) -> list[Terms]:
+    """QD-1: free worker-hours of this skill on each day of the window (normal hours; overtime is HR's choice in a
+    binding request). Steps: one option per change."""
+    from app.negotiation.quoting import quote_window, steps
+
+    start, end = quote_window(asked, today(db))
+    return steps(asked, start, end, lambda day: free(db, asked.resource_ref, day), "FREE_HOURS")
+
+
 def handle_message(db: DbSession, message: Envelope, session: Session) -> None:
     kind = message.message_type
+    if kind == M.QUOTE_REQUEST:
+        layer.send(db, layer.reply_to(message, M.QUOTE, options=quote(db, message.terms),
+                                      text=f"quote: free {message.terms.resource_ref} hours"))
+        return
     if kind in (M.REQUEST, M.COUNTER_OFFER):
         reply_kind, terms, reason = answer(db, message.terms)
         _reply(db, message, reply_kind, terms, reason)
