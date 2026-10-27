@@ -60,3 +60,11 @@ def balances(db: DbSession) -> dict[str, dict]:
     """Every item's balance in one query: {item_id: {on_hand, reserved, held, safety_stock}} (for overviews)."""
     return {row.item_id: {"on_hand": str(row.on_hand), "reserved": str(row.reserved), "held": str(row.held),
                           "safety_stock": str(row.safety_stock)} for row in db.scalars(select(StockBalance))}
+
+
+def decisions(db: DbSession, after=None, at=None, limit: int | None = None) -> list[dict]:
+    """This agent's recorded decisions (QD-3) as timeline rows, for the observer."""
+    from app.agent_decisions.record import rows
+    from app.inventory_agent.models import AuditLog
+
+    return rows(db, AuditLog, after=after, at=at, limit=limit)

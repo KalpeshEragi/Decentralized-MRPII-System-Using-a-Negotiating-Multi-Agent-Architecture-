@@ -63,3 +63,11 @@ def reconcile(db: DbSession) -> list[str]:
         actual[f"{row.skill} {row.day} COMMITTED"] = row.committed_hours
         actual[f"{row.skill} {row.day} HELD"] = row.held_hours
     return [f"hr {d}" for d in differences(expected, actual)]
+
+
+def decisions(db: DbSession, after=None, at=None, limit: int | None = None) -> list[dict]:
+    """This agent's recorded decisions (QD-3) as timeline rows, for the observer."""
+    from app.agent_decisions.record import rows
+    from app.hr_agent.models import AuditLog
+
+    return rows(db, AuditLog, after=after, at=at, limit=limit)

@@ -34,6 +34,7 @@ DEFAULTS: dict[str, object] = {
     "customer_orders_per_day": 0,                # DM-3/DM-7: simulated customers' new requests per day
     "customer_order_days": 0,                    # load runs: customers order only on the run's first N days (0 = always)
     "ai_enabled": 0,                             # IMP-2: 1 = agents' AI steps on (wording, ranking); 0 = templates
+    "ai_decision_max_orders": 10,                # QD-5: agents think only while at most this many orders are open
     "customer_chat_mode": 0,                     # DM-7: 0 = structured (data, no model), 1 = chat (Sales reads text)
     "customer_seed": 1,                          # DM-6: the customer driver's random generator is seeded per day
     "customer_quantity_min": 50,                 # DM-3 rules (starting values)
