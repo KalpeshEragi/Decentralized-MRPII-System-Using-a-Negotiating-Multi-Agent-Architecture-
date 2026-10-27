@@ -3,12 +3,14 @@
 // lines glow while an order there has started, trucks and forklifts move only when the matching event arrives
 // (MaterialReceived, ShipmentDispatched, MaterialIssuedToProduction, FinishedGoodsStored).
 
-import { OrbitControls } from "@react-three/drei";
+import { MapControls } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Group } from "three";
 import type { Live, TimelineItem } from "@/lib/api";
 import type { Selection } from "@/components/Overlays";
+import type { AgentCode } from "@/lib/insight";
+import { Town } from "./buildings/Town";
 import { Block, Building, COLORS, Forklift, Machine, Pallet, Person, Pin, Tree, Truck } from "./parts";
 
 type V3 = [number, number, number];
@@ -27,20 +29,24 @@ const MOVING_EVENTS: Record<string, Mover["kind"]> = {
   FinishedGoodsStored: "store",
 };
 
-export function FactoryScene({ live, items, onSelect }: {
+export function FactoryScene({ live, items, onSelect, involved, onAgent }: {
   live: Live | null; items: TimelineItem[]; onSelect: (s: Selection) => void;
+  involved?: Partial<Record<AgentCode, "origin" | "involved">>; onAgent?: (code: AgentCode) => void;
 }) {
   const movers = useMovers(items);
   return (
-    <Canvas shadows camera={{ position: [48, 50, 62], fov: 34 }} onPointerMissed={() => onSelect(null)}>
+    <Canvas shadows camera={{ position: [0, 95, 0], fov: 45 }} onPointerMissed={() => onSelect(null)}>
       <color attach="background" args={["#e8eef7"]} />
       <hemisphereLight args={["#ffffff", "#c8d3e3", 0.9]} />
-      <directionalLight position={[30, 50, 25]} intensity={1.2} castShadow shadow-mapSize={[2048, 2048]}
-                        shadow-camera-left={-60} shadow-camera-right={60} shadow-camera-top={50} shadow-camera-bottom={-50} />
+      <directionalLight position={[30, 50, 25]} intensity={1.2} castShadow shadow-mapSize={[4096, 4096]}
+                        shadow-camera-left={-170} shadow-camera-right={170} shadow-camera-top={170} shadow-camera-bottom={-170}
+                        shadow-camera-far={400} />
       <Ground />
       <Site live={live} items={items} onSelect={onSelect} />
+      <Town live={live} involved={involved} onAgent={onAgent} />
       {movers.map((m) => <MovingThing key={m.id} mover={m} />)}
-      <OrbitControls target={[0, 0, -4]} maxPolarAngle={Math.PI / 2.3} minDistance={25} maxDistance={140} enableDamping />
+      <MapControls target={[0, 0, -95]} maxPolarAngle={Math.PI / 2.3} minDistance={15} maxDistance={300} enableDamping
+                   screenSpacePanning={false} />
     </Canvas>
   );
 }
@@ -90,7 +96,7 @@ function MovingThing({ mover }: { mover: Mover }) {
 function Ground() {
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[200, 140]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -55]} receiveShadow><planeGeometry args={[280, 270]} />
         <meshStandardMaterial color={COLORS.ground} /></mesh>
       <Block position={[0, 0.02, 20]} size={[200, 0.04, 7]} color={COLORS.road} />
       {Array.from({ length: 20 }).map((_, i) => (
