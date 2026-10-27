@@ -256,6 +256,24 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | QD-10 | Local `qwen3.5:4b` for now. Measured 2026-10-26: the model's hidden thinking mode did not finish a decision in 300 s on this laptop (Ollama runs it on CPU), so the agent writes its reasoning into its JSON answer (`thinking`, shown in the UI) with the hidden mode off; ~50 s per decision call on CPU, ~34 s with the RTX 2050 (model split about 50/50 GPU/CPU), timeout 90 s. |
 | QD-11 | About one model call per decision (facts in the prompt, at most one extra lookup round); one agent may decide several of its own requests in one call, never two agents in one call. A provider fallback chain (free cloud tiers) is optional and later. |
 
+### Rule editor, event manager, replenishment (2026-10-27, approved by the developer, see `architecture/rules_events_replenishment.md`)
+
+| ID | Decision |
+| --- | --- |
+| RE-1 | One rule registry (owner, label, kind, unit, bounds, default, `BUSINESS`/`SYSTEM` visibility) over the existing versioned settings table. |
+| RE-2 | Per-item policies are stored by the owning agent (Inventory) through its own input, never in a shared table. |
+| RE-3 | Agent guidelines: free sentences per agent, added to that agent's think-loop prompt; they never override a parameter or a hard check. |
+| RE-4 | A natural-language "command" box that proposes a rule change for the user to confirm comes later, after the editor works. |
+| RE-5 | Rule-like code constants (Sales offer validity, Planning re-asks, Purchasing slot retries) move into the registry one by one. |
+| EM-1 | One event catalogue: per event publisher, subscribers (required/optional), payload model, description, version, status (`ACTIVE`/`DEPRECATED`/`RETIRED`); checked at publish and subscribe. |
+| EM-2 | The Events screen is read-only: no runtime subscribe/unsubscribe from the UI. |
+| EM-3 | A payload that does not match its model is refused in tests and development, logged loudly in the demo. |
+| EM-4 | (Developer, 2026-10-27) The Events page is organised agents → events → event story (meaning, causes, each receiver's reaction taken from its handler's description, follow-ups, payload, live numbers, removal impact). An event manager assistant (shared local model) explains events and guides adding, changing or removing them, grounded in the catalogue and the deterministic checks (`impact_of_removing`, `check_new_event`); advisory only — it never changes code or the catalogue; without the model it answers from the checks. |
+| RP-1 | New event `ReplenishmentNeeded` (publisher Inventory; subscribers Planning, Purchasing). |
+| RP-2 | Target stock level per item as a % of a maximum stock per item, both set in the rule editor. |
+| RP-3 | Stock production orders use only free capacity and never displace customer commitments. |
+| RP-4 | Decision points D9 (Inventory refill) and D10 (Planning stock production) run through the think loop. |
+
 ## Open
 
 | ID | Question | Notes |
@@ -265,3 +283,4 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | O-8 | Purchasing design incl. price/cost | Resolved 2026-10-17: `adr/ADR-002-price-in-supplier-selection.md`; design in `purchasing_agent/`. |
 | O-9 | Agent roster: separate Production agent? | Resolved 2026-10-18 (developer): no separate Production agent; the roster is the six agents of `adr/ADR-001.md` §2. Legacy `production` items (schema section in `OVERALL_DATABASE_SCHEMA.md` §6, empty `app/models/production.py`) are legacy only. |
 | O-10 | Quote-based feasibility and agent decisions | Resolved 2026-10-26: QD-1 to QD-11 approved (section above). Build in the order of the design doc §12. |
+| O-11 | Rule editor, event manager, replenishment | Resolved 2026-10-27: RE-1..5, EM-1..3, RP-1..4 approved (section above). Build in the order of the design doc §6. |

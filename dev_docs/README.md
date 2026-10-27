@@ -44,7 +44,7 @@ Details and test results: `PROJECT_STATUS.md`.
 | `sales_agent/1`–`4` | Sales Agent design notes (architecture, functions, backend, database) |
 | `planning_agent/`, `inventory_agent/`, `warehouse_agent/`, `hr_agent/` | Design notes for the other agents (4 notes each) |
 | `research/real_manufacturing_mrpii_research.md` | How real MRPII/ERP systems work; sources; gap analysis |
-| `architecture/` | Six-agent design: high-level architecture, event channel, negotiation, quantity accounting, system design, backend API, demo; `quotes_and_agent_decisions.md` (approved 2026-10-26) — owners quote their own options, agents decide at fixed decision points with the LLM |
+| `architecture/` | Six-agent design: high-level architecture, event channel, negotiation, quantity accounting, system design, backend API, demo; `quotes_and_agent_decisions.md` (approved 2026-10-26); `rules_events_replenishment.md` (approved 2026-10-27) — rule editor, event manager, replenishment — owners quote their own options, agents decide at fixed decision points with the LLM |
 | `SCENARIOS.md` | Business scenarios (SmartPhone X1) |
 | `TECH_STACK.md` | Original early stack plan (history; superseded by `DECISIONS.md`) |
 | `*.png` | System and relational schema diagrams (to be redrawn by the developer) |
