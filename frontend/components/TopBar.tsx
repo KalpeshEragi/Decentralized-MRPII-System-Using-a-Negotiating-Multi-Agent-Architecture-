@@ -76,6 +76,7 @@ export function TopBar({ live, onChanged, onError, onDisruptions, onCustomers, o
       <button className="btn" onClick={onCustomers} title="Simulated customers: how many, structured or chat">👥 Customers</button>
       <button className="btn" onClick={onDisruptions} title="Fire a simulator trigger">⚡ Disruption</button>
       <Link className="btn" href="/events" title="Event manager: every event, its publisher, subscribers and payload">📡 Events</Link>
+      <Link className="btn" href="/rules" title="Rule editor: the factory's business rules, general and per agent">⚙ Rules</Link>
       {live?.run
         ? <button className="btn" disabled={busy} onClick={() => finishRun(live.run!.id)}>Finish run {live.run.scenario}</button>
         : <button className="btn" onClick={() => onReport(null)}>📊 Reports</button>}
