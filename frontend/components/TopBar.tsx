@@ -2,6 +2,7 @@
 // Brand, simulated day, the clock (Next day / Play / Pause), the AI switch, disruptions, scenarios and runs. Every button
 // calls a simulation door; the panel itself decides nothing.
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, Live, Scenario } from "@/lib/api";
 
@@ -74,6 +75,7 @@ export function TopBar({ live, onChanged, onError, onDisruptions, onCustomers, o
               title="Add one customer order by hand: product, quantity, deadline">＋ New order</button>
       <button className="btn" onClick={onCustomers} title="Simulated customers: how many, structured or chat">👥 Customers</button>
       <button className="btn" onClick={onDisruptions} title="Fire a simulator trigger">⚡ Disruption</button>
+      <Link className="btn" href="/events" title="Event manager: every event, its publisher, subscribers and payload">📡 Events</Link>
       {live?.run
         ? <button className="btn" disabled={busy} onClick={() => finishRun(live.run!.id)}>Finish run {live.run.scenario}</button>
         : <button className="btn" onClick={() => onReport(null)}>📊 Reports</button>}

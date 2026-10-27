@@ -38,7 +38,7 @@ async function request<T>(method: string, path: string, body?: unknown, timeoutM
 
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
-  post: <T>(path: string, body: unknown = {}) => request<T>("POST", path, body),
+  post: <T>(path: string, body: unknown = {}, timeoutMs?: number) => request<T>("POST", path, body, timeoutMs),
 };
 
 // -- shapes the panel reads ----------------------------------------------------------------------------------------
