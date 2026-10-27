@@ -31,6 +31,10 @@ DEFAULTS: dict[str, object] = {
     "overtime_max_hours_per_week": 8,            # HR-3
     "quiet_limit_seconds": 300,                  # demo.md §6
     "simulated_suppliers": 1,                    # PI-1: 1 = suppliers answer automatically, 0 = a person answers
+    "shift_start": 8,                            # SIM-1: working day starts at this hour
+    "shift_hours": 8,                            # SIM-1: working hours per day (one shift)
+    "seconds_per_sim_hour": 2,                   # SIM-1: Play waits this long (real time) per simulated hour
+    "production_batch_size": 25,                 # SIM-2: the shop floor reports finished goods in batches of this size
     "sales_offer_validity_hours": 24,            # RE-5 (was Sales' OFFER_VALIDITY)
     "sales_planning_wait_minutes": 10,           # RE-5 (was Sales' PLANNING_WAIT_LIMIT)
     "sales_ai_failures_before_staff": 2,         # RE-5 (was Sales' FAILURES_BEFORE_STAFF_IS_FLAGGED)

@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 from app.core import work_runner
 from app.planning_agent import reads as planning
 from app.simulation import customers, shop_floor, triggers
-from app.simulation.clock import get_clock, next_day
+from app.simulation.clock import advance_hour, current_hour, get_clock, next_day, shift, today
 from app.simulation.models import TriggerLog
 from app.simulation.settings import setting
 
@@ -87,8 +87,38 @@ def run_one_day(session_factory: Callable[[], Session], settle: Settle | None = 
     """Advance one simulated day and play it out. `settle` waits for the work (tests pass their pump).
 
     Order: clock + due triggers -> new customer requests -> quiet -> customers decide on Planning's answers -> quiet
-    -> shop floor -> quiet. Stops early (and reports) when a step does not become quiet."""
+    -> shop floor works the whole shift -> quiet. Stops early (and reports) when a step does not become quiet."""
     settle = settle or (lambda: wait_until_quiet(session_factory))
+    result = _start_day(session_factory, settle)
+    if result.get("waiting"):
+        return result
+    with session_factory() as db:
+        result["shop_floor"] = shop_floor.report_day(db, today(db))
+        get_clock(db, lock=True).current_hour = shift(db)[1]  # the whole shift has been worked
+        db.commit()
+    return {**result, "waiting": settle()}
+
+
+def run_one_hour(session_factory: Callable[[], Session], settle: Settle | None = None) -> dict:
+    """Play one working hour (SIM-1). At the end of the shift the next hour starts a new day first (morning
+    routines, customers), then its first hour is worked. The shop floor reports every batch finished in that hour."""
+    settle = settle or (lambda: wait_until_quiet(session_factory))
+    with session_factory() as db:
+        day_over = current_hour(db) >= shift(db)[1]
+    result = _start_day(session_factory, settle) if day_over else {"customers": [], "decisions": []}
+    if result.get("waiting"):
+        return result
+    with session_factory() as db:
+        hour = current_hour(db)
+        result["shop_floor"] = shop_floor.work_hours(db, today(db), hour + 1)
+        advance_hour(db)
+        result.update(day=today(db).isoformat(), hour=f"{hour:02d}:00-{hour + 1:02d}:00")
+        db.commit()
+    return {**result, "waiting": settle()}
+
+
+def _start_day(session_factory: Callable[[], Session], settle: Settle) -> dict:
+    """A new simulated day up to the start of work: clock + due triggers, customers' requests and decisions."""
     with session_factory() as db:
         day = next_day(db)
         db.commit()
@@ -108,10 +138,7 @@ def run_one_day(session_factory: Callable[[], Session], settle: Settle | None = 
             return {**result, "waiting": left}
         if not decided:
             break
-    with session_factory() as db:
-        result["shop_floor"] = shop_floor.report_day(db, day)
-        db.commit()
-    return {**result, "waiting": settle()}
+    return result
 
 
 # -- Play / Pause (one background thread; the clock row holds the status) ----------------------------------------------
@@ -144,18 +171,23 @@ def _nothing_left(session_factory) -> bool:
 
 
 def _play_loop(session_factory) -> None:
+    """One simulated hour per tick (SIM-1), waiting `seconds_per_sim_hour` between hours (0 = as fast as possible)."""
     while _playing(session_factory):
         if _nothing_left(session_factory):
             _set_status(session_factory, "PAUSED", "nothing left to do: no open orders, triggers or new customers")
             return
-        day = run_one_day(session_factory)
-        if day["waiting"]:
-            _set_status(session_factory, "PAUSED", f"day {day['day']} did not become quiet: {day['waiting']}")
+        step = run_one_hour(session_factory)
+        if step["waiting"]:
+            _set_status(session_factory, "PAUSED", f"{step.get('day')} {step.get('hour', '')} did not become quiet: "
+                                                   f"{step['waiting']}")
             return
+        with session_factory() as db:
+            pause_seconds = float(setting(db, "seconds_per_sim_hour"))
+        time.sleep(pause_seconds)
 
 
 def play(session_factory: Callable[[], Session]) -> None:
-    """Advance day after day, each only when the factory is quiet, until paused."""
+    """Advance hour after hour, each only when the factory is quiet, until paused."""
     global _play_thread
     with _lock:
         _set_status(session_factory, "RUNNING")

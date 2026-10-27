@@ -23,6 +23,8 @@ class Clock(PlatformBase):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     current_day: Mapped[date] = mapped_column(Date, nullable=False)
+    # SIM-1: the time of day (hour) the next simulated hour starts at; empty = the shift's start (old snapshots)
+    current_hour: Mapped[int | None] = mapped_column(Integer, server_default="8")
     status: Mapped[str] = mapped_column(String, nullable=False, default="PAUSED")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
                                                  onupdate=func.now())

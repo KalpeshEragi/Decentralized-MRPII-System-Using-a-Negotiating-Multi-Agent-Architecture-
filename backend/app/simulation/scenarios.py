@@ -29,6 +29,9 @@ TABLETS = {"product_sku": "TABLET-T"}
 SCENARIOS: dict[str, tuple[str, dict, list[tuple[int, str, dict]]]] = {
     "MANUAL": ("Manual demo: an empty factory on day 1; you add each order yourself (no simulated customers)",
                {"customer_orders_per_day": 0}, []),
+    "ONE": ("One order end to end (SIM): 80 tablets in 8 days; part from stock, main boards made in batches, then "
+            "assembly in batches, storage and shipment — watch it hour by hour with Next hour",
+            {}, [(1, "NEW_ORDER", {**TABLETS, "quantity": 80, "lead_days": 8})]),
     "S1": ("One normal order: request -> options -> confirmation -> commitment -> production -> shipment", {},
            [(1, "NEW_ORDER", {**PHONES, "quantity": 100, "lead_days": 7})]),
     "S2": ("Supplier delay: a big order needs chips bought; the supplier then delivers 3 days late", {},
@@ -120,6 +123,9 @@ def start(db: Session, name: str, seed: int = 1) -> dict:
     _ensure_state(db, state, state_description, name)
     restored = states.restore(db, state)
     update_settings(db, {**settings, "customer_seed": seed})
+    from app.simulation.clock import get_clock, shift
+
+    get_clock(db, lock=True).current_hour = shift(db)[1]  # the start day is over: the first hour starts day 1
     first_day = today(db) + timedelta(days=1)
     for day, kind, params in plan:
         triggers.add(db, kind, params, first_day + timedelta(days=day - 1))

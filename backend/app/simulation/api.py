@@ -27,7 +27,8 @@ def get_session_factory() -> Callable[[], Session]:
 def get_clock(db: Session = Depends(get_db)) -> dict:
     current = clock.get_clock(db)
     db.commit()  # the row is created on first use
-    return {"current_day": current.current_day.isoformat(), "status": current.status, "waiting": runner.waiting(db),
+    return {"current_day": current.current_day.isoformat(), "hour": clock.current_hour(db),
+            "shift": list(clock.shift(db)), "status": current.status, "waiting": runner.waiting(db),
             "pause_reason": runner.pause_reason, "work_left": runner.work_left(db)}
 
 
@@ -35,6 +36,13 @@ def get_clock(db: Session = Depends(get_db)) -> dict:
 def next_day(session_factory: Callable[[], Session] = Depends(get_session_factory)) -> dict:
     """Play one simulated day in the background: advance, wait until quiet, shop floor, wait until quiet."""
     threading.Thread(target=runner.run_one_day, args=(session_factory,), name="simulation-day", daemon=True).start()
+    return {"status": "started"}
+
+
+@router.post("/clock/next-hour", status_code=202)
+def next_hour(session_factory: Callable[[], Session] = Depends(get_session_factory)) -> dict:
+    """Play one working hour in the background (SIM-1); at the end of the shift it starts the next day."""
+    threading.Thread(target=runner.run_one_hour, args=(session_factory,), name="simulation-hour", daemon=True).start()
     return {"status": "started"}
 
 
