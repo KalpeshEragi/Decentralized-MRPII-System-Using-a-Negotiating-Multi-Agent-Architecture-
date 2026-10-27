@@ -98,6 +98,20 @@ class Case(PlatformBase):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class QuoteRound(PlatformBase):
+    """One round of quotes for a new customer request (DC-1, QD-1): what was asked of which owner and what each
+    quoted. Planning plans from the quotes when every owner has answered."""
+
+    __tablename__ = "quote_rounds"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # also the negotiation case id of its quote sessions
+    demand_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="QUOTING")  # QUOTING, PLANNED
+    sessions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)  # session id -> {owner, need, ...}
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ProductionOrder(PlatformBase):
     __tablename__ = "production_orders"
     __table_args__ = {"schema": SCHEMA}

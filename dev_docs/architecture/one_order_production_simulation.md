@@ -74,8 +74,12 @@ A shortage becomes a decision (make or buy the rest), not a rejection.
    40 MB on day 9 (25 at 12:00, last 15 at 16:00), 60 tablets on day 10 (25 at 11:00, 50 at 14:00, last 10 at
    16:00), shipped day 11 — no clicks after the confirmation. Next day works the whole shift, so earlier scenarios
    keep their results.
-2. **QD steps 3–4 for this order**: QUOTE_REQUEST/QUOTE with Inventory, Purchasing, HR, Warehouse; Planning builds the plan
-   from quotes; make-or-buy for the shortage.
+2. **[built]** **QD steps 3–4 for new orders**: QUOTE_REQUEST/QUOTE with Inventory (ATP steps, safety stock kept),
+   Purchasing (supplier options), HR (free hours per skill), Warehouse (free receiving); Planning plans new requests
+   from the quotes (`planning_agent/quotes.py`, `QuoteFacts`) and records its make / buy / stock decision (D6).
+   Scenario ONE (150 tablets): from stock 20 tablets, 20 MB and materials; make 110 MB and 130 tablets; buy 10 BAT,
+   10 PCB, 20 CHIP (Purchasing bought 100 / 10 / 250 to meet supplier minimums); shipped day 13. Still on direct
+   reads (next): repairs, customer changes, the re-plan at confirmation and the replan after failed options.
 3. **AB-1/2/4**: tool loop and the two objectives; Planning (D6/D7) and Inventory (D1/D2) first.
 4. **SIM-4**: blocked operations and Planning's decision on them.
 

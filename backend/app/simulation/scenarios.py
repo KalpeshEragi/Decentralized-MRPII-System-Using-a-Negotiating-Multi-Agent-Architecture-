@@ -29,9 +29,10 @@ TABLETS = {"product_sku": "TABLET-T"}
 SCENARIOS: dict[str, tuple[str, dict, list[tuple[int, str, dict]]]] = {
     "MANUAL": ("Manual demo: an empty factory on day 1; you add each order yourself (no simulated customers)",
                {"customer_orders_per_day": 0}, []),
-    "ONE": ("One order end to end (SIM): 80 tablets in 8 days; part from stock, main boards made in batches, then "
-            "assembly in batches, storage and shipment — watch it hour by hour with Next hour",
-            {}, [(1, "NEW_ORDER", {**TABLETS, "quantity": 80, "lead_days": 8})]),
+    "ONE": ("One order end to end (SIM, DC-1): 150 tablets in 12 days. The owners quote; Planning takes what stock "
+            "covers, makes main boards and tablets in batches, and buys the batteries, boards and chips stock cannot "
+            "cover — then storage and shipment. Watch it hour by hour with Next hour",
+            {}, [(1, "NEW_ORDER", {**TABLETS, "quantity": 150, "lead_days": 12})]),
     "S1": ("One normal order: request -> options -> confirmation -> commitment -> production -> shipment", {},
            [(1, "NEW_ORDER", {**PHONES, "quantity": 100, "lead_days": 7})]),
     "S2": ("Supplier delay: a big order needs chips bought; the supplier then delivers 3 days late", {},

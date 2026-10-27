@@ -34,7 +34,8 @@ def play_s8(session_factory, pump, client) -> list[dict]:
         for d in demands:
             if d["status"] == "COMPLETED":
                 assert d["quantity_shipped"] == d["committed_quantity"]
-        return [row.details for row in db.scalars(select(AuditLog).where(AuditLog.event_type == "DECISION"))]
+        rows = db.scalars(select(AuditLog).where(AuditLog.event_type == "DECISION"))
+        return [row.details for row in rows if row.details["decision_point"] == "D7"]  # D6 = make-or-buy from quotes
 
 
 def test_ai_off_planning_decides_with_its_policy_and_records_it(session_factory, pump, factory):

@@ -33,10 +33,10 @@ from app.negotiation import layer
 from app.negotiation.envelope import Envelope, MessageType as M, ReasonCode, ResourceType, Terms
 from app.negotiation.models import Session
 from app.mrpii.ranking import Alternative, check_ai_choice, rank
-from app.planning_agent import ai as planning_ai, decisions, plan as planner
+from app.planning_agent import ai as planning_ai, decisions, plan as planner, quotes
 from app.planning_agent.models import (AuditLog, Case, CustomerDemand, EventVersion, MachineHoursLedger, Option,
-                                       ProductionOrder, SalesOutbox, ShopFloorReport, WorkCenter, WorkCenterDay,
-                                       WorkItem)
+                                       ProductionOrder, QuoteRound, SalesOutbox, ShopFloorReport, WorkCenter,
+                                       WorkCenterDay, WorkItem)
 from app.sales_agent import reads as sales
 from app.simulation.clock import current_hour, today
 from app.simulation.settings import setting
@@ -86,18 +86,24 @@ def plan_request(db: DbSession, demand: CustomerDemand) -> None:
         demand.status = "NOT_FEASIBLE"
         _send_result(db, demand, "NOTHING_FEASIBLE", reason="UNKNOWN_PRODUCT")
         return
-    found = planner.options(db, demand.item_id, demand.quantity, demand.requested_day)
+    demand.status = "PLANNING"
+    quotes.start(db, demand)  # DC-1: ask the owners for quotes; the plan is made when every owner has answered
+
+
+def plan_with(db: DbSession, demand: CustomerDemand, facts) -> list:
+    """Plan the request from `facts` (the owners' quotes) and secure the best option. Returns the options found."""
+    found = planner.options(db, demand.item_id, demand.quantity, demand.requested_day, facts)
     if not found:
         demand.status = "NOT_FEASIBLE"  # final: the customer is told nothing can be offered
         _send_result(db, demand, "NOTHING_FEASIBLE", reason="NO_FEASIBLE_PLAN")
-        return
+        return found
     for kind, spec in found:
         db.add(Option(demand_id=demand.id, kind=kind, quantity=spec.quantity, delivery_day=spec.delivery_day,
                       held=False, status="OFFERED", plan=spec.to_json()))
     db.flush()
-    demand.status = "PLANNING"
     best = _options(db, demand)[0]
     _secure(db, demand, best, auto_commit=False)
+    return found
 
 
 def _options(db: DbSession, demand: CustomerDemand) -> list[Option]:
@@ -204,6 +210,12 @@ def _secure(db: DbSession, demand: CustomerDemand, option: Option, auto_commit: 
 
 
 def handle_message(db: DbSession, message: Envelope, session: Session) -> None:
+    if message.message_type in (M.QUOTE, M.REJECT):
+        quote = db.get(QuoteRound, message.case_id, with_for_update=True)
+        if quote is not None:  # an owner answered a quote request (DC-1)
+            if quotes.on_answer(db, quote, message):
+                quotes.finish(db, quote)
+            return
     case = db.get(Case, message.case_id, with_for_update=True)
     if case is None:
         return
