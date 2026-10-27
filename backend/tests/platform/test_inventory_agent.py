@@ -48,7 +48,7 @@ def test_the_5000_to_3000_example_with_an_exact_ledger(session_factory, pump, fa
                                    .order_by(Reservation.created_at.desc())).first() for ref in ("O-2", "O-3"))
         channel.publish(db, event_type="PlanRevised", publisher="PLANNING", entity_type="plan", entity_id="O-2",
                         entity_version=2, correlation_id="C-2",
-                        payload={"releases": [
+                        payload={"demand_id": "O-2", "request_ref": "R-2", "reason": "QUANTITY_DECREASED", "releases": [
                             {"owner": "INVENTORY", "reservation_id": str(o2_extra.id), "quantity": "400"},
                             {"owner": "INVENTORY", "reservation_id": str(o3.id), "quantity": "500"}]})
         channel.publish(db, event_type="MaterialIssuedToProduction", publisher="WAREHOUSE",

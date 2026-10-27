@@ -43,7 +43,9 @@ def test_absence_is_covered_by_moving_a_worker_then_overtime_then_at_risk(sessio
     with session_factory() as db:
         channel.publish(db, event_type="ProductionOrderReleased", publisher="PLANNING", entity_type="production_order",
                         entity_id="PO-1", entity_version=1, correlation_id="C-1",
-                        payload={"production_order_id": "PO-1"})
+                        payload={"production_order_id": "PO-1", "demand_id": "D-1", "item_id": "PHONE",
+                                 "quantity": "100", "start_day": day.isoformat(), "end_day": day.isoformat(),
+                                 "steps": []})
         db.commit()
     pump([planning])
     with session_factory() as db:
