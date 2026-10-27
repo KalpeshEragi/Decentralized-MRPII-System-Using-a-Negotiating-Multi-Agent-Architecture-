@@ -8,6 +8,7 @@ default demo factory, scenarios, runs and run reports.
 | File | Purpose |
 | --- | --- |
 | `factory_a.py` | The default demo factory (demo.md §4.1): items, BOMs, routings, stock, work centers, workers, zones, suppliers and Sales' products, built through each owner's own setup. |
+| `models.py` (rule profile) | `RuleValue` / `RuleChange` (`simulation.rule_values`, `simulation.rule_changes`, migration 019): the user's business-rule values and their history; kept across restores (`states.KEPT`), re-applied by `states.restore` (RE-6). |
 | `scenarios.py` | Built-in scenarios S1–S8, MANUAL and LOAD-10/20/100 (state + settings + triggers on run days + seed); `start` (restores the scenario's starting state, building it once if missing: `factory-a`, or for a load run `factory-a-load-N` with finished phones and tablets for about 75% of its expected orders (`LOAD_COVER`) and room for them, schedules the triggers, opens a run), `finish` (saves the run report: metrics, orders, triggers, final factory state, the whole timeline). |
 | `models.py` | `Clock` (one row: current simulated day, status: PAUSED / RUNNING (Play)), `Setting` (versioned factory settings) `TriggerLog` (every trigger, fired now or scheduled for a day; migration `012`), `Snapshot` (014), `Run` and `RunReport` (016; kept across restores) in the `simulation` schema. |
 | `clock.py` | `get_clock` (created on first use at `simulation_start_day`), `today`, `next_day` (locks the clock row, advances one day, publishes `SimulatedDayStarted` in the same transaction). |

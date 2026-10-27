@@ -1,7 +1,7 @@
 # Rule editor, event manager and a factory that keeps moving
 
 **Status: approved 2026-10-27 (RE-1..5, EM-1..3, RP-1..4, `DECISIONS.md`).** Three requirements designed together
-because they touch the same settings, events and agents. Build order §6: step 1 (event manager) built.
+because they touch the same settings, events and agents. Build order §6: steps 1 (event manager) and 2 (rule registry, doors, Rules page) built.
 Direction kept: the LLM is each agent's brain at decision points; code validates (QD-7,
 `quotes_and_agent_decisions.md`).
 
@@ -158,7 +158,10 @@ to target. Then an urgent order arrives: Inventory lends safety stock (D1), Plan
 
 1. **[built]** Event manager (catalogue, checks, report, doors, Events page) — the base for the new event of step 4.
    Code: `backend/app/events/catalogue.py`, `manager.py`, `api.py`; page `frontend/app/events/page.tsx`.
-2. Rule registry, rule doors, Rules page with parameters (no per-item yet).
+2. **[built]** Rule registry, rule doors, Rules page with parameters (no per-item yet). Code: `backend/app/rules/`,
+   page `frontend/app/rules/page.tsx`. Found: restores reset the settings, so the user's values are a rule profile that
+   survives restores (RE-6). Two settings (`dampener_days`, `follow_up_depth_limit`) are read by no code: shown as
+   "not used yet", not editable. Five constants moved into settings (RE-5).
 3. Per-item policies (Inventory: safety stock, target level, maximum) and agent guidelines in prompts.
 4. Replenishment: `ReplenishmentNeeded`, Planning's stock orders, Purchasing for stock, RD-6 refill; scenario IDLE.
 5. D9, D10 and D1 through the think loop; thinking cards for them.

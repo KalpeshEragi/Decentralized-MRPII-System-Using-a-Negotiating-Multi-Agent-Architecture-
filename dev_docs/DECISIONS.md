@@ -269,6 +269,7 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | EM-2 | The Events screen is read-only: no runtime subscribe/unsubscribe from the UI. |
 | EM-3 | A payload that does not match its model is refused in tests and development, logged loudly in the demo. |
 | EM-4 | (Developer, 2026-10-27) The Events page is organised agents → events → event story (meaning, causes, each receiver's reaction taken from its handler's description, follow-ups, payload, live numbers, removal impact). An event manager assistant (shared local model) explains events and guides adding, changing or removing them, grounded in the catalogue and the deterministic checks (`impact_of_removing`, `check_new_event`); advisory only — it never changes code or the catalogue; without the model it answers from the checks. |
+| RE-6 | (2026-10-27, found while building RE-1) Starting a scenario or restoring a state resets `simulation.settings`, which would silently undo the user's rules. So the user's business-rule values form a rule profile (`simulation.rule_values`) with its history (`simulation.rule_changes`); both survive restores and the profile is applied to the settings after every restore. |
 | RP-1 | New event `ReplenishmentNeeded` (publisher Inventory; subscribers Planning, Purchasing). |
 | RP-2 | Target stock level per item as a % of a maximum stock per item, both set in the rule editor. |
 | RP-3 | Stock production orders use only free capacity and never displace customer commitments. |
