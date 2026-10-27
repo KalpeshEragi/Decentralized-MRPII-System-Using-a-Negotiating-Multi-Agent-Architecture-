@@ -1,0 +1,201 @@
+% Section 5.3 Testing -- Decentralized MRPII
+% Uses only standard LaTeX (tabular with p-columns). Change \section/\subsection to match your report's levels.
+% Test case fields follow ISO/IEC/IEEE 29119-3 (Test Documentation): ID, objective and traceability,
+% preconditions, inputs, expected result, actual status.
+
+\section{Testing}
+
+The system was tested at three levels: unit, integration and black-box. All automated tests are written with
+\textbf{pytest} and run with one command (\texttt{python -m pytest}). The test cases are documented in the style of
+ISO/IEC/IEEE 29119-3: each case has an identifier, an objective traced to a design rule or decision, preconditions,
+inputs, an expected result and an actual status.
+
+Three principles shaped the test design:
+\begin{itemize}
+  \item \textbf{Deterministic business logic is checked with exact values.} BOM explosion, MRP, available-to-promise,
+        reservations and batch arithmetic are compared with numbers worked out by hand in the design documents.
+  \item \textbf{The language model is never called by a test.} Agents receive a fake model that returns chosen answers,
+        broken answers or no answer, so every outcome, including the fallback, is repeatable.
+  \item \textbf{Same state and same inputs give the same result.} Scenarios use a fixed seed and a simulated clock,
+        and every database test starts from empty tables.
+\end{itemize}
+
+\noindent\textbf{Test environment.} Python 3 with pytest; FastAPI \texttt{TestClient} for HTTP calls; a local
+PostgreSQL test database (separate from the demo database); background workers switched off and replaced by a
+test ``pump'' that runs queued work step by step, so that asynchronous agent work becomes deterministic.
+
+% ---------------------------------------------------------------------------------------------------------------------
+\subsection{Unit Testing}
+
+Unit tests check one function or module in isolation, without a database. Collaborators are replaced: the language
+model by a fake client, other agents by fixed inputs. These are white-box tests: they are written with knowledge of the
+code and aim at each business rule and each failure path (invalid input, refused proposal, model timeout).
+140 unit tests were written; Table~\ref{tab:unit-summary} shows how they are spread over the modules.
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|p{0.30\textwidth}|p{0.50\textwidth}|p{0.08\textwidth}|}
+\hline
+\textbf{Module} & \textbf{What is checked} & \textbf{Tests} \\ \hline
+MRPII calculations & Multi-level MRP with capacity, ATP by date, fixed ranking of orders & 4 \\ \hline
+Agent decisions (think loop) & The agent proposes an action, code checks it, one revision, then fallback & 18 \\ \hline
+Core (events, rules, clock) & Event catalogue and payloads, rule bounds, batch arithmetic, configuration & 16 \\ \hline
+Negotiation quotes & Quote sessions, availability steps, reading quotes back & 3 \\ \hline
+API and A2A messages & Error format (RFC 9457), agent cards, refused messages & 6 \\ \hline
+Purchasing Agent & Supplier selection, validation, LLM guardrails, settings and dates & 80 \\ \hline
+Sales Agent & Order detail checks, Planning reply checks, customer rules & 13 \\ \hline
+\multicolumn{2}{|r|}{\textbf{Total}} & \textbf{140} \\ \hline
+\end{tabular}
+\caption{Unit tests per module}
+\label{tab:unit-summary}
+\end{table}
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|p{0.07\textwidth}|p{0.24\textwidth}|p{0.25\textwidth}|p{0.27\textwidth}|p{0.07\textwidth}|}
+\hline
+\textbf{ID} & \textbf{Objective (traceability)} & \textbf{Input} & \textbf{Expected result} & \textbf{Status} \\ \hline
+UT-01 & Multi-level MRP with capacity is exact (Planning) & Documented phone example: BOM, stock, routings, due date
+      & Gross/net requirements and planned orders equal the hand-worked numbers & Pass \\ \hline
+UT-02 & ATP reacts to a supplier delay & Stock, promises, a receipt moved to a later date
+      & Available-to-promise per day falls until the new receipt date & Pass \\ \hline
+UT-03 & An agent's own proposal is accepted when valid (QD-7) & Fake model proposes an action with its own numbers
+      & The check accepts it; the decision is recorded as chosen by the model & Pass \\ \hline
+UT-04 & A wrong proposal never reaches business state (QD-11) & Fake model proposes an invalid action twice
+      & One revision with the reason, then the deterministic fallback decides & Pass \\ \hline
+UT-05 & A dead model does not stop the agent & Fake model times out or returns garbage
+      & Fallback decides and the record states why; the loop always ends & Pass \\ \hline
+UT-06 & Events are checked against the catalogue (EM-1) & Unknown, retired and wrong-publisher events
+      & Each one is refused; valid payloads match their model & Pass \\ \hline
+UT-07 & Rule values stay inside their bounds (RE-1) & Every business rule and its default value
+      & Each default lies within its bounds; rules that depend on each other are cross-checked & Pass \\ \hline
+UT-08 & Planning reads supplier lead time from quotes (DC-1) & Quotes: 60 pcs in 5 days, 500 pcs in 9 days
+      & 50 pcs $\rightarrow$ 5 days; 400 pcs $\rightarrow$ 9 days; 9999 pcs $\rightarrow$ not possible & Pass \\ \hline
+\end{tabular}
+\caption{Selected unit test cases}
+\label{tab:unit-cases}
+\end{table}
+
+% ---------------------------------------------------------------------------------------------------------------------
+\subsection{Integration Testing}
+
+Integration tests check that modules work together on the real PostgreSQL database: agents, the publish--subscribe
+event channel, the private negotiation layer and the work queues. A \textbf{bottom-up} approach was used. The shared
+infrastructure was tested first; then each agent on its own, with a small \emph{stub} (a fake Planning Agent that sends
+requests and accepts offers); then several real agents together. The test pump plays the role of the \emph{driver}: it
+runs queued work until nothing is left and fails the test if any item stays unfinished.
+
+Besides the expected result, the agent and multi-agent tests check two global properties after each simulated day:
+\begin{itemize}
+  \item \textbf{Reconciliation:} each agent's records add up (stock ledger, reservations, worker hours, storage space
+        and plan); the check must return no differences.
+  \item \textbf{No double commitment:} no stock, space, supplier quantity or worker hour is committed twice.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|p{0.25\textwidth}|p{0.55\textwidth}|p{0.08\textwidth}|}
+\hline
+\textbf{Level} & \textbf{What is integrated} & \textbf{Tests} \\ \hline
+L1 Infrastructure & Work runner (order, retries, lease take-over) and event channel (saved with the change, one copy per subscriber) & 6 \\ \hline
+L2 One agent + database & Inventory, HR, negotiation layer, Purchasing Agent and Sales Agent, each against stubs & 132 \\ \hline
+L3 Several agents & Purchasing with Warehouse, shortage buying, replanning, rule editor, event manager, observer & 12 \\ \hline
+L4 Whole system & Full order flows started only through the simulator's public doors (see Section~5.3.3) & 8 \\ \hline
+\multicolumn{2}{|r|}{\textbf{Total}} & \textbf{158} \\ \hline
+\end{tabular}
+\caption{Integration tests per level}
+\label{tab:int-summary}
+\end{table}
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|p{0.07\textwidth}|p{0.24\textwidth}|p{0.25\textwidth}|p{0.27\textwidth}|p{0.07\textwidth}|}
+\hline
+\textbf{ID} & \textbf{Objective (traceability)} & \textbf{Input / steps} & \textbf{Expected result} & \textbf{Status} \\ \hline
+IT-01 & A business change and its event are saved together & Publish inside a transaction, then roll back
+      & Neither the change nor the event exists; on commit both exist & Pass \\ \hline
+IT-02 & Failed work is retried, not lost & A handler fails repeatedly
+      & Retries with back-off, then the item fails and holds its scope & Pass \\ \hline
+IT-03 & Inventory keeps an exact ledger & Stub Planning reserves 3000 of 5000 pcs and commits
+      & Balance, reservations and ledger rows equal the documented example & Pass \\ \hline
+IT-04 & Scarce stock is never double-booked & Three requests compete for little stock
+      & Total committed $\le$ stock; the others get a counter-offer or reject & Pass \\ \hline
+IT-05 & HR covers a worker absence & A committed shift loses a worker
+      & HR moves a multi-skilled worker, then overtime, then marks AT\_RISK & Pass \\ \hline
+IT-06 & A negotiation reaches a commitment over A2A & Request $\rightarrow$ offer $\rightarrow$ accept $\rightarrow$ hold $\rightarrow$ commit
+      & Session ends COMMITTED; a repeated message is a harmless duplicate & Pass \\ \hline
+IT-07 & Purchasing books a receiving slot first (WH-1) & The receiving dock is full on the wanted day
+      & Delivery moves to a later slot and the order still ships & Pass \\ \hline
+IT-08 & A rule change reaches the agents (RE-6) & Change a rule through the rule editor
+      & Agents read the new value; it survives a state restore & Pass \\ \hline
+\end{tabular}
+\caption{Selected integration test cases}
+\label{tab:int-cases}
+\end{table}
+
+% ---------------------------------------------------------------------------------------------------------------------
+\subsection{Blackbox Testing}
+
+Black-box tests use only the system's public interface (the HTTP endpoints of Sales, Planning, the simulator and the
+rule editor) and compare the outputs with the requirements, without looking at the code. The test cases were designed
+with four standard techniques:
+\begin{itemize}
+  \item \textbf{Equivalence partitioning:} valid and invalid groups of input (a correct key and a wrong key; a complete
+        order and an order with missing details).
+  \item \textbf{Boundary value analysis:} rule values at, inside and outside their limits.
+  \item \textbf{Decision tables:} combinations of conditions that must fit together (dependent rules).
+  \item \textbf{State transition testing:} the order lifecycle, request $\rightarrow$ options $\rightarrow$ confirmation
+        $\rightarrow$ commitment $\rightarrow$ production $\rightarrow$ shipment, where customer acceptance, commitment
+        and production start must remain separate states.
+\end{itemize}
+The full scenarios (S1, S3, S8 and scenario ONE) are system-level black-box tests: they start a scenario through the
+simulator and check only the visible outcome and the run report.
+
+\begin{table}[h]
+\centering
+\small
+\renewcommand{\arraystretch}{1.2}
+\begin{tabular}{|p{0.07\textwidth}|p{0.13\textwidth}|p{0.27\textwidth}|p{0.36\textwidth}|p{0.07\textwidth}|}
+\hline
+\textbf{ID} & \textbf{Technique} & \textbf{Input} & \textbf{Expected result} & \textbf{Status} \\ \hline
+BB-01 & Equivalence & New order request with a wrong door key / correct key
+      & 403 Forbidden / request accepted & Pass \\ \hline
+BB-02 & Equivalence & Order details that are wrong or missing
+      & Every problem is reported; nothing is guessed & Pass \\ \hline
+BB-03 & Equivalence & A2A message that is malformed, addressed to another agent, or carries a price
+      & Refused with a clear error; no state changes & Pass \\ \hline
+BB-04 & Boundary & Overtime rule set above its limit / within it
+      & 422 ``between 0 h and 6 h'' / value applied & Pass \\ \hline
+BB-05 & Decision table & Two dependent rules set so that they conflict
+      & 422 ``cannot be less''; neither value is stored & Pass \\ \hline
+BB-06 & State transition & Scenario S1: one normal order, customer confirms
+      & States follow the lifecycle in order; the order ships complete & Pass \\ \hline
+BB-07 & State transition & Cancellation after commitment
+      & Exactly what was held is released; released work continues & Pass \\ \hline
+BB-08 & Scenario & Scenario ONE: 150 tablets, played hour by hour
+      & Planned from quotes; boards and tablets made in batches of 25; 150 shipped; records reconcile & Pass \\ \hline
+BB-09 & Scenario & S3: a material shortage
+      & Bought through Purchasing; the order still ships on time & Pass \\ \hline
+BB-10 & Scenario & S8: four competing orders on the same day
+      & No double booking; every committed order ships in full & Pass \\ \hline
+BB-11 & Scenario & A supplier delay after commitment
+      & Expected delivery moves; the order is marked at risk & Pass \\ \hline
+BB-12 & Repeatability & Restore a saved state and replay the same day
+      & The same events and the same result as the first run & Pass \\ \hline
+\end{tabular}
+\caption{Black-box test cases}
+\label{tab:bb-cases}
+\end{table}
+
+\noindent\textbf{Test summary.} The complete suite contains 298 test functions; some run with several inputs, giving
+308 test runs. In the final full run on the local test database (about 8 minutes), 307 passed, 1 was skipped and none
+failed. Earlier runs had found four tests whose expectations had fallen behind the design (an old default host name, and
+Planning's new make-or-buy decision record); these tests were corrected, not the system.
