@@ -80,8 +80,11 @@ def result_for(db, ref: str) -> dict:
 
 def confirm(session_factory, sent: dict, order_number: str, quantity: int, due: date) -> None:
     """The customer accepts the option: Sales publishes OrderConfirmed through the real connector."""
-    RealPlanning(session_factory).send_confirmation({"inquiry_id": sent["inquiry_id"], "order_number": order_number,
-                                                     "quantity": str(quantity), "delivery_date": due.isoformat()})
+    RealPlanning(session_factory).send_confirmation({  # the full OrderConfirmed shape Sales sends (event catalogue)
+        "inquiry_id": sent["inquiry_id"], "order_number": order_number, "quantity": str(quantity),
+        "delivery_date": due.isoformat(), "option_id": "test-option", "customer_id": "test-customer",
+        "product_id": "test-product", "confirmed_at": "2026-11-02T09:00:00+00:00", "confirming_message_id": "test-yes",
+        "payment": "ASSUMED_PAID"})
 
 
 def run_day(session_factory, pump, client: TestClient) -> date:

@@ -17,9 +17,10 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import AppError, ErrorCode
 from app.simulation.clock import get_clock, today
-from app.simulation.models import Run, RunReport, Snapshot
+from app.simulation.models import RuleChange, RuleValue, Run, RunReport, Snapshot
 
-KEPT = (Snapshot.__table__, Run.__table__, RunReport.__table__)  # survive a restore: not part of a run's state
+KEPT = (Snapshot.__table__, Run.__table__, RunReport.__table__,  # survive a restore: not part of a run's state
+        RuleValue.__table__, RuleChange.__table__)  # the user's rule profile and its history (RE-6)
 
 
 def run_tables() -> list[Table]:
@@ -96,6 +97,9 @@ def restore(db: Session, name: str) -> dict:
             + " AND ".join(f't."{k}" = s."{k}"' for k in keys)), {"rows": data})
     _reset_counters(db, tables)
     get_clock(db, lock=True).status = "PAUSED"
+    from app.rules.service import reapply_profile
+
+    reapply_profile(db)  # RE-6: the user's business rules survive a restore
     db.flush()
     return {"name": name, "simulated_day": today(db).isoformat(), "reconcile": reconcile(db)}
 

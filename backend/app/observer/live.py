@@ -14,7 +14,7 @@ from app.models.core import Item
 from app.negotiation.models import Session as NegotiationSession
 from app.observability.models import LlmCall
 from app.planning_agent import reads as planning
-from app.simulation.clock import get_clock
+from app.simulation.clock import current_hour, get_clock, shift
 from app.simulation.models import Run
 from app.simulation import runner
 from app.simulation.runner import waiting
@@ -41,7 +41,8 @@ def live(db: Session) -> dict:
     orders = planning.production_orders(db)
     run = db.scalar(select(Run).where(Run.status == "RUNNING").order_by(Run.id.desc()))
     return {
-        "clock": {"day": day.isoformat(), "status": clock.status, "waiting": waiting(db),
+        "clock": {"day": day.isoformat(), "hour": current_hour(db), "shift": list(shift(db)), "status": clock.status,
+                  "waiting": waiting(db),
                   "pause_reason": runner.pause_reason},
         "ai_enabled": bool(int(setting(db, "ai_enabled"))),
         "run": {"id": run.id, "scenario": run.scenario, "start_day": run.start_day.isoformat()} if run else None,
@@ -79,7 +80,7 @@ def _line(db: Session, work_center: str, day: date, orders: list[dict], items: d
     """A production line today: free machine-hours and the production orders that have work on it today."""
     today_text = day.isoformat()
     running = [{"id": o["id"], "sku": items[o["item_id"]].sku if o["item_id"] in items else None,
-                "quantity": o["quantity"], "status": o["status"]}
+                "quantity": o["quantity"], "status": o["status"], "quantity_completed": o["quantity_completed"]}
                for o in orders if o["status"] in ACTIVE and work_center in o["work_centers"]
                and o["start_day"] <= today_text <= o["end_day"]]
     return {"work_center": work_center, "machine_hours_free": planning.machine_hours_free(db, work_center, day),

@@ -140,8 +140,22 @@ def _reply(db: DbSession, message: Envelope, kind: M, terms: Terms | None = None
 # -- inbox ---------------------------------------------------------------------------------------------------------------------
 
 
+def quote(db: DbSession, asked: Terms) -> list[Terms]:
+    """QD-1: what Inventory can promise of this item from each day of the window — its own ATP, safety stock kept
+    (RD-6 releases are decided only in a binding request). Steps: one option per change."""
+    from app.negotiation.quoting import quote_window, steps
+
+    row = balance(db, asked.resource_ref)
+    start, end = quote_window(asked, today(db))
+    return steps(asked, start, end, lambda day: atp_on(db, row, day), "AVAILABLE_FROM")
+
+
 def handle_message(db: DbSession, message: Envelope, session: Session) -> None:
     kind = message.message_type
+    if kind == M.QUOTE_REQUEST:
+        layer.send(db, layer.reply_to(message, M.QUOTE, options=quote(db, message.terms),
+                                      text=f"quote: what I can promise of {message.terms.resource_ref}"))
+        return
     if kind in (M.REQUEST, M.COUNTER_OFFER):
         reply_kind, terms, reason = answer(db, message.terms)
         _reply(db, message, reply_kind, terms, reason)
@@ -284,6 +298,7 @@ def on_finished_goods_stored(db: DbSession, event: Event) -> None:
 
 
 def on_shipment(db: DbSession, event: Event) -> None:
+    """Goods left the factory: on hand goes down and the order's reservations are used up by the shipped quantity."""
     if not channel.is_newer(db, EventVersion, event):
         return
     payload = event.payload

@@ -38,13 +38,16 @@ async function request<T>(method: string, path: string, body?: unknown, timeoutM
 
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
-  post: <T>(path: string, body: unknown = {}) => request<T>("POST", path, body),
+  post: <T>(path: string, body: unknown = {}, timeoutMs?: number) => request<T>("POST", path, body, timeoutMs),
+  put: <T>(path: string, body: unknown = {}) => request<T>("PUT", path, body),
+  del: <T>(path: string) => request<T>("DELETE", path),
 };
 
 // -- shapes the panel reads ----------------------------------------------------------------------------------------
 
 export type Live = {
-  clock: { day: string; status: "PAUSED" | "RUNNING"; waiting: Record<string, number>; pause_reason: string | null };
+  clock: { day: string; hour: number; shift: [number, number]; status: "PAUSED" | "RUNNING";
+    waiting: Record<string, number>; pause_reason: string | null };
   ai_enabled: boolean;
   workers: { code: string; name: string; primary_skill: string; secondary_skills: string[]; absent: boolean }[];
   run: { id: number; scenario: string; start_day: string } | null;
@@ -58,7 +61,8 @@ export type Live = {
   };
   stock: { item_id: string; sku: string; name: string; type: string; on_hand: string; reserved: string; held: string }[];
   zones: { zone: string; capacity_units: string; occupied_now: string }[];
-  lines: { work_center: string; machine_hours_free: string; orders_today: { id: string; sku: string | null; quantity: string; status: string }[] }[];
+  lines: { work_center: string; machine_hours_free: string;
+    orders_today: { id: string; sku: string | null; quantity: string; status: string; quantity_completed: string }[] }[];
   docks: {
     inbound: { commitment_id: string; sku: string | null; quantity: string; status: string; arrival_day: string }[];
     outbound: { order_ref: string; sku: string | null; quantity: string; delivery_day: string }[];
@@ -80,6 +84,7 @@ export type TimelineItem = {
   case_id?: string;
   session_id?: string;
   terms?: Record<string, unknown> | null;
+  options?: Record<string, unknown>[] | null;  // QUOTE: the owner's quoted options
   reason_code?: string | null;
   text?: string | null;
   order_label?: string | null;     // what the negotiation is for: "PO MB×90", "SO-1001"

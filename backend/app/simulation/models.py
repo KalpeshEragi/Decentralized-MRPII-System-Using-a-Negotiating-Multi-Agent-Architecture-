@@ -23,6 +23,8 @@ class Clock(PlatformBase):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     current_day: Mapped[date] = mapped_column(Date, nullable=False)
+    # SIM-1: the time of day (hour) the next simulated hour starts at; empty = the shift's start (old snapshots)
+    current_hour: Mapped[int | None] = mapped_column(Integer, server_default="8")
     status: Mapped[str] = mapped_column(String, nullable=False, default="PAUSED")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
                                                  onupdate=func.now())
@@ -96,3 +98,33 @@ class RunReport(PlatformBase):
     run_id: Mapped[int] = mapped_column(Integer, primary_key=True)
     report: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RuleValue(PlatformBase):
+    """The user's chosen value of one business rule (RE-1, RE-6): the rule profile. Not part of a run, so it survives
+    scenario starts and state restores; it is applied to `settings` again after every restore."""
+
+    __tablename__ = "rule_values"
+    __table_args__ = {"schema": SCHEMA}
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False)  # {"value": <number or text>}
+    changed_by: Mapped[str] = mapped_column(String, nullable=False)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
+                                                 onupdate=func.now())
+
+
+class RuleChange(PlatformBase):
+    """History of business rule changes (RE-1): who changed which rule, from what to what, and when."""
+
+    __tablename__ = "rule_changes"
+    __table_args__ = {"schema": SCHEMA}
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    old_value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    new_value: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    action: Mapped[str] = mapped_column(String, nullable=False)  # CHANGED or RESET
+    changed_by: Mapped[str] = mapped_column(String, nullable=False)
+    note: Mapped[str | None] = mapped_column(String)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

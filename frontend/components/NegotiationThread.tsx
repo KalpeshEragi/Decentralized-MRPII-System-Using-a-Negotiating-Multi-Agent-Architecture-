@@ -92,12 +92,27 @@ function stepLine(step: TimelineItem): string {
     case "COMMIT": return "commits it ✓";
     case "REJECT": return `rejects${reason}`;
     case "ABORT": return `withdraws${reason}`;
+    case "QUOTE_REQUEST": return "asks what it could offer (a quote, nothing held)";
+    case "QUOTE": return `quotes: ${quoteSummary(step.options ?? [])}`;
     default: return step.type ?? "";
   }
 }
 
+function quoteSummary(options: Record<string, unknown>[]): string {
+  if (!options.length) return "nothing to offer";
+  const shown = options.slice(0, 3).map((o) => {
+    const extra = (o.extra ?? {}) as Record<string, unknown>;
+    const qty = Number(o.quantity).toLocaleString();
+    return extra.supplier ? `${extra.supplier}: ${qty} in ${extra.lead_time_days} d`
+      : `${qty}${o.unit === "h" ? " h" : ""} from ${String(o.available_from ?? "").slice(5)}`;
+  });
+  return shown.join(", ") + (options.length > 3 ? ` … (${options.length} steps)` : "");
+}
+
 function threadStatus(steps: TimelineItem[]): { label: string; tone: string } {
   const types = steps.map((s) => s.type);
+  if (types.includes("QUOTE")) return { label: "quoted", tone: "green" };
+  if (types[0] === "QUOTE_REQUEST") return { label: "waiting for quote", tone: "amber" };
   if (types.includes("COMMIT")) return { label: "agreed ✓", tone: "green" };
   if (types.includes("ABORT")) return { label: "withdrawn", tone: "red" };
   const last = types[types.length - 1];

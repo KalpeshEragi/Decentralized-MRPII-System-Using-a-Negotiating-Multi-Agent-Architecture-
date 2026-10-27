@@ -31,9 +31,20 @@ DEFAULTS: dict[str, object] = {
     "overtime_max_hours_per_week": 8,            # HR-3
     "quiet_limit_seconds": 300,                  # demo.md §6
     "simulated_suppliers": 1,                    # PI-1: 1 = suppliers answer automatically, 0 = a person answers
+    "shift_start": 8,                            # SIM-1: working day starts at this hour
+    "shift_hours": 8,                            # SIM-1: working hours per day (one shift)
+    "seconds_per_sim_hour": 2,                   # SIM-1: Play waits this long (real time) per simulated hour
+    "production_batch_size": 25,                 # SIM-2: the shop floor reports finished goods in batches of this size
+    "sales_offer_validity_hours": 24,            # RE-5 (was Sales' OFFER_VALIDITY)
+    "sales_planning_wait_minutes": 10,           # RE-5 (was Sales' PLANNING_WAIT_LIMIT)
+    "sales_ai_failures_before_staff": 2,         # RE-5 (was Sales' FAILURES_BEFORE_STAFF_IS_FLAGGED)
+    "planning_reask_limit": 2,                   # QD-6, RE-5 (was Planning's MAX_REASKS)
+    "purchasing_slot_retries": 2,                # WH-1, RE-5 (was Purchasing's SLOT_RETRIES)
     "customer_orders_per_day": 0,                # DM-3/DM-7: simulated customers' new requests per day
     "customer_order_days": 0,                    # load runs: customers order only on the run's first N days (0 = always)
-    "ai_enabled": 0,                             # IMP-2: 1 = agents' AI steps on (wording, ranking); 0 = templates
+    "ai_enabled": 0,                             # IMP-2, QD: 1 = agents think at decision points (and rank); 0 = policy
+    "ai_wording_enabled": 0,                     # 1 = the model rewords each negotiation message (slow); 0 = templates
+    "ai_decision_max_orders": 10,                # QD-5: agents think only while at most this many orders are open
     "customer_chat_mode": 0,                     # DM-7: 0 = structured (data, no model), 1 = chat (Sales reads text)
     "customer_seed": 1,                          # DM-6: the customer driver's random generator is seeded per day
     "customer_quantity_min": 50,                 # DM-3 rules (starting values)
@@ -62,6 +73,10 @@ def _check(key: str, value: object) -> object:
     if number < 0:
         raise AppError(ErrorCode.VALIDATION_ERROR, f"{key} must not be negative",
                        [{"field": key, "issue": "negative"}])
+    from app.rules.registry import BY_KEY, check_value  # business rules have tighter bounds (RE-1)
+
+    if key in BY_KEY and (problem := check_value(BY_KEY[key], number)[1]):
+        raise AppError(ErrorCode.VALIDATION_ERROR, problem, [{"field": key, "issue": "out of bounds"}])
     return str(number) if isinstance(DEFAULTS[key], str) else int(number) if number == int(number) else str(number)
 
 

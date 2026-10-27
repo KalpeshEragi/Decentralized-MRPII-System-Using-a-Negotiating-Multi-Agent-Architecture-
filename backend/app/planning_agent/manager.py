@@ -33,12 +33,12 @@ from app.negotiation import layer
 from app.negotiation.envelope import Envelope, MessageType as M, ReasonCode, ResourceType, Terms
 from app.negotiation.models import Session
 from app.mrpii.ranking import Alternative, check_ai_choice, rank
-from app.planning_agent import ai as planning_ai, plan as planner
+from app.planning_agent import ai as planning_ai, decisions, plan as planner, quotes
 from app.planning_agent.models import (AuditLog, Case, CustomerDemand, EventVersion, MachineHoursLedger, Option,
-                                       ProductionOrder, SalesOutbox, ShopFloorReport, WorkCenter, WorkCenterDay,
-                                       WorkItem)
+                                       ProductionOrder, QuoteRound, SalesOutbox, ShopFloorReport, WorkCenter,
+                                       WorkCenterDay, WorkItem)
 from app.sales_agent import reads as sales
-from app.simulation.clock import today
+from app.simulation.clock import current_hour, today
 from app.simulation.settings import setting
 from app.warehouse_agent import reads as warehouse
 
@@ -86,18 +86,24 @@ def plan_request(db: DbSession, demand: CustomerDemand) -> None:
         demand.status = "NOT_FEASIBLE"
         _send_result(db, demand, "NOTHING_FEASIBLE", reason="UNKNOWN_PRODUCT")
         return
-    found = planner.options(db, demand.item_id, demand.quantity, demand.requested_day)
+    demand.status = "PLANNING"
+    quotes.start(db, demand)  # DC-1: ask the owners for quotes; the plan is made when every owner has answered
+
+
+def plan_with(db: DbSession, demand: CustomerDemand, facts) -> list:
+    """Plan the request from `facts` (the owners' quotes) and secure the best option. Returns the options found."""
+    found = planner.options(db, demand.item_id, demand.quantity, demand.requested_day, facts)
     if not found:
         demand.status = "NOT_FEASIBLE"  # final: the customer is told nothing can be offered
         _send_result(db, demand, "NOTHING_FEASIBLE", reason="NO_FEASIBLE_PLAN")
-        return
+        return found
     for kind, spec in found:
         db.add(Option(demand_id=demand.id, kind=kind, quantity=spec.quantity, delivery_day=spec.delivery_day,
                       held=False, status="OFFERED", plan=spec.to_json()))
     db.flush()
-    demand.status = "PLANNING"
     best = _options(db, demand)[0]
     _secure(db, demand, best, auto_commit=False)
+    return found
 
 
 def _options(db: DbSession, demand: CustomerDemand) -> list[Option]:
@@ -132,9 +138,11 @@ def _machine_hours(db: DbSession, case: Case, column: str, sign: int, reason: st
                              day=row.day, production_order=order.id)
 
 
-def _request(db: DbSession, case: Case, receiver: str, terms: Terms, need: str) -> None:
+def _request(db: DbSession, case: Case, receiver: str, terms: Terms, need: str, tries: int = 0) -> None:
+    """Open one negotiation. Its terms are kept in the case so a stale answer can be asked again (D7)."""
     session_id = str(uuid.uuid4())
-    case.sessions = {**case.sessions, session_id: {"owner": receiver, "need": need, "status": "OPEN"}}
+    case.sessions = {**case.sessions, session_id: {"owner": receiver, "need": need, "status": "OPEN",
+                                                   "terms": terms.model_dump(mode="json"), "tries": tries}}
     layer.send(db, Envelope(message_id=str(uuid.uuid4()), session_id=session_id, case_id=case.id, sender=AGENT,
                             receiver=receiver, message_type=M.REQUEST, terms=terms, text=f"request: {need}",
                             sent_at=datetime.now(timezone.utc)))
@@ -202,6 +210,12 @@ def _secure(db: DbSession, demand: CustomerDemand, option: Option, auto_commit: 
 
 
 def handle_message(db: DbSession, message: Envelope, session: Session) -> None:
+    if message.message_type in (M.QUOTE, M.REJECT):
+        quote = db.get(QuoteRound, message.case_id, with_for_update=True)
+        if quote is not None:  # an owner answered a quote request (DC-1)
+            if quotes.on_answer(db, quote, message):
+                quotes.finish(db, quote)
+            return
     case = db.get(Case, message.case_id, with_for_update=True)
     if case is None:
         return
@@ -213,21 +227,25 @@ def handle_message(db: DbSession, message: Envelope, session: Session) -> None:
             _fail_case(db, case, "SUPPLY_TOO_LATE")  # the plan was built on an earlier arrival
             return
         layer.send(db, layer.reply_to(message, M.ACCEPT, text="accept"))
+    elif kind == M.COUNTER_OFFER and case.status == "OPEN" and case.kind == "NEW_REQUEST":
+        decisions.on_setback(db, case, session, message)  # D7: Planning decides what to do with the counter
     elif kind == M.COUNTER_OFFER and case.status == "OPEN":
         # Any change to the planned terms means the option (or the repair) cannot be done as planned.
         layer.send(db, layer.reply_to(message, M.REJECT, reason_code=message.reason_code, text="cannot use that"))
         _fail_case(db, case, f"COUNTER_{message.reason_code}")
     elif kind == M.AGREEMENT_PROPOSED:
         _set(case, session, "AGREED")
-        if all(s["status"] == "AGREED" for s in case.sessions.values()):
+        if all(s["status"] == "AGREED" for s in _live(case)):
             _all_agreed(db, case)
     elif kind == M.ACCEPT and case.status == "COMMITTING":
         _set(case, session, "COMMITTED")
-        if all(s["status"] == "COMMITTED" for s in case.sessions.values()):
+        if all(s["status"] == "COMMITTED" for s in _live(case)):
             if case.kind == "REPAIR":
                 _finish_repair(db, case)
             else:
                 _finish_commit(db, case)
+    elif kind == M.REJECT and case.kind == "NEW_REQUEST" and case.status == "OPEN":
+        decisions.on_setback(db, case, session, message)  # D7: re-ask, or give up this option
     elif kind == M.REJECT:
         _set(case, session, "REJECTED")
         if case.kind == "REPAIR" or (case.kind == "CHANGE" and case.status != "COMMITTING"):
@@ -236,6 +254,11 @@ def handle_message(db: DbSession, message: Envelope, session: Session) -> None:
             _commit_failed(db, case, message.reason_code.value)
         elif case.status in ("OPEN", "AGREED"):
             _fail_case(db, case, message.reason_code.value)
+
+
+def _live(case: Case) -> list[dict]:
+    """The case's negotiations that still count: a need asked again (D7 RE_ASK) is replaced by its new session."""
+    return [s for s in case.sessions.values() if s["status"] != "REPLACED"]
 
 
 def _set(case: Case, session: Session, status: str) -> None:
@@ -259,8 +282,9 @@ def _all_agreed(db: DbSession, case: Case) -> None:
     _send_result(db, demand, "READY")
 
 
-def _fail_case(db: DbSession, case: Case, reason: str) -> None:
-    """The option cannot be secured: abort the other open sessions, release Planning's holds, try the next option."""
+def _fail_case(db: DbSession, case: Case, reason: str, skip_options: bool = False) -> None:
+    """The option cannot be secured: abort the other open sessions, release Planning's holds, try the next option.
+    `skip_options` (D7 REPLAN): go straight to the replan instead of the remaining options."""
     case.status = "FAILED"
     _abort_open_sessions(db, case)
     if case.kind == "CHANGE":  # the extra quantity cannot be secured: the order stays exactly as it was
@@ -289,7 +313,7 @@ def _fail_case(db: DbSession, case: Case, reason: str) -> None:
         return
     tried = len(db.scalars(select(Case).where(Case.demand_id == demand.id)).all())
     remaining = [o for o in _options(db, demand) if o.status == "OFFERED"]
-    if remaining and tried <= int(setting(db, "best_option_repicks")):
+    if remaining and not skip_options and tried <= int(setting(db, "best_option_repicks")):
         _secure(db, demand, remaining[0], auto_commit=case.auto_commit)
     elif case.auto_commit:
         _publish_plan_event(db, demand, "PlanCommitFailed", {"reason": reason})
@@ -336,6 +360,8 @@ def _abort_open_sessions(db: DbSession, case: Case) -> None:
 
 
 def on_order_confirmed(db: DbSession, event: Event) -> None:
+    """The customer confirmed an option: commit it. Held and agreed by every owner -> COMMIT to each of them
+    (then `PlanCommitted`); otherwise plan it again from today's facts and secure it; an unknown option -> `PlanCommitFailed`."""
     if not channel.is_newer(db, EventVersion, event):
         return
     notice = event.payload
@@ -368,7 +394,7 @@ def on_order_confirmed(db: DbSession, event: Event) -> None:
 
 def _commit(db: DbSession, case: Case) -> None:
     case.status = "COMMITTING"
-    for session_id in case.sessions:
+    for session_id in (sid for sid, s in case.sessions.items() if s["status"] != "REPLACED"):  # D7 re-asks
         session = db.get(Session, uuid.UUID(session_id))
         layer.send(db, Envelope(message_id=str(uuid.uuid4()), session_id=session_id, case_id=case.id, sender=AGENT,
                                 receiver=session.owner, message_type=M.COMMIT, text="commit",
@@ -840,8 +866,14 @@ def record_shop_floor_report(db: DbSession, report_id: str, production_order_id:
         return "received"
     done = Decimal(quantity)
     order.quantity_completed += done
-    if order.quantity_completed >= order.quantity:
-        order.status = "COMPLETED"
+    if order.quantity_completed < order.quantity:  # SIM-3: a batch of a running order — stored at once by Warehouse
+        channel.publish(db, event_type="ProductionBatchCompleted", publisher=AGENT, entity_type="production_order",
+                        entity_id=str(order.id), entity_version=order.version, correlation_id=str(order.demand_id),
+                        payload={**common, "quantity": str(done), "completed": str(order.quantity_completed),
+                                 "total": str(order.quantity), "completion_day": today(db).isoformat(),
+                                 "hour": current_hour(db)})
+        return "received"
+    order.status = "COMPLETED"
     channel.publish(db, event_type="ProductionCompleted", publisher=AGENT, entity_type="production_order",
                     entity_id=str(order.id), entity_version=order.version, correlation_id=str(order.demand_id),
                     payload={**common, "quantity": str(done), "completion_day": today(db).isoformat()})
@@ -849,6 +881,8 @@ def record_shop_floor_report(db: DbSession, report_id: str, production_order_id:
 
 
 def on_shipment(db: DbSession, event: Event) -> None:
+    """Goods left the factory: count them against the order; when all are shipped the order is COMPLETED and any
+    leftover reservations are released with `PlanRevised` (ORDER_COMPLETED)."""
     if not channel.is_newer(db, EventVersion, event):
         return
     demand = db.get(CustomerDemand, uuid.UUID(event.payload["order_ref"]), with_for_update=True)
@@ -897,9 +931,11 @@ def setup(db: DbSession, work_centers: dict[str, object]) -> None:
 def register(runner_register) -> None:
     runner_register(layer.register_inbox(AGENT, handle_message))
     runner_register(Registration(name="planning-work", model=WorkItem, handler=handle_work_item, mode="short",
-                                 workers=4, where=WorkItem.kind != "REPAIR"))
+                                 workers=4, where=WorkItem.kind.not_in(("REPAIR", decisions.DECIDE))))
     runner_register(Registration(name="planning-repair", model=WorkItem, handler=run_repair, mode="long",
                                  where=WorkItem.kind == "REPAIR"))
+    runner_register(Registration(name="planning-decide", model=WorkItem, handler=decisions.run_decision,
+                                 mode="long", where=WorkItem.kind == decisions.DECIDE))  # D7, the model thinks here
     runner_register(Registration(name="planning-sales-outbox", model=SalesOutbox, handler=send_to_sales, mode="long"))
     channel.subscribe(AGENT, "OrderConfirmed", on_order_confirmed)
     channel.subscribe(AGENT, "SimulatedDayStarted", on_day_started)

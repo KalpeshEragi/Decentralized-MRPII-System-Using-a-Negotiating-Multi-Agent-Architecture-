@@ -97,7 +97,7 @@ def _negotiation(s: NegotiationSession, opening: Message | None, labels: dict[st
 
 
 def timeline(db: Session, after: datetime | None = None, case_id: str | None = None) -> dict:
-    """One stream in time order: events, negotiation messages, triggers, AI calls and failed work. Poll with the
+    """One stream in time order: events, negotiation messages, triggers, AI calls, agents' decisions and failed work. Poll with the
     returned `next` cursor (API-2).
 
     Rows saved in one transaction share one time (PostgreSQL `now()`), and the cursor is a time. So a full page never
@@ -152,6 +152,7 @@ def _timeline_rows(db: Session, case_id: str | None, after: datetime | None = No
                       "from": m.sender, "to": m.receiver, "case_id": envelope.get("case_id"),
                       "session_id": str(m.session_id), "terms": envelope.get("terms"),
                       "reason_code": envelope.get("reason_code"), "text": envelope.get("text"),
+                      "options": envelope.get("options"),  # QUOTE: the owner's quoted options (QD-1)
                       "order_label": labels.get(str(terms.get("order_id"))),
                       "resource_label": labels.get(str(terms.get("resource_ref")), terms.get("resource_ref"))})
     if not case_id:
@@ -165,6 +166,9 @@ def _timeline_rows(db: Session, case_id: str | None, after: datetime | None = No
     items += [{"time": c.queued_at, "source": "ai_call", "agent": c.agent, "purpose": c.purpose, "outcome": c.outcome,
                "case_id": c.case_id, "seconds": (c.finished_at - c.started_at).total_seconds()
                if c.finished_at and c.started_at else None} for c in db.scalars(query)]
+    for owner in (planning, inventory, hr, warehouse):  # the agents' own decision records (QD-3), via their reads
+        items += [d for d in owner.decisions(db, after=after, at=at, limit=limit)
+                  if not case_id or d["case_id"] == case_id]
     if not case_id:
         items += _failed_work(db, after, at)
     return items

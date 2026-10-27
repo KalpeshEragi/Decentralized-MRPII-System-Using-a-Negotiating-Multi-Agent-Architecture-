@@ -240,6 +240,54 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | WH-1 (built) | Purchasing asks Warehouse for a `RECEIVING_SLOT` per agreed delivery before it offers supply to Planning. Warehouse offers the day or counter-offers a later one; Purchasing takes a later day only if Planning's need date holds (the simulated supplier can always deliver later: no new supplier round), else declines and tells Planning `NO_RECEIVING_CAPACITY`. A slot whose day filled up before the hold (`STALE`) is asked for again, at most twice. On Planning's COMMIT: suppliers approved → slots committed → the deliveries take their slot days → `ProcurementCommitted`. Warehouse turns the committed slot into the delivery record (no second booking). Planning reads Warehouse's free receiving when it plans bought deliveries and plans a delivery earlier when the dock is full (within the supplier's lead time). |
 | WH-6 | Warehouse capacities change only through Warehouse's own input (`change_capacity`, simulator trigger `WAREHOUSE_CAPACITY`, S4); commitments already made stay; `StorageCapacityChanged` is published. |
 
+### Quotes and agent decisions (2026-10-26, approved by the developer, see `architecture/quotes_and_agent_decisions.md`)
+
+| ID | Decision |
+| --- | --- |
+| QD-1 | New message types `QUOTE_REQUEST` / `QUOTE` (non-binding, no hold), separate from the binding lifecycle. |
+| QD-2 | Planning keeps its own machine-hours; no seventh agent. |
+| QD-3 | Each decision is recorded in the deciding agent's own `audit_log` (`event_type = DECISION`). |
+| QD-4 | Inventory may ask Purchasing directly for a replenishment quote; Purchasing decides the purchase. |
+| QD-5 | AI decisions only for small runs: setting `ai_decision_max_orders` (default 10); load runs use the fallbacks. |
+| QD-6 | On `STALE` Planning re-asks the same owner (at most 2 times per need) before S8-1's replan once. |
+| QD-7 | At a decision point the agent thinks: reads the situation, its goals and facts, proposes its own action and parameters; code only validates (one revision allowed); the menu is a hint and the fallback. |
+| QD-8 | Start with `qwen3.5:4b`; move to a larger model only if S9 shows too many refused proposals. |
+| QD-9 | The agent's thinking text is shown in the UI, collapsed under its thinking card. |
+| QD-10 | Local `qwen3.5:4b` for now. Measured 2026-10-26: the model's hidden thinking mode did not finish a decision in 300 s on this laptop (Ollama runs it on CPU), so the agent writes its reasoning into its JSON answer (`thinking`, shown in the UI) with the hidden mode off; ~50 s per decision call on CPU, ~34 s with the RTX 2050 (model split about 50/50 GPU/CPU), timeout 90 s. |
+| QD-11 | About one model call per decision (facts in the prompt, at most one extra lookup round); one agent may decide several of its own requests in one call, never two agents in one call. A provider fallback chain (free cloud tiers) is optional and later. |
+
+### Rule editor, event manager, replenishment (2026-10-27, approved by the developer, see `architecture/rules_events_replenishment.md`)
+
+| ID | Decision |
+| --- | --- |
+| RE-1 | One rule registry (owner, label, kind, unit, bounds, default, `BUSINESS`/`SYSTEM` visibility) over the existing versioned settings table. |
+| RE-2 | Per-item policies are stored by the owning agent (Inventory) through its own input, never in a shared table. |
+| RE-3 | Agent guidelines: free sentences per agent, added to that agent's think-loop prompt; they never override a parameter or a hard check. |
+| RE-4 | A natural-language "command" box that proposes a rule change for the user to confirm comes later, after the editor works. |
+| RE-5 | Rule-like code constants (Sales offer validity, Planning re-asks, Purchasing slot retries) move into the registry one by one. |
+| EM-1 | One event catalogue: per event publisher, subscribers (required/optional), payload model, description, version, status (`ACTIVE`/`DEPRECATED`/`RETIRED`); checked at publish and subscribe. |
+| EM-2 | The Events screen is read-only: no runtime subscribe/unsubscribe from the UI. |
+| EM-3 | A payload that does not match its model is refused in tests and development, logged loudly in the demo. |
+| EM-4 | (Developer, 2026-10-27) The Events page is organised agents → events → event story (meaning, causes, each receiver's reaction taken from its handler's description, follow-ups, payload, live numbers, removal impact). An event manager assistant (shared local model) explains events and guides adding, changing or removing them, grounded in the catalogue and the deterministic checks (`impact_of_removing`, `check_new_event`); advisory only — it never changes code or the catalogue; without the model it answers from the checks. |
+| RE-6 | (2026-10-27, found while building RE-1) Starting a scenario or restoring a state resets `simulation.settings`, which would silently undo the user's rules. So the user's business-rule values form a rule profile (`simulation.rule_values`) with its history (`simulation.rule_changes`); both survive restores and the profile is applied to the settings after every restore. |
+| RP-1 | New event `ReplenishmentNeeded` (publisher Inventory; subscribers Planning, Purchasing). |
+| RP-2 | Target stock level per item as a % of a maximum stock per item, both set in the rule editor. |
+| RP-3 | Stock production orders use only free capacity and never displace customer commitments. |
+| RP-4 | Decision points D9 (Inventory refill) and D10 (Planning stock production) run through the think loop. |
+
+### One order end to end (2026-10-27, approved by the developer, see `architecture/one_order_production_simulation.md`)
+
+| ID | Decision |
+| --- | --- |
+| SIM-1 | The simulated clock has hours: working hours per day (`shift_start` 08:00, `shift_hours` 8); Next hour and Next day; Play advances one simulated hour per tick (`seconds_per_sim_hour`). Day routines run at the start of the shift. |
+| SIM-2 | The shop floor runs each production order's routing in batches (`batch_size` per item, default 25) on the routing's setup and run hours; a batch is done when its hours have passed on the work center. |
+| SIM-3 | Each finished batch is reported to Planning; Planning publishes `ProductionBatchCompleted`; Warehouse stores the batch and Inventory counts it, so components exist as soon as they are made. |
+| SIM-4 | A missing input stops an operation (`BLOCKED`, with the reason) and Planning decides what to do — built after SIM-1..3, AB-1. |
+| SIM-5 | After the customer's confirmation the order runs to delivery without clicks as the clock moves. |
+| DC-1 | Feasibility comes from the owners' quotes (QD-1); `app/mrpii` is a shared calculator each agent uses on its own data and never decides; no central planning engine outside Planning. |
+| AB-1 | The think loop becomes a tool loop: up to 4 tool calls and 6 model calls per decision, one agent per call. |
+| AB-2 | Every agent's goal names two objectives with numbers to compare: optimal (on time, full quantity, least cost and overtime) and stable (fewest changes to what is already committed). |
+
 ## Open
 
 | ID | Question | Notes |
@@ -248,3 +296,6 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | O-7 | Reuse of existing code | Old Planning/Inventory/Purchasing code and the old human-approval workflow are still in `backend/`. Review one agent at a time (roadmap Phase 2). |
 | O-8 | Purchasing design incl. price/cost | Resolved 2026-10-17: `adr/ADR-002-price-in-supplier-selection.md`; design in `purchasing_agent/`. |
 | O-9 | Agent roster: separate Production agent? | Resolved 2026-10-18 (developer): no separate Production agent; the roster is the six agents of `adr/ADR-001.md` §2. Legacy `production` items (schema section in `OVERALL_DATABASE_SCHEMA.md` §6, empty `app/models/production.py`) are legacy only. |
+| O-10 | Quote-based feasibility and agent decisions | Resolved 2026-10-26: QD-1 to QD-11 approved (section above). Build in the order of the design doc §12. |
+| O-11 | Rule editor, event manager, replenishment | Resolved 2026-10-27: RE-1..5, EM-1..3, RP-1..4 approved (section above). Build in the order of the design doc §6. |
+| O-12 | One order end to end | Resolved 2026-10-27: SIM-1..5, DC-1, AB-1..2 approved (section above). Build in the order of the design doc §6. |

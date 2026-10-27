@@ -58,3 +58,11 @@ def deliveries_on(db: DbSession, day: date) -> list[dict]:
              "arrival_day": c.arrival_day.isoformat(), "for_ref": c.for_ref}
             for c in db.scalars(select(SpaceCommitment).where(SpaceCommitment.kind == "DELIVERY",
                                                               SpaceCommitment.arrival_day == day))]
+
+
+def decisions(db: DbSession, after=None, at=None, limit: int | None = None) -> list[dict]:
+    """This agent's recorded decisions (QD-3) as timeline rows, for the observer."""
+    from app.agent_decisions.record import rows
+    from app.warehouse_agent.models import AuditLog
+
+    return rows(db, AuditLog, after=after, at=at, limit=limit)

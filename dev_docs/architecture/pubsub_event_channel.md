@@ -19,7 +19,7 @@ retries and deduplicates. It never decides anything and never changes business d
 | EV-3 | One delivery row per (event, subscriber). The subscriber's business change and marking its delivery done are saved in the same transaction. |
 | EV-4 | Order is kept per entity: for one subscriber, events about the same entity are handled in the order published; unrelated events run in parallel. An older version never overwrites newer state. |
 | EV-5 | An event carries the changed facts needed to react (plus ids and version), not only ids and not a full copy of the record. |
-| EV-6 | Subscriptions are a static list in code, documented in §8. |
+| EV-6 | Subscriptions are a static list in code, documented in §8. **Since 2026-10-27 (EM-1):** the list is the event catalogue `backend/app/events/catalogue.py` (payload models, status, versions; checked at publish and subscribe), shown on the frontend page `/events`. |
 
 ## 3. What goes on the channel and what does not
 

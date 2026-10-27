@@ -18,6 +18,8 @@ QUANTITY_CHANGED = ("QUANTITY_INCREASED", "QUANTITY_DECREASED", "QUANTITY_DECREA
 
 
 def on_plan_revised(db: Session, event: Event) -> None:
+    """Planning decided on a customer's quantity change: update the order's quantity (or note that the change was
+    refused). Other revisions (repairs, cancellations, completion) do not change what the customer ordered."""
     reason, number = event.payload.get("reason"), event.payload.get("order_number")
     if reason not in (*QUANTITY_CHANGED, "CHANGE_REJECTED") or not number:
         return  # other revisions (repairs, cancellations, completion) do not change what the customer ordered

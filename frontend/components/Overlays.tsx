@@ -13,28 +13,6 @@ export type Selection =
 const num = (v: string | number | null | undefined) =>
   v === null || v === undefined ? "–" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 });
 
-export function KpiCards({ live }: { live: Live | null }) {
-  const k = live?.kpis;
-  const cards = [
-    { icon: "📦", label: "Stock on hand", value: num(k?.stock_on_hand), sub: "units, all items" },
-    { icon: "🧾", label: "Open orders", value: num(k?.orders_open), sub: `${num(k?.orders_completed)} completed` },
-    { icon: "⏱", label: "On-time delivery", value: k?.on_time_percent == null ? "–" : `${k.on_time_percent}%`,
-      sub: "completed orders" },
-    { icon: "⚠", label: "Plans at risk", value: num(k?.plan_at_risk), sub: `${num(k?.ai_calls)} AI calls` },
-  ];
-  return (
-    <div className="kpis">
-      {cards.map((c) => (
-        <div key={c.label} className="card kpi">
-          <div className="kpi-icon">{c.icon}</div>
-          <div><div className="kpi-label">{c.label}</div><div className="kpi-value">{c.value}</div>
-            <div className="kpi-sub">{c.sub}</div></div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export function DetailCard({ live, selection, onClose }: { live: Live | null; selection: Selection; onClose: () => void }) {
   if (!live || !selection) return null;
   let kind = "", title = "", rows: [string, string][] = [];

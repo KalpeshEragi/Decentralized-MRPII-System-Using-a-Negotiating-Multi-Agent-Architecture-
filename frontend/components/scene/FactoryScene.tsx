@@ -3,12 +3,14 @@
 // lines glow while an order there has started, trucks and forklifts move only when the matching event arrives
 // (MaterialReceived, ShipmentDispatched, MaterialIssuedToProduction, FinishedGoodsStored).
 
-import { OrbitControls } from "@react-three/drei";
+import { MapControls } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Group } from "three";
 import type { Live, TimelineItem } from "@/lib/api";
 import type { Selection } from "@/components/Overlays";
+import type { AgentCode } from "@/lib/insight";
+import { Town } from "./buildings/Town";
 import { Block, Building, COLORS, Forklift, Machine, Pallet, Person, Pin, Tree, Truck } from "./parts";
 
 type V3 = [number, number, number];
@@ -27,20 +29,24 @@ const MOVING_EVENTS: Record<string, Mover["kind"]> = {
   FinishedGoodsStored: "store",
 };
 
-export function FactoryScene({ live, items, onSelect }: {
+export function FactoryScene({ live, items, onSelect, involved, onAgent }: {
   live: Live | null; items: TimelineItem[]; onSelect: (s: Selection) => void;
+  involved?: Partial<Record<AgentCode, "origin" | "involved">>; onAgent?: (code: AgentCode) => void;
 }) {
   const movers = useMovers(items);
   return (
-    <Canvas shadows camera={{ position: [48, 50, 62], fov: 34 }} onPointerMissed={() => onSelect(null)}>
+    <Canvas shadows camera={{ position: [0, 95, 0], fov: 45 }} onPointerMissed={() => onSelect(null)}>
       <color attach="background" args={["#e8eef7"]} />
       <hemisphereLight args={["#ffffff", "#c8d3e3", 0.9]} />
-      <directionalLight position={[30, 50, 25]} intensity={1.2} castShadow shadow-mapSize={[2048, 2048]}
-                        shadow-camera-left={-60} shadow-camera-right={60} shadow-camera-top={50} shadow-camera-bottom={-50} />
+      <directionalLight position={[30, 50, 25]} intensity={1.2} castShadow shadow-mapSize={[4096, 4096]}
+                        shadow-camera-left={-170} shadow-camera-right={170} shadow-camera-top={170} shadow-camera-bottom={-170}
+                        shadow-camera-far={400} />
       <Ground />
       <Site live={live} items={items} onSelect={onSelect} />
+      <Town live={live} involved={involved} onAgent={onAgent} />
       {movers.map((m) => <MovingThing key={m.id} mover={m} />)}
-      <OrbitControls target={[0, 0, -4]} maxPolarAngle={Math.PI / 2.3} minDistance={25} maxDistance={140} enableDamping />
+      <MapControls target={[0, 0, -95]} maxPolarAngle={Math.PI / 2.3} minDistance={15} maxDistance={300} enableDamping
+                   screenSpacePanning={false} />
     </Canvas>
   );
 }
@@ -90,7 +96,7 @@ function MovingThing({ mover }: { mover: Mover }) {
 function Ground() {
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow><planeGeometry args={[200, 140]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -55]} receiveShadow><planeGeometry args={[280, 270]} />
         <meshStandardMaterial color={COLORS.ground} /></mesh>
       <Block position={[0, 0.02, 20]} size={[200, 0.04, 7]} color={COLORS.road} />
       {Array.from({ length: 20 }).map((_, i) => (
@@ -117,6 +123,8 @@ function Site({ live, items, onSelect }: { live: Live | null; items: TimelineIte
   const line = (code: string) => live?.lines.find((l) => l.work_center === code);
   const busy = (code: string) => (line(code)?.orders_today ?? []).some((o) => o.status === "STARTED");
   const planned = (code: string) => (line(code)?.orders_today ?? []).length > 0;
+  const progress = (code: string) => (line(code)?.orders_today ?? []).filter((o) => o.status === "STARTED")
+    .map((o) => `${Number(o.quantity_completed)}/${Number(o.quantity)}`).join(", ");
   const inbound = live?.docks.inbound.filter((d) => d.status !== "RECEIVED").length ?? 0;
   const outbound = live?.docks.outbound.length ?? 0;
   const delay = supplierDelay(items, live, Object.fromEntries(stock.map((s) => [s.item_id, s.sku])));
@@ -137,8 +145,10 @@ function Site({ live, items, onSelect }: { live: Live | null; items: TimelineIte
         <Block position={[-2, 1, -4]} size={[0.3, 2, 14]} color={COLORS.wall} />
         <Block position={[18, 1, -4]} size={[0.3, 2, 14]} color={COLORS.wall} />
         <Pin position={[8, 6, -4]} text="Production hall" />
-        <LineRow code="SMT" z={-7.5} busy={busy("SMT")} planned={planned("SMT")} crew={crew("SMT")} onSelect={onSelect} />
+        <LineRow code="SMT" z={-7.5} busy={busy("SMT")} planned={planned("SMT")} crew={crew("SMT")} onSelect={onSelect}
+                 progress={progress("SMT")} />
         <LineRow code="ASM" z={-0.5} busy={busy("ASM")} planned={planned("ASM")} crew={crew("ASSEMBLY")}
+                 progress={progress("ASM")}
                  onSelect={onSelect} />
       </group>
       {/* Finished goods warehouse (shipping dock in front) */}
@@ -156,8 +166,9 @@ function Site({ live, items, onSelect }: { live: Live | null; items: TimelineIte
   );
 }
 
-function LineRow({ code, z, busy, planned, crew, onSelect }: {
+function LineRow({ code, z, busy, planned, crew, onSelect, progress }: {
   code: string; z: number; busy: boolean; planned: boolean; crew: Live["workers"]; onSelect: (s: Selection) => void;
+  progress?: string;  // "25/60" while batches come off the line (SIM-2)
 }) {
   const select = () => onSelect({ kind: "line", id: code });
   return (
@@ -176,7 +187,8 @@ function LineRow({ code, z, busy, planned, crew, onSelect }: {
         );
       })}
       <Pin position={[-0.5, 3.4, z]} small tone={busy ? "green" : planned ? "blue" : "amber"}
-           text={`${code === "SMT" ? "SMT line" : "Assembly"} · ${busy ? "running" : planned ? "planned today" : "idle"}`} />
+           text={`${code === "SMT" ? "SMT line" : "Assembly"} · ${busy ? `running${progress ? ` ${progress}` : ""}`
+             : planned ? "planned today" : "idle"}`} />
     </group>
   );
 }

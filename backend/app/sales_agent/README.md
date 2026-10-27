@@ -55,6 +55,7 @@ Door numbers follow `dev_docs/sales_agent/3_sales_agent_backend.md`. Door 7 (hea
 | 8 | `POST /sales/test-channel/reset` | Closes every open test conversation (nothing is deleted). |
 | 9 | `POST /sales/maintenance/sweep` | Reports requests Planning has not answered in time (customer message and staff flag, once each). |
 | page | `GET /sales/test-channel`, `GET` / `DELETE /sales/test-channel/history/{phone}` | The test chat page and its helpers. |
+| dashboard | `GET /sales/dashboard/overview`, `/orders`, `/inquiries`, `/customers`, `/customers/{id}/memories`, `/audit?event_type=&inquiry_id=`, `/rules` | Read-only views for the frontend's Sales pages (`dashboard.py`): counts by stage and status, lists, and the rules read from the code. Nothing is changed. |
 
 ## Trying the fake Planning
 

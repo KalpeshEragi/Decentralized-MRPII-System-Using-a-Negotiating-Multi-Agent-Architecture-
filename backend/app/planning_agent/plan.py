@@ -112,7 +112,30 @@ def _item_data(db: DbSession, item: Item) -> ItemData:
                     promises=tuple(Dated(date.fromisoformat(p["day"]), Decimal(p["quantity"])) for p in position["promises"]))
 
 
-def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> PlanSpec:
+class ReadFacts:
+    """The other owners' facts read directly through their read modules — the old way. Still used for repairs,
+    customer changes and the re-plan at confirmation; new requests plan from the owners' quotes (DC-1)."""
+
+    def __init__(self, db: DbSession):
+        self.db = db
+
+    def item_data(self, item: Item) -> ItemData:
+        return _item_data(self.db, item)
+
+    def free_worker(self, skill: str, day: date) -> Decimal:
+        return Decimal(hr.free_worker_hours(self.db, skill, day, day)[day.isoformat()])
+
+    def free_receiving(self, day: date) -> Decimal:
+        return Decimal(warehouse.free_receiving(self.db, day, day)[day.isoformat()])
+
+    def supply_lead_time_days(self, item_id: str, quantity: Decimal) -> int | None:
+        return purchasing.supply_lead_time_days(self.db, item_id, quantity)
+
+
+def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date, facts=None) -> PlanSpec:
+    """One plan for a request. `facts` gives the other owners' facts: their quotes (`quotes.QuoteFacts`, DC-1) or, by
+    default, their read modules (`ReadFacts`). Planning's own machine-hours are always its own."""
+    facts = facts or ReadFacts(db)
     start_of_today = today(db) + timedelta(days=1)  # today's morning routine (kits) has run: start tomorrow at the earliest
     items, bom, routings = _master(db)
     used = defaultdict(lambda: ZERO)  # hours this plan already takes, per (kind, resource, day)
@@ -122,7 +145,7 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
         return machine_free(db, work_center, day) - used[("M", work_center, day)]
 
     def free_worker(skill: str, day: date) -> Decimal:
-        return Decimal(hr.free_worker_hours(db, skill, day, day)[day.isoformat()]) - used[("W", skill, day)]
+        return facts.free_worker(skill, day) - used[("W", skill, day)]
 
     def receiving_day(earliest: date, latest: date, pieces: Decimal) -> date | None:
         """The latest day from `latest` back to `earliest` on which Warehouse can still receive the delivery
@@ -130,7 +153,7 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
         receiving-slot negotiation (WH-1); this only keeps the plan from counting on a full dock."""
         day = latest
         while day >= earliest:
-            free = Decimal(warehouse.free_receiving(db, day, day)[day.isoformat()]) - used[("R", "RECEIVING", day)]
+            free = facts.free_receiving(day) - used[("R", "RECEIVING", day)]
             if free >= pieces:
                 return day
             day -= timedelta(days=1)
@@ -152,12 +175,12 @@ def make_plan(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> 
              "hours_by_day": {d.isoformat(): str(h) for d, h in sorted(s.hours_by_day.items())}} for s in plan]
         return plan[0].start_day
 
-    data = {i: _item_data(db, items[i]) for i in items}
+    data = {i: facts.item_data(items[i]) for i in items}
     result = run_mrp([Demand(item_id, quantity, due_day, DEMAND)], data, bom, production_start)
     spec = PlanSpec(True, item_id, quantity, due_day)
     needed = for_this_request(result.planned_orders)
     for order in (o for o in needed if o.sourcing == BUY):
-        lead = purchasing.supply_lead_time_days(db, order.item_id, order.quantity)
+        lead = facts.supply_lead_time_days(order.item_id, order.quantity)
         latest = order.need_day - timedelta(days=1)
         if lead is None or today(db) + timedelta(days=lead) > latest:
             spec.feasible, spec.reason = False, "MATERIAL_SHORTAGE"
@@ -209,22 +232,23 @@ def for_this_request(planned: list[PlannedOrder]) -> list[PlannedOrder]:
     return kept
 
 
-def options(db: DbSession, item_id: str, quantity: Decimal, due_day: date) -> list[tuple[str, PlanSpec]]:
+def options(db: DbSession, item_id: str, quantity: Decimal, due_day: date, facts=None) -> list[tuple[str, PlanSpec]]:
     """REQUESTED if feasible; otherwise the earliest LATER_DATE (within the horizon) and the largest LESS_QUANTITY.
     In the order of PL-1 (the first one is the best option and gets holds)."""
-    requested = make_plan(db, item_id, quantity, due_day)
+    facts = facts or ReadFacts(db)
+    requested = make_plan(db, item_id, quantity, due_day, facts)
     if requested.feasible:
         return [("REQUESTED", requested)]
     found = []
     for days in range(1, int(setting(db, "later_date_horizon_days")) + 1):
-        later = make_plan(db, item_id, quantity, due_day + timedelta(days=days))
+        later = make_plan(db, item_id, quantity, due_day + timedelta(days=days), facts)
         if later.feasible:
             found.append(("LATER_DATE", later))
             break
     low, high, best = Decimal(1), quantity - 1, None
     while low <= high:
         middle = ((low + high) / 2).to_integral_value(rounding="ROUND_FLOOR")
-        attempt = make_plan(db, item_id, middle, due_day)
+        attempt = make_plan(db, item_id, middle, due_day, facts)
         if attempt.feasible:
             best, low = attempt, middle + 1
         else:

@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     background_workers: bool = True
     worker_poll_seconds: float = 0.5
     event_dispatcher_workers: int = 4
+    # EM-3: an event payload that does not match the catalogue is refused ("strict", tests and development) or logged
+    # loudly ("warn", the demo default) so a live demo never stops on it.
+    event_payload_check: str = "warn"
     # X-Door-Key of the simulator's write doors (settings). Unset = those doors refuse everyone.
     simulation_door_key: str | None = None
     # X-Door-Key of Planning's door 1 (requests from Sales). Unset = refuses everyone.

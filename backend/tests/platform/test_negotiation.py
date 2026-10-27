@@ -132,3 +132,26 @@ def test_stale_commit_is_rejected_and_one_open_negotiation_per_need(wire):
     pump(wire, registrations)
     row = session_row(wire, first.session_id)
     assert (row.status, row.last_reason_code) == ("REJECTED", "STALE")
+
+
+def test_ai_wording_has_its_own_switch_separate_from_agent_decisions(wire, monkeypatch):
+    """`ai_enabled` drives agent decisions only; the model rewords a message only with `ai_wording_enabled` (slow)."""
+    from app.simulation.settings import update_settings
+
+    worded = []
+    monkeypatch.setattr(layer.wording, "word", lambda db, envelope: worded.append(envelope["message_id"]) or "worded")
+
+    def send_one(order_id: str, **switches) -> None:
+        with wire() as db:
+            update_settings(db, switches)
+            db.commit()
+        message_id, session_id = layer.new_ids()
+        start(wire, Envelope(message_id=message_id, session_id=session_id, case_id=order_id, sender="PLANNING",
+                             receiver="HR", message_type=M.REQUEST, terms=TERMS.model_copy(update={"order_id": order_id}),
+                             sent_at=datetime.now(timezone.utc)))
+        assert wr.run_one_long(wire, Outbox, layer.send_outbox_item, "test-sender")
+
+    send_one("SO-1", ai_enabled=1, ai_wording_enabled=0)
+    assert worded == []  # AI on for decisions, messages keep their template text
+    send_one("SO-2", ai_wording_enabled=1)
+    assert len(worded) == 1
