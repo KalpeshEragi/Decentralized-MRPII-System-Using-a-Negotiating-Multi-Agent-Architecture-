@@ -84,6 +84,7 @@ export type TimelineItem = {
   case_id?: string;
   session_id?: string;
   terms?: Record<string, unknown> | null;
+  options?: Record<string, unknown>[] | null;  // QUOTE: the owner's quoted options
   reason_code?: string | null;
   text?: string | null;
   order_label?: string | null;     // what the negotiation is for: "PO MB×90", "SO-1001"

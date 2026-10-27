@@ -152,6 +152,7 @@ def _timeline_rows(db: Session, case_id: str | None, after: datetime | None = No
                       "from": m.sender, "to": m.receiver, "case_id": envelope.get("case_id"),
                       "session_id": str(m.session_id), "terms": envelope.get("terms"),
                       "reason_code": envelope.get("reason_code"), "text": envelope.get("text"),
+                      "options": envelope.get("options"),  # QUOTE: the owner's quoted options (QD-1)
                       "order_label": labels.get(str(terms.get("order_id"))),
                       "resource_label": labels.get(str(terms.get("resource_ref")), terms.get("resource_ref"))})
     if not case_id:
