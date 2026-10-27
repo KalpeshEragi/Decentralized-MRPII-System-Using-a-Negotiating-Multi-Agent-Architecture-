@@ -123,6 +123,8 @@ function Site({ live, items, onSelect }: { live: Live | null; items: TimelineIte
   const line = (code: string) => live?.lines.find((l) => l.work_center === code);
   const busy = (code: string) => (line(code)?.orders_today ?? []).some((o) => o.status === "STARTED");
   const planned = (code: string) => (line(code)?.orders_today ?? []).length > 0;
+  const progress = (code: string) => (line(code)?.orders_today ?? []).filter((o) => o.status === "STARTED")
+    .map((o) => `${Number(o.quantity_completed)}/${Number(o.quantity)}`).join(", ");
   const inbound = live?.docks.inbound.filter((d) => d.status !== "RECEIVED").length ?? 0;
   const outbound = live?.docks.outbound.length ?? 0;
   const delay = supplierDelay(items, live, Object.fromEntries(stock.map((s) => [s.item_id, s.sku])));
@@ -143,8 +145,10 @@ function Site({ live, items, onSelect }: { live: Live | null; items: TimelineIte
         <Block position={[-2, 1, -4]} size={[0.3, 2, 14]} color={COLORS.wall} />
         <Block position={[18, 1, -4]} size={[0.3, 2, 14]} color={COLORS.wall} />
         <Pin position={[8, 6, -4]} text="Production hall" />
-        <LineRow code="SMT" z={-7.5} busy={busy("SMT")} planned={planned("SMT")} crew={crew("SMT")} onSelect={onSelect} />
+        <LineRow code="SMT" z={-7.5} busy={busy("SMT")} planned={planned("SMT")} crew={crew("SMT")} onSelect={onSelect}
+                 progress={progress("SMT")} />
         <LineRow code="ASM" z={-0.5} busy={busy("ASM")} planned={planned("ASM")} crew={crew("ASSEMBLY")}
+                 progress={progress("ASM")}
                  onSelect={onSelect} />
       </group>
       {/* Finished goods warehouse (shipping dock in front) */}
@@ -162,8 +166,9 @@ function Site({ live, items, onSelect }: { live: Live | null; items: TimelineIte
   );
 }
 
-function LineRow({ code, z, busy, planned, crew, onSelect }: {
+function LineRow({ code, z, busy, planned, crew, onSelect, progress }: {
   code: string; z: number; busy: boolean; planned: boolean; crew: Live["workers"]; onSelect: (s: Selection) => void;
+  progress?: string;  // "25/60" while batches come off the line (SIM-2)
 }) {
   const select = () => onSelect({ kind: "line", id: code });
   return (
@@ -182,7 +187,8 @@ function LineRow({ code, z, busy, planned, crew, onSelect }: {
         );
       })}
       <Pin position={[-0.5, 3.4, z]} small tone={busy ? "green" : planned ? "blue" : "amber"}
-           text={`${code === "SMT" ? "SMT line" : "Assembly"} · ${busy ? "running" : planned ? "planned today" : "idle"}`} />
+           text={`${code === "SMT" ? "SMT line" : "Assembly"} · ${busy ? `running${progress ? ` ${progress}` : ""}`
+             : planned ? "planned today" : "idle"}`} />
     </group>
   );
 }

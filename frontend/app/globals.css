@@ -432,3 +432,4 @@ details.tech pre { font-size: 11px; background: #fff; padding: 8px; border-radiu
 body:has(.rules) { overflow: auto; }
 @media (max-width: 1100px) { .rules-cols { grid-template-columns: 190px 1fr; } .rules-history { display: none; } }
 @media (max-width: 760px) { .rules-cols { grid-template-columns: 1fr; } .em.rules { height: auto; } }
+.clock-time { margin-left: 4px; }

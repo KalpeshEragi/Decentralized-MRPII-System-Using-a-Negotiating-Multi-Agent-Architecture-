@@ -47,6 +47,7 @@ export function describeEvent(item: TimelineItem): string {
     case "PlanAtRisk": return `Order at risk: ${String(p.reason ?? "").toLowerCase().replaceAll("_", " ")}`;
     case "ProductionOrderReleased": return `Production order released (${p.quantity})`;
     case "ProductionStarted": return `Production started (${p.quantity})`;
+    case "ProductionBatchCompleted": return `Batch done: ${p.completed} of ${p.total} at ${String(p.hour).padStart(2, "0")}:00`;
     case "ProductionCompleted": return `Production completed (${p.quantity})`;
     case "MaterialIssuedToProduction": return `Kits issued to production (${p.kits} kits)`;
     case "FinishedGoodsStored": return `Goods stored in ${String(p.zone ?? "").toLowerCase().replaceAll("_", " ")} (${p.quantity})`;
