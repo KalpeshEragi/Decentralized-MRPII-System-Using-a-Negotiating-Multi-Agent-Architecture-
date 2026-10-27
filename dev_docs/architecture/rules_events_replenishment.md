@@ -58,7 +58,7 @@ Add / update / delete:
 | HR | overtime per day (hours), overtime per week (hours) |
 
 Hidden (`SYSTEM`): simulation start day, quiet limit, simulated suppliers, customer driver settings (they belong to the
-simulator panel), `ai_enabled`, `ai_decision_max_orders`, seeds, protocol limits (rounds), work-runner and timeouts.
+simulator panel), `ai_enabled`, `ai_wording_enabled`, `ai_decision_max_orders`, seeds, protocol limits (rounds), work-runner and timeouts.
 
 ### 2.3 Doors and screen
 

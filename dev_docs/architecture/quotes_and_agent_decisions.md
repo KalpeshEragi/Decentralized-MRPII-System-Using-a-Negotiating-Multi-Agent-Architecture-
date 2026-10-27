@@ -268,6 +268,7 @@ double booking; each decision has a record; with AI off the run still completes 
 | Failure | What happens |
 | --- | --- |
 | AI off (`ai_enabled = 0`) | every decision point uses its fallback; behaviour equals today's except quotes replace direct reads |
+| AI wording off (`ai_wording_enabled = 0`, the default) | negotiation messages keep their template text; the model is used only at decision points. Rewording every message one by one on the shared local model added ~5 s (GPU) to 30 s+ (CPU) per message |
 | Model timeout / error / invalid JSON | fallback; recorded with the reason |
 | Key not on the menu, or a number in the reason that is not in the menu | fallback; counts toward "repeated invalid LLM proposals" (escalation, `negotiation.md` §8) |
 | Chosen option no longer valid when applied (facts changed) | re-build the menu once; then fallback |

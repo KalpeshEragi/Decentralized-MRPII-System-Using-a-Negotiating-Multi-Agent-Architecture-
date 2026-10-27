@@ -147,12 +147,13 @@ def handle_inbox(db: DbSession, row: Message) -> None:
 
 def send_outbox_item(session_factory: Callable[[], DbSession], item: WorkItem, renew: Callable[[], None]) -> None:
     """Long-mode handler: one HTTP send. Raises on network failure (retried). A refusal is recorded, not retried.
-    With the AI switched on (`ai_enabled`), the message text is reworded once before the first send, outside any
-    lock (`app/llm/wording.py`: words only, checked against the terms, template on any failure)."""
+    With AI wording switched on (`ai_wording_enabled`; `ai_enabled` only drives agent decisions), the message text is
+    reworded once before the first send, outside any lock (`app/llm/wording.py`: words only, checked against the
+    terms, template on any failure)."""
     with session_factory() as db:
         row = db.scalar(select(Outbox).where(Outbox.id == item.id))
         envelope, receiver = row.envelope, row.receiver
-        if not row.payload.get("worded") and int(setting(db, "ai_enabled")):
+        if not row.payload.get("worded") and int(setting(db, "ai_wording_enabled")):
             envelope = {**envelope, "text": wording.word(db, envelope)}
             row.envelope, row.payload = envelope, {**row.payload, "worded": True}
             db.commit()
