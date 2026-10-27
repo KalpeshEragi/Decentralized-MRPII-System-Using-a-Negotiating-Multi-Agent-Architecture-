@@ -2,6 +2,7 @@
 data. Warehouse uses it for its daily routine (which kits to issue, what to ship)."""
 
 import uuid
+from decimal import Decimal
 from datetime import date
 
 from sqlalchemy import func, select
@@ -16,7 +17,17 @@ def _order(o: ProductionOrder) -> dict:
     return {"id": str(o.id), "item_id": o.item_id, "quantity": str(o.quantity), "start_day": o.start_day.isoformat(),
             "end_day": o.end_day.isoformat(), "status": o.status, "for_kind": o.for_kind, "for_ref": o.for_ref,
             "demand_id": str(o.demand_id), "quantity_completed": str(o.quantity_completed),
-            "work_centers": sorted({step["work_center"] for step in o.steps})}
+            "work_centers": sorted({step["work_center"] for step in o.steps}),
+            "hours_by_day": _hours_by_day(o)}
+
+
+def _hours_by_day(o: ProductionOrder) -> dict[str, str]:
+    """Planned machine-hours per day over all steps (the shop floor works them through the shift, SIM-2)."""
+    total: dict[str, Decimal] = {}
+    for step in o.steps:
+        for day, hours in step["hours_by_day"].items():
+            total[day] = total.get(day, Decimal(0)) + Decimal(hours)
+    return {day: str(hours) for day, hours in sorted(total.items())}
 
 
 def production_orders_starting(db: DbSession, day: date) -> list[dict]:

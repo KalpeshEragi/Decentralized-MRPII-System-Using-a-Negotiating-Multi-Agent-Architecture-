@@ -38,7 +38,7 @@ from app.planning_agent.models import (AuditLog, Case, CustomerDemand, EventVers
                                        ProductionOrder, SalesOutbox, ShopFloorReport, WorkCenter, WorkCenterDay,
                                        WorkItem)
 from app.sales_agent import reads as sales
-from app.simulation.clock import today
+from app.simulation.clock import current_hour, today
 from app.simulation.settings import setting
 from app.warehouse_agent import reads as warehouse
 
@@ -854,8 +854,14 @@ def record_shop_floor_report(db: DbSession, report_id: str, production_order_id:
         return "received"
     done = Decimal(quantity)
     order.quantity_completed += done
-    if order.quantity_completed >= order.quantity:
-        order.status = "COMPLETED"
+    if order.quantity_completed < order.quantity:  # SIM-3: a batch of a running order — stored at once by Warehouse
+        channel.publish(db, event_type="ProductionBatchCompleted", publisher=AGENT, entity_type="production_order",
+                        entity_id=str(order.id), entity_version=order.version, correlation_id=str(order.demand_id),
+                        payload={**common, "quantity": str(done), "completed": str(order.quantity_completed),
+                                 "total": str(order.quantity), "completion_day": today(db).isoformat(),
+                                 "hour": current_hour(db)})
+        return "received"
+    order.status = "COMPLETED"
     channel.publish(db, event_type="ProductionCompleted", publisher=AGENT, entity_type="production_order",
                     entity_id=str(order.id), entity_version=order.version, correlation_id=str(order.demand_id),
                     payload={**common, "quantity": str(done), "completion_day": today(db).isoformat()})

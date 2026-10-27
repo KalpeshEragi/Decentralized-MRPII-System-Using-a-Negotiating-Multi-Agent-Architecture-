@@ -74,6 +74,9 @@ RULES: tuple[Rule, ...] = (
     _r("release_lead_days", PLANNING, "Release lead",
        "How many days before its start a firm production order is released to the shop floor.", "days", "days",
        0, 7, decided_in="PL-7"),
+    _r("production_batch_size", PLANNING, "Production batch size",
+       "The shop floor finishes and stores goods in batches of this size, so components can feed the next operation "
+       "as soon as a batch is done.", "number", "pieces", 1, 500, decided_in="SIM-2"),
     _r("planning_reask_limit", PLANNING, "Re-asks after a stale answer",
        "How often Planning asks an owner again after someone else took the resource first (decision D7).",
        "number", "times", 0, 5, decided_in="QD-6, RE-5"),

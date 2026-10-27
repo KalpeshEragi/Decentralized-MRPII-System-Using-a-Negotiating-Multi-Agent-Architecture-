@@ -260,7 +260,7 @@ def on_plan_revised(db: DbSession, event: Event) -> None:
 
 
 def store_finished_goods(db: DbSession, event: Event) -> None:
-    """ProductionCompleted: put the goods away -> FinishedGoodsStored. Goods for a customer demand go to their
+    """ProductionBatchCompleted / ProductionCompleted: put the batch away -> FinishedGoodsStored. Goods for a customer demand go to their
     committed finished-goods space; a sub-assembly for another production order goes to the materials zone."""
     if not channel.is_newer(db, EventVersion, event):
         return
@@ -531,6 +531,7 @@ def change_capacity(db: DbSession, resource: str, units: Decimal) -> dict:
 def register(runner_register) -> None:
     runner_register(layer.register_inbox(AGENT, handle_message))
     channel.subscribe(AGENT, "ProductionCompleted", store_finished_goods)
+    channel.subscribe(AGENT, "ProductionBatchCompleted", store_finished_goods)  # SIM-3: each batch is put away
     channel.subscribe(AGENT, "SimulatedDayStarted", run_day)
     channel.subscribe(AGENT, "PlanRevised", on_plan_revised)
     channel.subscribe(AGENT, "ProcurementCommitted", on_procurement_committed)

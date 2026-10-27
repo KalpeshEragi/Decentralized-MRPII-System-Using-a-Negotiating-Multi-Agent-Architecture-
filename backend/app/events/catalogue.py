@@ -124,6 +124,13 @@ class ProductionCompleted(_ProductionProgress):
     completion_day: str
 
 
+class ProductionBatchCompleted(_ProductionProgress):
+    completion_day: str
+    completed: Number          # finished so far, including this batch
+    total: Number              # the production order's quantity
+    hour: int                  # time of day the batch was finished (SIM-1)
+
+
 # -- Inventory -----------------------------------------------------------------------------------------------------------
 
 class ReservationCommitted(Payload):
@@ -287,6 +294,8 @@ DEFINITIONS: tuple[EventDefinition, ...] = (
                     "Production of an order started.", decided_in="RD-3"),
     EventDefinition("ProductionCompleted", PLANNING, {**_req(WAREHOUSE, HR), **_opt(SALES)}, ProductionCompleted,
                     "Production of an order finished.", decided_in="RD-3"),
+    EventDefinition("ProductionBatchCompleted", PLANNING, {**_req(WAREHOUSE), **_opt(SALES)}, ProductionBatchCompleted,
+                    "A batch of a running production order is finished (not the last one).", decided_in="SIM-3"),
     EventDefinition("ReservationCommitted", INVENTORY, _opt(PLANNING), ReservationCommitted,
                     "Inventory reserved stock for an order.", decided_in="IN-2"),
     EventDefinition("ReservationReleased", INVENTORY, _opt(PLANNING), ReservationReleased,
@@ -367,7 +376,13 @@ STORY: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
         "issue its kits next morning.",
         ("SimulatedDayStarted", "PlanCommitted"), ("MaterialIssuedToProduction", "ProductionStarted")),
     "ProductionStarted": (
-        "The shop floor started producing an order.", ("Shop-floor report",), ("ProductionCompleted",)),
+        "The shop floor started producing an order.", ("Shop-floor report",),
+        ("ProductionBatchCompleted", "ProductionCompleted")),
+    "ProductionBatchCompleted": (
+        "A batch of a running production order is finished (e.g. 25 of 60 main boards at 10:00). The Warehouse puts "
+        "it away at once, so the components can feed the next operation as soon as they exist; the last batch is "
+        "announced as ProductionCompleted instead.",
+        ("Shop-floor report",), ("FinishedGoodsStored",)),
     "ProductionCompleted": (
         "The shop floor finished an order: the Warehouse puts the goods away, HR frees remaining hours.",
         ("Shop-floor report",), ("FinishedGoodsStored",)),
@@ -402,8 +417,8 @@ STORY: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
         "The Warehouse gave complete kits of components to a production order; Inventory's stock and reservations "
         "go down.", ("SimulatedDayStarted", "ProductionOrderReleased"), ("ProductionStarted",)),
     "FinishedGoodsStored": (
-        "Produced goods were put into storage and reserved for what they were made for.",
-        ("ProductionCompleted",), ("ShipmentDispatched",)),
+        "Produced goods were put into storage and reserved for what they were made for (one batch at a time).",
+        ("ProductionBatchCompleted", "ProductionCompleted"), ("ShipmentDispatched",)),
     "StorageCapacityChanged": (
         "A receiving, shipping or storage capacity changed. New plans and deliveries are made around it; what was "
         "already committed stays.", ("Trigger WAREHOUSE_CAPACITY",), ()),
