@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.sales_agent import manager, prompts, rules
 from app.sales_agent.models import AuditLog, Conversation, Customer, CustomerMemory, Inquiry, Option, Order, Product
+from app.simulation.settings import setting
 
 LIST_LIMIT = 200
 
@@ -118,16 +119,16 @@ def audit(db: Session, event_type: str | None = None, inquiry_id: str | None = N
             for a in db.scalars(query)]
 
 
-def rule_book() -> dict[str, Any]:
+def rule_book(db: Session) -> dict[str, Any]:
     """The rules the Sales Agent works by, read from the code itself so the page can never show stale values.
     Read-only in this first pass."""
     return {
         "tuning": [
-            {"name": "Offer validity", "value": f"{manager.OFFER_VALIDITY.total_seconds() / 3600:g} h",
+            {"name": "Offer validity", "value": f"{setting(db, 'sales_offer_validity_hours')} h",
              "meaning": "How long options shown to a customer stay open."},
-            {"name": "Planning wait limit", "value": f"{manager.PLANNING_WAIT_LIMIT.total_seconds() / 60:g} min",
+            {"name": "Planning wait limit", "value": f"{setting(db, 'sales_planning_wait_minutes')} min",
              "meaning": "After this, an unanswered request is reported to the customer and staff."},
-            {"name": "AI failures before staff", "value": manager.FAILURES_BEFORE_STAFF_IS_FLAGGED,
+            {"name": "AI failures before staff", "value": setting(db, "sales_ai_failures_before_staff"),
              "meaning": "Model failures in a row before the conversation is handed to staff."},
             {"name": "Questions per reply", "value": rules.MAX_QUESTIONS_PER_REPLY,
              "meaning": "Most questions the agent may ask in one message."},

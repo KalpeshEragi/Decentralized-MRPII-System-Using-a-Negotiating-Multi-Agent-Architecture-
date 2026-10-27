@@ -27,13 +27,12 @@ from app.sales_agent.models import Conversation, Inquiry, Message, Option, Produ
 from app.sales_agent.planning import PlanningConnector, PlanningResult
 from app.sales_agent.prompts import build_decision_prompt, build_system_prompt
 from app.sales_agent.rules import CollectedDetails
+from app.simulation.settings import setting
 
 logger = logging.getLogger(__name__)
 
 MAX_HISTORY_MESSAGES = 20  # the small model works better with a short history
 RECENT_ORDERS_IN_SUMMARY = 3
-OFFER_VALIDITY = timedelta(hours=24)
-PLANNING_WAIT_LIMIT = timedelta(minutes=10)  # after this, a request with no answer is reported to the customer and staff
 
 NEXT_STEP_SEND_REQUEST = "send_request"
 NEXT_STEP_PASS_TO_STAFF = "pass_to_staff"
@@ -132,7 +131,6 @@ def handle_planning_result(db: Session, result: PlanningResult) -> PlanningRecei
 # -- step 2, slow: answer the customer ------------------------------------------------------------------------------
 
 SAFE_APOLOGY = "Sorry, I am having a technical problem right now. Please try again in a moment."
-FAILURES_BEFORE_STAFF_IS_FLAGGED = 2
 
 
 def process_conversation(
@@ -474,7 +472,7 @@ def _explain_options(
 
     reply = outcome.reply if used_model else planning_module.options_reply(
         [(o.kind, o.quantity, o.delivery_date) for o in options], collected.product_name)
-    valid_until = datetime.now(timezone.utc) + OFFER_VALIDITY
+    valid_until = datetime.now(timezone.utc) + timedelta(hours=int(setting(db, "sales_offer_validity_hours")))  # RE-5
     inquiry.stage, inquiry.offer_valid_until = "OPTIONS_PRESENTED", valid_until
     for option in options:
         option.valid_until = valid_until
@@ -491,7 +489,7 @@ def _handle_model_failure(db: Session, conversation: Conversation, inquiry: Inqu
     note = {"conversation_id": conversation.id, "inquiry_id": inquiry.id}
     data_access.save_audit_note(db, "SYSTEM", "AI_FAILED", {"error": str(error)}, **note)
     data_access.save_message(db, conversation.id, "OUT", SAFE_APOLOGY, delivery_status="SENT")
-    if data_access.count_consecutive_ai_failures(db, conversation.id) == FAILURES_BEFORE_STAFF_IS_FLAGGED:
+    if data_access.count_consecutive_ai_failures(db, conversation.id) == int(setting(db, "sales_ai_failures_before_staff")):
         data_access.save_audit_note(
             db, "SYSTEM", "STAFF_FLAGGED", {"reason": "the language model failed repeatedly"}, **note
         )
@@ -799,11 +797,12 @@ def _refresh_insights(db: Session, customer_id: uuid.UUID, conversation_id: uuid
 # -- clearing test chats --------------------------------------------------------------------------------------------
 
 
-def sweep_late_planning_requests(db: Session, now: datetime | None = None, wait_limit: timedelta = PLANNING_WAIT_LIMIT) -> int:
+def sweep_late_planning_requests(db: Session, now: datetime | None = None, wait_limit: timedelta | None = None) -> int:
     """There are no timers, so this is run by hand (door 9) or by a scheduler later. Every request that Planning has
     not answered within the limit gets a message to the customer and a staff flag, once. The request stays open: a late
     answer is still accepted. Returns how many requests were reported."""
     now = now or datetime.now(timezone.utc)
+    wait_limit = wait_limit or timedelta(minutes=int(setting(db, "sales_planning_wait_minutes")))  # RE-5
     late = data_access.list_late_planning_requests(db, now - wait_limit)
     for inquiry in late:
         note = {"conversation_id": inquiry.conversation_id, "inquiry_id": inquiry.id}

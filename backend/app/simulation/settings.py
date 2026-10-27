@@ -31,6 +31,11 @@ DEFAULTS: dict[str, object] = {
     "overtime_max_hours_per_week": 8,            # HR-3
     "quiet_limit_seconds": 300,                  # demo.md §6
     "simulated_suppliers": 1,                    # PI-1: 1 = suppliers answer automatically, 0 = a person answers
+    "sales_offer_validity_hours": 24,            # RE-5 (was Sales' OFFER_VALIDITY)
+    "sales_planning_wait_minutes": 10,           # RE-5 (was Sales' PLANNING_WAIT_LIMIT)
+    "sales_ai_failures_before_staff": 2,         # RE-5 (was Sales' FAILURES_BEFORE_STAFF_IS_FLAGGED)
+    "planning_reask_limit": 2,                   # QD-6, RE-5 (was Planning's MAX_REASKS)
+    "purchasing_slot_retries": 2,                # WH-1, RE-5 (was Purchasing's SLOT_RETRIES)
     "customer_orders_per_day": 0,                # DM-3/DM-7: simulated customers' new requests per day
     "customer_order_days": 0,                    # load runs: customers order only on the run's first N days (0 = always)
     "ai_enabled": 0,                             # IMP-2: 1 = agents' AI steps on (wording, ranking); 0 = templates
@@ -63,6 +68,10 @@ def _check(key: str, value: object) -> object:
     if number < 0:
         raise AppError(ErrorCode.VALIDATION_ERROR, f"{key} must not be negative",
                        [{"field": key, "issue": "negative"}])
+    from app.rules.registry import BY_KEY, check_value  # business rules have tighter bounds (RE-1)
+
+    if key in BY_KEY and (problem := check_value(BY_KEY[key], number)[1]):
+        raise AppError(ErrorCode.VALIDATION_ERROR, problem, [{"field": key, "issue": "out of bounds"}])
     return str(number) if isinstance(DEFAULTS[key], str) else int(number) if number == int(number) else str(number)
 
 

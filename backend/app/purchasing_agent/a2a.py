@@ -55,7 +55,6 @@ AGENT = "PURCHASING"
 WAREHOUSE = "WAREHOUSE"
 OPEN_LINKS = ("REQUESTED", "NEGOTIATING", "SLOTTING", "OFFERED", "HELD")
 OPEN_SLOTS = ("REQUESTED", "ACCEPTED", "HELD")
-SLOT_RETRIES = 2  # a slot whose day filled up before the hold is asked for again, at most this often per Leg
 
 
 def llm_client() -> LLMClient:
@@ -179,7 +178,7 @@ def _on_warehouse(db: DbSession, slot: ReceivingSlotLink, message: Envelope) -> 
     elif kind == M.REJECT and slot.status in OPEN_SLOTS:
         slot.status = "FAILED"
         tries = len([s for s in _slots_of(db, link) if s.leg_id == slot.leg_id])
-        if message.reason_code == ReasonCode.STALE and link.status == "SLOTTING" and tries <= SLOT_RETRIES:
+        if message.reason_code == ReasonCode.STALE and link.status == "SLOTTING" and tries <= int(setting(db, "purchasing_slot_retries")):  # RE-5
             # the offered day filled up before the hold (another delivery was held first): ask again from today's facts
             _request_slot(db, link, db.get(PurchaseRequisition, slot.leg_id))
             return

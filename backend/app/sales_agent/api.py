@@ -268,8 +268,8 @@ def dashboard_audit(event_type: str | None = None, inquiry_id: uuid.UUID | None 
 
 
 @router.get("/dashboard/rules")
-def dashboard_rules() -> dict:
-    return dashboard.rule_book()
+def dashboard_rules(db: Session = Depends(get_db)) -> dict:
+    return dashboard.rule_book(db)
 
 
 # -- simulated customers, structured (DM-7; simulator key) -----------------------------------------------------------

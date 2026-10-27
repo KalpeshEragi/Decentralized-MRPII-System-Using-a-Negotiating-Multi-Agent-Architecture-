@@ -30,9 +30,10 @@ from app.models.core import Item
 from app.negotiation import layer
 from app.negotiation.envelope import Envelope, MessageType as M, ReasonCode, ResourceType, Terms
 from app.planning_agent.models import AuditLog, Case, CustomerDemand, Option, WorkItem
+from app.simulation.settings import setting
 
 POINT = "D7"
-MAX_REASKS = 2  # QD-6
+MAX_REASKS = 2  # QD-6 default; the live value is the business rule `planning_reask_limit` (RE-5)
 RETRYABLE = {ReasonCode.STALE.value, ReasonCode.HOLD_EXPIRED.value, ReasonCode.UNAVAILABLE.value}
 DECIDE = "DECIDE"  # work item kind (long mode)
 
@@ -67,6 +68,7 @@ class Setback:
     sourcing: str | None          # BUY or MAKE for an item, None for hours or space
     options_left: int
     replanned: bool
+    reask_limit: int = MAX_REASKS  # the business rule `planning_reask_limit`, read when the setback is built
 
 
 # -- the checks and the deterministic policy (pure, no database) ---------------------------------------------------------
@@ -77,8 +79,8 @@ def validate(s: Setback, action: str, params: dict[str, Any]) -> str | None:
     if action == "RE_ASK":
         if s.reply != M.REJECT.value or s.reason not in RETRYABLE:
             return f"re-asking only helps after a STALE, HOLD_EXPIRED or UNAVAILABLE reject; this was {s.reply} {s.reason}"
-        if s.tries >= MAX_REASKS:
-            return f"this need was already re-asked {s.tries} times (limit {MAX_REASKS})"
+        if s.tries >= s.reask_limit:
+            return f"this need was already re-asked {s.tries} times (limit {s.reask_limit})"
         return None
     if action == "ACCEPT_COUNTER":
         if s.reply != M.COUNTER_OFFER.value or s.counter is None:
@@ -137,7 +139,8 @@ def setback(db: DbSession, case: Case, session_id: str) -> Setback:
                    reason=message.reason_code.value if message.reason_code else None, asked=asked,
                    counter=message.terms if message.message_type == M.COUNTER_OFFER else None,
                    tries=int(entry.get("tries", 0)), sourcing=item.sourcing if item else None,
-                   options_left=options_left, replanned=manager._replanned(db, demand))
+                   options_left=options_left, replanned=manager._replanned(db, demand),
+                   reask_limit=int(setting(db, "planning_reask_limit")))
 
 
 def situation(db: DbSession, case: Case, session_id: str, s: Setback) -> Situation:
@@ -151,7 +154,7 @@ def situation(db: DbSession, case: Case, session_id: str, s: Setback) -> Situati
                           "you_asked": _terms_view(s.asked), "they_counter": _terms_view(s.counter) if s.counter else None},
         "item_is": {"BUY": "bought from suppliers", "MAKE": "made in the factory"}.get(s.sourcing or "", "not an item"),
         "need_is_for": s.asked.extra.get("for_kind"),
-        "re_asks_used": s.tries, "re_asks_allowed": MAX_REASKS,
+        "re_asks_used": s.tries, "re_asks_allowed": s.reask_limit,
         "other_options_left": s.options_left, "already_replanned": s.replanned,
         "other_negotiations_of_this_option": {status: others.count(status) for status in sorted(set(others))},
     }
