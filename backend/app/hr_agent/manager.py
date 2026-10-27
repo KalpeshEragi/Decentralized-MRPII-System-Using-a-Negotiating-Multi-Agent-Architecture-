@@ -315,6 +315,7 @@ def _assign_day(db: DbSession, commitment: Commitment, day: date, hours: Decimal
 
 
 def on_production_order_released(db: DbSession, event: Event) -> None:
+    """A production order is released: assign named workers to its committed hours, day by day."""
     if not channel.is_newer(db, EventVersion, event):
         return
     for commitment in db.scalars(select(Commitment).where(

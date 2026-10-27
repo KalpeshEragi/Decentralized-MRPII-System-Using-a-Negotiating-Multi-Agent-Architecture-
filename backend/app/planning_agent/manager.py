@@ -348,6 +348,8 @@ def _abort_open_sessions(db: DbSession, case: Case) -> None:
 
 
 def on_order_confirmed(db: DbSession, event: Event) -> None:
+    """The customer confirmed an option: commit it. Held and agreed by every owner -> COMMIT to each of them
+    (then `PlanCommitted`); otherwise plan it again from today's facts and secure it; an unknown option -> `PlanCommitFailed`."""
     if not channel.is_newer(db, EventVersion, event):
         return
     notice = event.payload
@@ -861,6 +863,8 @@ def record_shop_floor_report(db: DbSession, report_id: str, production_order_id:
 
 
 def on_shipment(db: DbSession, event: Event) -> None:
+    """Goods left the factory: count them against the order; when all are shipped the order is COMPLETED and any
+    leftover reservations are released with `PlanRevised` (ORDER_COMPLETED)."""
     if not channel.is_newer(db, EventVersion, event):
         return
     demand = db.get(CustomerDemand, uuid.UUID(event.payload["order_ref"]), with_for_update=True)

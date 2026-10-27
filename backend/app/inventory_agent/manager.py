@@ -284,6 +284,7 @@ def on_finished_goods_stored(db: DbSession, event: Event) -> None:
 
 
 def on_shipment(db: DbSession, event: Event) -> None:
+    """Goods left the factory: on hand goes down and the order's reservations are used up by the shipped quantity."""
     if not channel.is_newer(db, EventVersion, event):
         return
     payload = event.payload
