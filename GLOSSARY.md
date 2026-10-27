@@ -74,3 +74,17 @@ A Split Procurement of only priced suppliers, chosen because it costs at least 1
 **Constrained Quantity**:
 The part of a shortage that the suppliers of the final allocation attempt could have covered by the required date when procurement fails, reported so the shortfall is explicit.
 _Avoid_: Partial agreement
+
+### Control panel
+
+**City**:
+The whole 3D world of the control panel, where every part of the system has its place.
+_Avoid_: Map, scene, world
+
+**District**:
+One area of the City belonging to one part of the system, such as an agent's office, the factory or the customer neighbourhood.
+_Avoid_: Site, zone, area
+
+**Town Square**:
+The City's central plaza, in the spirit of Times Square, where published events appear and the agents subscribed to them come to read them.
+_Avoid_: Event board, hub

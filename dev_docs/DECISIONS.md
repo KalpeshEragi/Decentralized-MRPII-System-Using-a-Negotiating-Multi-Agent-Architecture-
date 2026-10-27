@@ -220,11 +220,32 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | ID | Decision |
 | --- | --- |
 | FE-1 | The control panel is a living 3D view of the factory in the browser: Three.js through React Three Fiber and drei, inside the existing Next.js + React frontend (new libraries, approved). |
-| FE-2 | 3D models are built in code from simple shapes (low-poly, soft blue and white); no downloaded model packs. |
+| FE-2 | ~~3D models are built in code from simple shapes (low-poly, soft blue and white); no downloaded model packs.~~ Superseded 2026-10-27 by FE-14 (`adr/ADR-004-city-models-hybrid.md`). |
 | FE-3 | Everything that moves in the scene is driven by a real event or fact (a truck arrives because `MaterialReceived` happened, a line is busy because `ProductionStarted` happened); nothing is animated for show. |
 | FE-4 | A collapsible "agent conversation" sidebar shows every negotiation message as a chat between agents and every published event as a notice, filterable by order; it can be widened into a side panel or minimised. |
 | FE-5 | Working product name "Decentra" on the screens (to be confirmed); the repository and docs keep their names until then. |
 | FE-6 | The panel reads only the observer and simulation doors and polls one `GET /observer/live` door plus the timeline cursor (API-2, API-3). |
+
+### Control panel redesign: the MRPII city (2026-10-26, approved by the developer)
+
+Reference: `dev_docs/3D world (Frontend Inspiration).mp4` (local only, gitignored: 125 MB, over GitHub's limit).
+
+| ID | Decision |
+| --- | --- |
+| FE-7 | Visual style: exactly the reference video's style (bright isometric-like 3D, light grey/white world, royal-blue accents, yellow forklifts, round low-poly trees, white rounded floating cards with soft shadows). The goal is a striking, eye-catching world. 3D models are of the video's quality or better (2026-10-27), and every object and corner of the city is detailed, not only the main buildings. |
+| FE-8 | The world is a city of districts, one per part of the project: town square (event board where agents read the events they subscribe to), Sales, Planning, factory, warehouse and docks, HR, Purchasing with the supplier road, customer neighbourhood. A site switcher in the top bar moves the camera to a district. |
+| FE-9 | Navigation as in the video: drag to pan, scroll to zoom, rotate; a strip of zoom / rotate / home buttons on the right edge. No ‹ › arrows. |
+| FE-10 | The whole city is shown in full detail while exploring, not only the district in view (as in the video). Performance must be reached within this rule. |
+| FE-11 | Every element (building, truck, stack, line, worker, agent) can be clicked: it is highlighted, gets a tag, and the detail panel shows its live data from the backend, updating while selected. |
+| FE-12 | Live movement comes only from live backend data (extends FE-3): an animation plays when a real event arrives; the resting picture is drawn from the live state, so a reload or missed event still shows the truth. |
+| FE-13 | Video elements with nothing behind them in the project are left out: search box, notifications, user avatar. The agent conversation sidebar and negotiation threads stay prominent. |
+| FE-14 | Hybrid models (`adr/ADR-004-city-models-hybrid.md`): buildings are built in code from blocks, one style kit per building type, shaped after the video; vehicles, people, trees and props come from free CC0 model packs, recoloured to the video's palette. |
+| FE-15 | Performance target: 60 fps on the developer's laptop at full-screen 1080p, at least 30 fps on an ordinary laptop with built-in graphics, with the whole city shown (FE-10). An fps counter can be switched on in the panel; we measure, not promise. |
+| FE-16 | Each of the six agents has an office building in its colour and a character; Inventory's and Warehouse's offices are attached to the warehouse. |
+| FE-17 | An agent's character walks to the Town Square when an event it subscribes to is really delivered to it (a new read-only observer read of the existing per-subscriber delivery records). Negotiation and communication between agents is shown in the city from live negotiation data. |
+| FE-18 | Many events in one poll play one after another in their real order, the batch squeezed into about 15 s at most; then the picture settles on the live state. |
+| FE-19 | Desktop and laptop screens only (1280 px wide and up); no phone layout. |
+| FE-20 | A time-of-day mode changes the whole city's look: morning (sunrise light), afternoon (strong sun), evening (sunset), night (dark, street lights on), midnight. |
 
 ### Local databases (2026-10-20, approved by the developer)
 
@@ -295,6 +316,9 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | O-3 | Execution policy details per agent | Resolved 2026-10-17: starter policy in `negotiation.md` §8 (Planning); owners' commit re-checks in each agent's note 2. |
 | O-7 | Reuse of existing code | Old Planning/Inventory/Purchasing code and the old human-approval workflow are still in `backend/`. Review one agent at a time (roadmap Phase 2). |
 | O-8 | Purchasing design incl. price/cost | Resolved 2026-10-17: `adr/ADR-002-price-in-supplier-selection.md`; design in `purchasing_agent/`. |
+| O-10 | City redesign: 3D models in code (FE-2) or CC0 model files? | Resolved 2026-10-27: FE-14, `adr/ADR-004-city-models-hybrid.md`. |
+| O-11 | City redesign: performance target | Resolved 2026-10-27: FE-15. |
+| O-12 | City redesign: data the backend does not serve yet | Partly resolved 2026-10-27: per-subscriber deliveries get a read-only observer read (FE-17). Other gaps: each becomes a small backend read or a simpler visual; the frontend never invents data. |
 | O-9 | Agent roster: separate Production agent? | Resolved 2026-10-18 (developer): no separate Production agent; the roster is the six agents of `adr/ADR-001.md` §2. Legacy `production` items (schema section in `OVERALL_DATABASE_SCHEMA.md` §6, empty `app/models/production.py`) are legacy only. |
 | O-10 | Quote-based feasibility and agent decisions | Resolved 2026-10-26: QD-1 to QD-11 approved (section above). Build in the order of the design doc §12. |
 | O-11 | Rule editor, event manager, replenishment | Resolved 2026-10-27: RE-1..5, EM-1..3, RP-1..4 approved (section above). Build in the order of the design doc §6. |
