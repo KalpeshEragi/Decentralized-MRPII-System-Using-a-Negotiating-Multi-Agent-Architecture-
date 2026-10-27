@@ -8,6 +8,7 @@
     starter COMMIT                                    -> owner re-checks: owner ACCEPT -> COMMITTED,
                                                          owner REJECT (STALE/UNAVAILABLE) -> REJECTED
     owner REJECT HOLD_EXPIRED (hold ran out)          -> EXPIRED
+    starter QUOTE_REQUEST -> QUOTING; owner QUOTE      -> QUOTED   (QD-1: non-binding, no hold, nothing reserved)
     REJECT by either side                             -> REJECTED
     starter ABORT while open                          -> ABORTED
 """
@@ -18,7 +19,7 @@ from app.negotiation.envelope import Envelope, MessageType, ReasonCode, Terms
 
 MAX_ROUNDS = 3
 OPEN = ("NEGOTIATING", "AGREEMENT_PROPOSED")
-ENDED = ("COMMITTED", "REJECTED", "ABORTED", "EXPIRED", "FAILED")
+ENDED = ("COMMITTED", "REJECTED", "ABORTED", "EXPIRED", "FAILED", "QUOTED")
 
 
 class ProtocolError(Exception):
@@ -52,11 +53,14 @@ def apply(state: SessionState | None, message: Envelope) -> SessionState:
         return ProtocolError("INVALID_STATE_TRANSITION", f"{kind} not allowed: {text}")
 
     if state is None:
+        if kind == MessageType.QUOTE_REQUEST:  # QD-1: a quote session, outside the binding lifecycle
+            return SessionState(message.session_id, message.case_id, message.sender, message.receiver, "QUOTING",
+                                "OWNER")
         if kind != MessageType.REQUEST:
-            raise ProtocolError("WRONG_SESSION", "unknown session; a session starts with REQUEST")
+            raise ProtocolError("WRONG_SESSION", "unknown session; a session starts with REQUEST or QUOTE_REQUEST")
         return SessionState(message.session_id, message.case_id, message.sender, message.receiver, "NEGOTIATING",
                             "OWNER")
-    if kind == MessageType.REQUEST:
+    if kind in (MessageType.REQUEST, MessageType.QUOTE_REQUEST):
         raise ProtocolError("CONFLICT", "the session already exists")
     if {message.sender, message.receiver} != {state.starter, state.owner}:
         raise ProtocolError("UNKNOWN_PARTICIPANT", "sender and receiver are not this session's starter and owner")
@@ -74,6 +78,13 @@ def apply(state: SessionState | None, message: Envelope) -> SessionState:
     if kind == MessageType.REJECT and not by_starter:
         status = "EXPIRED" if message.reason_code == ReasonCode.HOLD_EXPIRED else "REJECTED"
         return replace(state, status=status)
+
+    if state.status == "QUOTING":  # the owner answers with its options (or REJECT, handled above); nothing else
+        if kind == MessageType.QUOTE and not by_starter:
+            return replace(state, status="QUOTED")
+        raise refuse("a quote session only takes QUOTE from the owner, REJECT, or ABORT from the starter")
+    if kind == MessageType.QUOTE:
+        raise refuse("QUOTE answers a QUOTE_REQUEST")
 
     if state.status == "AGREEMENT_PROPOSED":
         if kind == MessageType.COMMIT and by_starter and not state.commit_requested:

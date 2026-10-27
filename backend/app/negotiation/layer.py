@@ -41,11 +41,13 @@ def new_ids() -> tuple[str, str]:
 
 
 def reply_to(message: Envelope, kind: MessageType, *, terms: Terms | None = None,
-             reason_code: ReasonCode | None = None, hold: Hold | None = None, text: str | None = None) -> Envelope:
+             reason_code: ReasonCode | None = None, hold: Hold | None = None, text: str | None = None,
+             options: list[Terms] | None = None) -> Envelope:
     """The answer to `message` in the same session (sender and receiver swapped, new message id)."""
     return Envelope(message_id=str(uuid.uuid4()), session_id=message.session_id, case_id=message.case_id,
                     sender=message.receiver, receiver=message.sender, message_type=kind, terms=terms,
-                    reason_code=reason_code, hold=hold, text=text, sent_at=datetime.now(timezone.utc))
+                    reason_code=reason_code, hold=hold, text=text, options=options,
+                    sent_at=datetime.now(timezone.utc))
 
 
 def _refusal(code: str, message: str) -> dict:
@@ -82,7 +84,8 @@ def receive(db: DbSession, receiver: str, data: object) -> dict:
 
     if row is None:
         terms = envelope.terms
-        open_twin = db.scalar(select(Session.id).where(
+        quoting = envelope.message_type == MessageType.QUOTE_REQUEST  # a quote never blocks or is blocked (QD-1)
+        open_twin = None if quoting else db.scalar(select(Session.id).where(
             Session.case_id == envelope.case_id, Session.resource_type == terms.resource_type.value,
             Session.resource_ref == terms.resource_ref, Session.need_ref.is_not_distinct_from(terms.order_id),
             Session.starter == envelope.sender,

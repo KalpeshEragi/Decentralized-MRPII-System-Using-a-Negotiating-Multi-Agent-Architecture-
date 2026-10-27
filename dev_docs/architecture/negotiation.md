@@ -59,6 +59,14 @@ with `REJECT` + `HOLD_EXPIRED`, so no new message types are needed. Sequence num
 when it stores a message (the outbox keeps one session's messages in order), so a sender never has to guess the next
 number. A session starts directly in `NEGOTIATING` when the REQUEST is stored.
 
+### 4.1 Quotes (QD-1, DC-1, built 2026-10-27)
+
+A quote is its own short session, outside the binding lifecycle above: starter `QUOTE_REQUEST` (terms: what and for
+which window) → session `QUOTING` → owner `QUOTE` (a list of `options`, worked out from the owner's own data) or
+`REJECT` → `QUOTED` / `REJECTED`. Nothing is held or reserved; a quote never blocks or is blocked by NG-5. Owners send
+availability over days as steps ("from this day on: this much", `negotiation/quoting.py`). A binding `REQUEST` that
+follows is re-checked by the owner like any other (`STALE` if its facts changed). Migration 022 adds the statuses.
+
 ## 5. Terms (multi-factor, no price)
 
 Common fields in every REQUEST / OFFER / COUNTER_OFFER / AGREEMENT_PROPOSED:

@@ -24,6 +24,8 @@ class MessageType(StrEnum):
     AGREEMENT_PROPOSED = "AGREEMENT_PROPOSED"
     COMMIT = "COMMIT"
     ABORT = "ABORT"
+    QUOTE_REQUEST = "QUOTE_REQUEST"  # QD-1: "what can you offer?" — non-binding, nothing is held
+    QUOTE = "QUOTE"                  # QD-1: the owner's own options (in `options`), worked out from its own data
 
 
 class ResourceType(StrEnum):
@@ -110,6 +112,7 @@ class Envelope(BaseModel):
     reason_code: ReasonCode | None = None
     hold: Hold | None = None
     text: str | None = Field(default=None, max_length=500)  # wording (template now, AI later); never business data
+    options: list[Terms] | None = None  # QUOTE only: the owner's options, best for the owner first (QD-1)
     sent_at: datetime
 
     @model_validator(mode="after")
@@ -117,7 +120,10 @@ class Envelope(BaseModel):
         if self.sender not in AGENTS or self.receiver not in AGENTS or self.sender == self.receiver:
             raise ValueError("sender and receiver must be two different agents")
         kind = self.message_type
-        if kind in (MessageType.REQUEST, MessageType.OFFER, MessageType.COUNTER_OFFER, MessageType.AGREEMENT_PROPOSED):
+        if (kind == MessageType.QUOTE) != (self.options is not None):
+            raise ValueError("options are carried by QUOTE and only by it")
+        if kind in (MessageType.REQUEST, MessageType.OFFER, MessageType.COUNTER_OFFER, MessageType.AGREEMENT_PROPOSED,
+                    MessageType.QUOTE_REQUEST):
             if self.terms is None:
                 raise ValueError(f"{kind} requires terms")
         elif self.terms is not None:
