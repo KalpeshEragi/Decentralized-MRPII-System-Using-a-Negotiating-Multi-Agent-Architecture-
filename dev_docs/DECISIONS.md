@@ -275,6 +275,19 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | RP-3 | Stock production orders use only free capacity and never displace customer commitments. |
 | RP-4 | Decision points D9 (Inventory refill) and D10 (Planning stock production) run through the think loop. |
 
+### One order end to end (2026-10-27, approved by the developer, see `architecture/one_order_production_simulation.md`)
+
+| ID | Decision |
+| --- | --- |
+| SIM-1 | The simulated clock has hours: working hours per day (`shift_start` 08:00, `shift_hours` 8); Next hour and Next day; Play advances one simulated hour per tick (`seconds_per_sim_hour`). Day routines run at the start of the shift. |
+| SIM-2 | The shop floor runs each production order's routing in batches (`batch_size` per item, default 25) on the routing's setup and run hours; a batch is done when its hours have passed on the work center. |
+| SIM-3 | Each finished batch is reported to Planning; Planning publishes `ProductionBatchCompleted`; Warehouse stores the batch and Inventory counts it, so components exist as soon as they are made. |
+| SIM-4 | A missing input stops an operation (`BLOCKED`, with the reason) and Planning decides what to do — built after SIM-1..3, AB-1. |
+| SIM-5 | After the customer's confirmation the order runs to delivery without clicks as the clock moves. |
+| DC-1 | Feasibility comes from the owners' quotes (QD-1); `app/mrpii` is a shared calculator each agent uses on its own data and never decides; no central planning engine outside Planning. |
+| AB-1 | The think loop becomes a tool loop: up to 4 tool calls and 6 model calls per decision, one agent per call. |
+| AB-2 | Every agent's goal names two objectives with numbers to compare: optimal (on time, full quantity, least cost and overtime) and stable (fewest changes to what is already committed). |
+
 ## Open
 
 | ID | Question | Notes |
@@ -285,3 +298,4 @@ The real Purchasing Agent (another contributor) is connected in step 6 instead o
 | O-9 | Agent roster: separate Production agent? | Resolved 2026-10-18 (developer): no separate Production agent; the roster is the six agents of `adr/ADR-001.md` §2. Legacy `production` items (schema section in `OVERALL_DATABASE_SCHEMA.md` §6, empty `app/models/production.py`) are legacy only. |
 | O-10 | Quote-based feasibility and agent decisions | Resolved 2026-10-26: QD-1 to QD-11 approved (section above). Build in the order of the design doc §12. |
 | O-11 | Rule editor, event manager, replenishment | Resolved 2026-10-27: RE-1..5, EM-1..3, RP-1..4 approved (section above). Build in the order of the design doc §6. |
+| O-12 | One order end to end | Resolved 2026-10-27: SIM-1..5, DC-1, AB-1..2 approved (section above). Build in the order of the design doc §6. |
